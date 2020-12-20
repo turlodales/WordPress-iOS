@@ -35,10 +35,6 @@ class WordPressAppDelegate: UIResponder, UIApplicationDelegate {
     private var bgTask: UIBackgroundTaskIdentifier? = nil
     private let remoteFeatureFlagStore = RemoteFeatureFlagStore()
 
-    private var mainContext: NSManagedObjectContext {
-        return ContextManager.shared.mainContext
-    }
-
     private var shouldRestoreApplicationState = false
     private lazy var uploadsManager: UploadsManager = {
 
@@ -79,7 +75,14 @@ class WordPressAppDelegate: UIResponder, UIApplicationDelegate {
         let eventLogging = EventLogging(dataSource: dataSource, delegate: crashLoggingProvider.loggingUploadDelegate)
         CrashLogging.start(withDataProvider: crashLoggingProvider, eventLogging: eventLogging)
 
+        let semaphore = DispatchSemaphore(value: 0)
 
+        coreDataManager.initialize { result in
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+        
         // Configure WPCom API overrides
         configureWordPressComApi()
 
@@ -92,7 +95,12 @@ class WordPressAppDelegate: UIResponder, UIApplicationDelegate {
         window?.makeKeyAndVisible()
 
         // Restore a disassociated account prior to fixing tokens.
-        AccountService(managedObjectContext: mainContext).restoreDisassociatedAccountIfNecessary()
+        _ = coreDataManager.performChangesAndSave { context in
+            let accountService = AccountService(managedObjectContext: context)
+            accountService.restoreDisassociatedAccountIfNecessary()
+            accountService.mergeDuplicatesIfNecessary()
+            AccountService(managedObjectContext: context).mergeDuplicatesIfNecessary()
+        }
 
         customizeAppearance()
         configureAnalytics()
@@ -269,7 +277,6 @@ class WordPressAppDelegate: UIResponder, UIApplicationDelegate {
 
         // Deferred tasks to speed up app launch
         DispatchQueue.global(qos: .background).async { [weak self] in
-            self?.mergeDuplicateAccountsIfNeeded()
             MediaCoordinator.shared.refreshMediaStatus()
             PostCoordinator.shared.refreshPostStatus()
             MediaFileManager.clearUnusedMediaUploadFiles(onCompletion: nil, onError: nil)
@@ -283,15 +290,6 @@ class WordPressAppDelegate: UIResponder, UIApplicationDelegate {
         window?.rootViewController = WPTabBarController.sharedInstance()
 
         setupNoticePresenter()
-    }
-
-    private func mergeDuplicateAccountsIfNeeded() {
-        mainContext.perform { [weak self] in
-            guard let self = self else {
-                return
-            }
-            AccountService(managedObjectContext: self.mainContext).mergeDuplicatesIfNecessary()
-        }
     }
 
     private func setupPingHub() {

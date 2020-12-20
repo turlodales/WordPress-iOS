@@ -19,23 +19,36 @@ class CoreDataManager {
 
         let container = NSPersistentContainer(name: modelName)
 
-        try CoreDataMigrationManager(storePath: container.storeUrl, objectModel: container.managedObjectModel)
-            .migrateIfNeeded(modelURL: container.modelUrl)
-
         let storeDescription = NSPersistentStoreDescription(url: container.modelUrl)
         storeDescription.shouldMigrateStoreAutomatically = false
         storeDescription.shouldAddStoreAsynchronously = true /// Don't tie up the main thread doing DB initialization – we get a callback anyway
         container.persistentStoreDescriptions = [storeDescription]
-
+        
+        let m = CoreDataMigrationManager(storeUrl: container.storeUrl, modelUrl: container.modelUrl)
+        try m.migrateStore()
+        
         self.container = container
     }
 
-    func loadPersistentStores(callback: @escaping CoreDataInitializationCallback) {
+    func initialize(onCompletion: @escaping CoreDataInitializationCallback) {
+        do {
+            try CoreDataIterativeMigrator.interativelyMigrate(sourceStore: container.storeUrl, toModelAtUrl: container.modelUrl)
+            loadPersistentStores(callback: onCompletion)
+        }
+        catch let err {
+            onCompletion(.failure(err))
+        }
+    }
+
+    private func loadPersistentStores(callback: @escaping CoreDataInitializationCallback) {
+        _ = container.persistentStoreDescriptions
         container.loadPersistentStores { [weak self] (store, error) in
             guard self != nil else {
                 return
             }
-
+            
+            debugPrint(store)
+            
             if let error = error {
                 callback(.failure(error))
             }
@@ -107,6 +120,10 @@ class CoreDataManager {
 extension NSPersistentContainer {
     var modelUrl: URL {
         Bundle.main.url(forResource: name, withExtension: "momd")!
+    }
+
+    var versionInfoUrl: URL {
+        modelUrl.appendingPathComponent("VersionInfo.plist")
     }
 
     var storeUrl: URL {
