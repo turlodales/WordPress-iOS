@@ -8,7 +8,6 @@
 #import "WPTableViewHandler.h"
 #import "WPGUIConstants.h"
 #import "UIView+Subviews.h"
-#import "ContextManager.h"
 #import <WordPressShared/WPStyleGuide.h>
 #import <WordPressUI/WordPressUI.h>
 

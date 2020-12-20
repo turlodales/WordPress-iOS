@@ -1,7 +1,6 @@
 #import "BasePost.h"
 #import "Media.h"
 #import "NSMutableDictionary+Helpers.h"
-#import "ContextManager.h"
 @import WordPressShared;
 
 @implementation BasePost

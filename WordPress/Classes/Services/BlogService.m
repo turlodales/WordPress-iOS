@@ -2,7 +2,6 @@
 #import "Blog.h"
 #import "WPAccount.h"
 #import "AccountService.h"
-#import "ContextManager.h"
 #import "WPError.h"
 #import "Comment.h"
 #import "Media.h"
@@ -10,7 +9,6 @@
 #import "CommentService.h"
 #import "PostService.h"
 #import "TodayExtensionService.h"
-#import "ContextManager.h"
 #import "WordPress-Swift.h"
 #import "PostType.h"
 @import WordPressKit;

@@ -2,7 +2,7 @@
 #import <OCMock/OCMock.h>
 #import "AccountService.h"
 #import "BlogService.h"
-#import "ContextManager.h"
+
 #import "Blog.h"
 #import "WPAccount.h"
 #import "TestContextManager.h"

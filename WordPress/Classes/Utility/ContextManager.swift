@@ -1,7 +1,8 @@
-import CoreData
+import Foundation
+import UIKit
 
-/// Handles the core data stack for the whole app
-class CoreDataManager {
+@objc
+class ContextManager: NSObject {
 
     typealias CoreDataInitializationCallback = (Result<(), Error>) -> Void
 
@@ -13,26 +14,47 @@ class CoreDataManager {
 
     private let container: NSPersistentContainer
 
-    /// Only for tests, do not use this method directly
-    init() throws {
-        ValueTransformer.registerCustomTransformers()
+    /// Instead of having an orphaned object, retrieve the ContextManager from the App Delegate
+    static var shared: ContextManager {
+        return (UIApplication.shared.delegate as! WordPressAppDelegate).contextManager
+    }
 
+    /// For compatibility
+    @objc
+    static func sharedInstance() -> ContextManager {
+        return shared
+    }
+
+    /// Only for tests, do not use this method directly
+    override init() {
+        ValueTransformer.registerCustomTransformers()
         let container = NSPersistentContainer(name: modelName)
 
         let storeDescription = NSPersistentStoreDescription(url: container.modelUrl)
         storeDescription.shouldMigrateStoreAutomatically = false
         storeDescription.shouldAddStoreAsynchronously = true /// Don't tie up the main thread doing DB initialization – we get a callback anyway
         container.persistentStoreDescriptions = [storeDescription]
-        
-        let m = CoreDataMigrationManager(storeUrl: container.storeUrl, modelUrl: container.modelUrl)
-        try m.migrateStore()
-        
+
         self.container = container
+
+        /// Because we're an `NSObject`
+        super.init()
     }
 
     func initialize(onCompletion: @escaping CoreDataInitializationCallback) {
         do {
             try CoreDataIterativeMigrator.interativelyMigrate(sourceStore: container.storeUrl, toModelAtUrl: container.modelUrl)
+            loadPersistentStores { result in
+                /// If we didn't succeed, bail here
+                guard case .success = result else {
+                    onCompletion(result)
+                    return
+                }
+
+                self.performChangesAndSave({ context in
+                    NullBlogPropertySanitizer(context: context).sanitize()
+                }, onCompletion: onCompletion)
+            }
             loadPersistentStores(callback: onCompletion)
         }
         catch let err {
@@ -46,18 +68,13 @@ class CoreDataManager {
             guard self != nil else {
                 return
             }
-            
+
             debugPrint(store)
-            
+
             if let error = error {
                 callback(.failure(error))
             }
         }
-    }
-
-    private func handleLoadPersistentStoresError(error: Error) {
-        DDLogError("⛔️ [CoreDataManager] loadPersistentStore failed. Attempting to recover... \(error)")
-        self.sentryStartupError.add(error: error)
     }
 
     var readContext: NSManagedObjectContext {
@@ -115,6 +132,53 @@ class CoreDataManager {
     private lazy var sentryStartupError: SentryStartupEvent = {
         return SentryStartupEvent()
     }()
+}
+
+extension ContextManager: CoreDataStack {
+    var mainContext: NSManagedObjectContext {
+        container.viewContext
+    }
+
+    var persistentStoreCoordinator: NSPersistentStoreCoordinator {
+        container.persistentStoreCoordinator
+    }
+
+    var managedObjectModel: NSManagedObjectModel {
+        container.managedObjectModel
+    }
+
+    func newDerivedContext() -> NSManagedObjectContext {
+        container.newBackgroundContext()
+    }
+
+    func newMainContextChildContext() -> NSManagedObjectContext {
+        container.viewContext
+    }
+
+    func saveContextAndWait(_ context: NSManagedObjectContext) {
+        try? saveChanges(to: context)
+    }
+
+    func save(_ context: NSManagedObjectContext) {
+        try? saveChanges(to: context)
+    }
+
+    func save(_ context: NSManagedObjectContext, withCompletionBlock completionBlock: @escaping () -> Void) {
+        try? saveChanges(to: context)
+    }
+
+    func obtainPermanentID(for managedObject: NSManagedObject) -> Bool {
+        do {
+            try container.viewContext.obtainPermanentIDs(for: [managedObject])
+            return true
+        } catch _ {
+            return false
+        }
+    }
+
+    func mergeChanges(_ context: NSManagedObjectContext, fromContextDidSave notification: UIKit.Notification) {
+        // No-op – NSPersistentContainer handles this for us
+    }
 }
 
 extension NSPersistentContainer {

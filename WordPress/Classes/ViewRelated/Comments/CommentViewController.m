@@ -1,6 +1,5 @@
 #import "CommentViewController.h"
 #import "CommentService.h"
-#import "ContextManager.h"
 #import "WordPress-Swift.h"
 #import "Comment.h"
 #import "BasePost.h"

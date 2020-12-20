@@ -2,7 +2,7 @@
 
 #import "Blog.h"
 #import "BlogService.h"
-#import "ContextManager.h"
+
 #import "SettingTableViewCell.h"
 #import "SVProgressHud+Dismiss.h"
 #import "RelatedPostsPreviewTableViewCell.h"

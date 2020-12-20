@@ -58,7 +58,11 @@ class WordPressAppDelegate: UIResponder, UIApplicationDelegate {
         return UIApplication.shared.delegate as? WordPressAppDelegate
     }
 
-    let coreDataManager = try! CoreDataManager()
+    let contextManager = ContextManager()
+
+    var mainContext: NSManagedObjectContext {
+        contextManager.readContext
+    }
 
     // MARK: - Application lifecycle
 
@@ -77,7 +81,7 @@ class WordPressAppDelegate: UIResponder, UIApplicationDelegate {
 
         let semaphore = DispatchSemaphore(value: 0)
 
-        coreDataManager.initialize { result in
+        contextManager.initialize { result in
             semaphore.signal()
         }
 
@@ -95,7 +99,7 @@ class WordPressAppDelegate: UIResponder, UIApplicationDelegate {
         window?.makeKeyAndVisible()
 
         // Restore a disassociated account prior to fixing tokens.
-        _ = coreDataManager.performChangesAndSave { context in
+        _ = contextManager.performChangesAndSave { context in
             let accountService = AccountService(managedObjectContext: context)
             accountService.restoreDisassociatedAccountIfNecessary()
             accountService.mergeDuplicatesIfNecessary()

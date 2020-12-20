@@ -1,7 +1,6 @@
 #import "Media+WPMediaAsset.h"
 #import "MediaService.h"
 #import "Blog.h"
-#import "ContextManager.h"
 #import "WordPress-Swift.h"
 
 @implementation Media(WPMediaAsset)

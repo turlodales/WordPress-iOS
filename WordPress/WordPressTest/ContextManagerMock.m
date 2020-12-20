@@ -14,7 +14,6 @@
     self = [super init];
     if (self) {
         // Override the shared ContextManager
-        [ContextManager internalSharedInstance];
         [ContextManager overrideSharedInstance:self];
         _requiresTestExpectation = YES;
     }

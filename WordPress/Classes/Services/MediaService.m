@@ -2,7 +2,6 @@
 #import "AccountService.h"
 #import "Media.h"
 #import "WPAccount.h"
-#import "ContextManager.h"
 #import "Blog.h"
 #import <MobileCoreServices/MobileCoreServices.h>
 #import "WordPress-Swift.h"

@@ -1,5 +1,4 @@
 #import "Comment.h"
-#import "ContextManager.h"
 #import "Blog.h"
 #import "BasePost.h"
 #import <WordPressShared/NSString+XMLExtensions.h>
