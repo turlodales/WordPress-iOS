@@ -1,4 +1,7 @@
 import Foundation
+import WordPressData
+import WordPressKit
+import WordPressShared
 
 fileprivate extension DispatchQueue {
     static let remoteConfigStoreQueue = DispatchQueue(label: "remote-config-store-queue")
@@ -16,7 +19,7 @@ class RemoteConfigStore {
     // MARK: Initializer
 
     init(queue: DispatchQueue = .remoteConfigStoreQueue,
-         remote: RemoteConfigRemote = RemoteConfigRemote(wordPressComRestApi: .defaultApi()),
+         remote: RemoteConfigRemote = RemoteConfigRemote(wordPressComRestApi: WordPressComRestApi.defaultApi()),
          persistenceStore: UserPersistentRepository = UserDefaults.standard) {
         self.queue = queue
         self.remote = remote

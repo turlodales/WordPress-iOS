@@ -1,5 +1,7 @@
-import Foundation
 import Combine
+import Foundation
+import WordPressData
+import WordPressShared
 
 class AllDomainsListViewModel {
 
@@ -47,17 +49,17 @@ class AllDomainsListViewModel {
 
     // MARK: - Init
 
-    init(coreDataStack: CoreDataStackSwift = ContextManager.shared, domains: [DomainsService.AllDomainsListItem] = []) {
+    init(coreDataStack: CoreDataStack = ContextManager.shared, domains: [DomainsService.AllDomainsListItem] = []) {
         if let account = defaultAccount(with: coreDataStack) {
             self.domainsService = .init(coreDataStack: coreDataStack, wordPressComRestApi: account.wordPressComRestApi)
         }
         self.domains = domains
-        if domains.count > 0 {
+        if !domains.isEmpty {
             self.state = self.state(from: domains, searchQuery: lastSearchQuery)
         }
     }
 
-    private func defaultAccount(with contextManager: CoreDataStackSwift) -> WPAccount? {
+    private func defaultAccount(with contextManager: CoreDataStack) -> WPAccount? {
         try? WPAccount.lookupDefaultWordPressComAccount(in: contextManager.mainContext)
     }
 

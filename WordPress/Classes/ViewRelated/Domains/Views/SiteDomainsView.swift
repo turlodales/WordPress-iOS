@@ -1,5 +1,8 @@
 import SwiftUI
+import BuildSettingsKit
+import WordPressData
 import WordPressKit
+import WordPressShared
 import DesignSystem
 
 /// The Site Domains  screen, accessible from My Site
@@ -8,6 +11,11 @@ struct SiteDomainsView: View {
     @ObservedObject var blog: Blog
     @State var isShowingDomainSelectionWithType: DomainSelectionType?
     @StateObject var viewModel: SiteDomainsViewModel
+    let context: PresentationContext
+
+    final class PresentationContext {
+        weak var viewController: UIViewController?
+    }
 
     // Property observer
     private func showingDomainSelectionWithType(to value: DomainSelectionType?) {
@@ -27,7 +35,7 @@ struct SiteDomainsView: View {
 
     var body: some View {
         ZStack {
-            Color.DS.Background.secondary.edgesIgnoringSafeArea(.all)
+            Color(.systemBackground)
 
             switch viewModel.state {
             case .normal(let sections):
@@ -35,12 +43,12 @@ struct SiteDomainsView: View {
                     makeDomainsSections(blog: blog, sections: sections)
                 }
                 .listRowSeparator(.hidden)
-                //.listRowSpacing(Length.Padding.double) Re-enable when we update to Xcode 15
+                //.listRowSpacing(.DS.Padding.double) Re-enable when we update to Xcode 15
             case .message(let messageViewModel):
                 VStack {
                     HStack(alignment: .center) {
                         DomainsStateView(viewModel: messageViewModel)
-                            .padding(.horizontal, Length.Padding.double)
+                            .padding(.horizontal, .DS.Padding.double)
                     }
                 }
             case .loading:
@@ -81,17 +89,14 @@ struct SiteDomainsView: View {
         Section {
             ForEach(rows) { row  in
                 if let navigation = row.navigation {
-                    NavigationLink(destination: {
-                        DomainDetailsWebViewControllerWrapper(
-                            domain: navigation.domain,
-                            siteSlug: navigation.siteSlug,
-                            type: navigation.type,
-                            analyticsSource: navigation.analyticsSource
-                        )
-                        .navigationTitle(navigation.domain)
-                    }, label: {
-                        AllDomainsListCardView(viewModel: row.viewModel, padding: 0)
-                    })
+                    Button(action: { showDetails(for: navigation) }) {
+                        HStack(alignment: .center) {
+                            AllDomainsListCardView(viewModel: row.viewModel, padding: 0)
+                            Image(systemName: "chevron.forward")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundColor(.secondary.opacity(0.5))
+                        }
+                    }
                 } else {
                     AllDomainsListCardView(viewModel: row.viewModel, padding: 0)
                 }
@@ -107,6 +112,18 @@ struct SiteDomainsView: View {
         }
     }
 
+    private func showDetails(for navigation: SiteDomainsViewModel.Navigation) {
+        wpAssert(context.viewController != nil)
+
+        let viewController = DomainDetailsWebViewController(
+            domain: navigation.domain,
+            siteSlug: navigation.siteSlug,
+            type: navigation.type,
+            analyticsSource: navigation.analyticsSource
+        ).makeLightNavigationController()
+        context.viewController?.present(viewController, animated: true)
+    }
+
     private func makeAddDomainSection(blog: Blog) -> some View {
         let destination: DomainSelectionType = blog.canRegisterDomainWithPaidPlan ? .registerWithPaidPlan : .purchaseSeparately
 
@@ -116,7 +133,7 @@ struct SiteDomainsView: View {
             } label: {
                 Text(TextContent.additionalDomainTitle(blog.canRegisterDomainWithPaidPlan))
                     .style(TextStyle.bodyMedium(.regular))
-                    .foregroundColor(Color.DS.Foreground.brand(isJetpack: AppConfiguration.isJetpack))
+                    .foregroundColor(AppColor.primary)
             }
         }
     }
@@ -220,7 +237,7 @@ private extension SiteDomainsView {
     }
 
     struct Metrics {
-        static let insets = EdgeInsets(.init(top: Length.Padding.double, leading: Length.Padding.double, bottom: Length.Padding.double, trailing: Length.Padding.double))
+        static let insets = EdgeInsets(.init(top: .DS.Padding.double, leading: .DS.Padding.double, bottom: .DS.Padding.double, trailing: .DS.Padding.double))
     }
 }
 
@@ -238,7 +255,11 @@ final class SiteDomainsViewController: UIHostingController<SiteDomainsView> {
         let domainsService = DomainsService(coreDataStack: ContextManager.shared, wordPressComRestApi: account?.wordPressComRestApi)
         let viewModel = SiteDomainsViewModel(blog: blog, domainsService: domainsService)
         self.viewModel = viewModel
-        super.init(rootView: .init(blog: blog, viewModel: viewModel))
+        let context = SiteDomainsView.PresentationContext()
+        let view = SiteDomainsView(blog: blog, viewModel: viewModel, context: context)
+        super.init(rootView: view)
+
+        context.viewController = self
     }
 
     @MainActor required dynamic init?(coder aDecoder: NSCoder) {
@@ -256,7 +277,9 @@ final class SiteDomainsViewController: UIHostingController<SiteDomainsView> {
     // MARK: - Setup
 
     private func setupAllDomainsBarButtonItem() {
-#if JETPACK
+        guard BuildSettings.current.brand == .jetpack else {
+            return
+        }
         guard domainManagementFeatureFlag.enabled() else {
             return
         }
@@ -269,6 +292,5 @@ final class SiteDomainsViewController: UIHostingController<SiteDomainsView> {
             WPAnalytics.track(.domainsDashboardAllDomainsTapped)
         }
         self.navigationItem.rightBarButtonItem = .init(title: title, primaryAction: action)
-#endif
     }
 }

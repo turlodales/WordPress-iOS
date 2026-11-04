@@ -1,29 +1,10 @@
 import UIKit
+import WordPressData
+import WordPressUI
 
 final class BlazeOverlayViewController: UIViewController {
 
     // MARK: - Subviews
-
-    private lazy var closeButtonItem: UIBarButtonItem = {
-        let closeButton = CircularImageButton()
-
-        let fontForSystemImage = UIFont.systemFont(ofSize: Metrics.closeButtonSize)
-        let configuration = UIImage.SymbolConfiguration(font: fontForSystemImage)
-        let closeButtonImage = UIImage(systemName: Constants.closeButtonSystemName, withConfiguration: configuration)
-
-        closeButton.setImage(closeButtonImage, for: .normal)
-        closeButton.tintColor = UIColor(light: .systemGray6, dark: .systemGray5)
-        closeButton.setImageBackgroundColor(UIColor(light: .black, dark: .white))
-
-        NSLayoutConstraint.activate([
-            closeButton.widthAnchor.constraint(equalToConstant: Metrics.closeButtonSize),
-            closeButton.heightAnchor.constraint(equalTo: closeButton.widthAnchor)
-        ])
-
-        closeButton.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
-
-        return UIBarButtonItem(customView: closeButton)
-    }()
 
     private lazy var scrollView: UIScrollView = {
         let scrollView = UIScrollView()
@@ -70,15 +51,17 @@ final class BlazeOverlayViewController: UIViewController {
         label.font = WPStyleGuide.fontForTextStyle(.title1, fontWeight: .semibold)
         label.numberOfLines = 0
         label.textAlignment = .center
-        label.textColor = .text
+        label.textColor = .label
         return label
     }()
 
     private lazy var descriptionLabel: UILabel = {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.attributedText = viewModel.bulletedDescription(font: WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular),
-                                                             textColor: .textSubtle)
+        label.attributedText = viewModel.bulletedDescription(
+            font: WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular),
+            textColor: .secondaryLabel
+        )
         label.adjustsFontForContentSizeCategory = true
         label.adjustsFontSizeToFitWidth = true
         label.numberOfLines = 0
@@ -148,15 +131,10 @@ final class BlazeOverlayViewController: UIViewController {
     // MARK: - Setup
 
     private func setupNavigationBar() {
-        navigationItem.rightBarButtonItem = closeButtonItem
-
-        let appearance = UINavigationBarAppearance()
-        appearance.backgroundColor = Colors.backgroundColor
-        appearance.shadowColor = .clear
-        navigationItem.standardAppearance = appearance
-        navigationItem.compactAppearance = appearance
-        navigationItem.scrollEdgeAppearance = appearance
-        navigationItem.compactScrollEdgeAppearance = appearance
+        navigationItem.rightBarButtonItem = UIBarButtonItem.makeCloseButton(
+            target: self,
+            action: #selector(closeButtonTapped)
+        )
     }
 
     private func setupView() {
@@ -167,9 +145,8 @@ final class BlazeOverlayViewController: UIViewController {
         NSLayoutConstraint.activate([
             blazeButton.heightAnchor.constraint(equalToConstant: Metrics.blazeButtonHeight),
             blazeButton.leadingAnchor.constraint(equalTo: stackView.leadingAnchor),
-            blazeButton.trailingAnchor.constraint(equalTo: stackView.trailingAnchor),
+            blazeButton.trailingAnchor.constraint(equalTo: stackView.trailingAnchor)
         ])
-
     }
 
     // MARK: - Button Action
@@ -187,7 +164,13 @@ final class BlazeOverlayViewController: UIViewController {
             return
         }
 
-        BlazeFlowCoordinator.presentBlazeWebFlow(in: self, source: source, blog: blog, postID: post.postID, delegate: self)
+        BlazeFlowCoordinator.presentBlazeWebFlow(
+            in: self,
+            source: source,
+            blog: blog,
+            postID: post.postID,
+            delegate: self
+        )
     }
 }
 
@@ -206,17 +189,14 @@ private extension BlazeOverlayViewController {
         static let contentInsets = UIEdgeInsets(top: 20.0, left: 20.0, bottom: 20.0, right: 20.0)
         static let stackViewSpacing: CGFloat = 30.0
         static let footerStackViewSpacing: CGFloat = 10.0
-        static let closeButtonSize: CGFloat = 30.0
         static let blazeButtonHeight: CGFloat = 54.0
     }
 
-    enum Constants {
-        static let closeButtonSystemName = "xmark.circle.fill"
-    }
-
     enum Colors {
-        static let blazeButtonBackgroundColor = UIColor(light: .black, dark: UIColor(red: 0.11, green: 0.11, blue: 0.118, alpha: 1))
+        static let blazeButtonBackgroundColor = UIColor(
+            light: .black,
+            dark: UIColor(red: 0.11, green: 0.11, blue: 0.118, alpha: 1)
+        )
         static let backgroundColor = UIColor(light: .systemBackground, dark: .black)
     }
-
 }

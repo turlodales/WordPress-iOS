@@ -1,9 +1,10 @@
 import Foundation
+import BuildSettingsKit
+import WordPressData
 
-@objcMembers final class BlazeHelper: NSObject {
-
+enum BlazeHelper {
     static func isBlazeFlagEnabled() -> Bool {
-        guard AppConfiguration.isJetpack else {
+        guard [.jetpack, .reader].contains(BuildSettings.current.brand) else {
             return false
         }
         return RemoteFeatureFlag.blaze.enabled()

@@ -1,11 +1,15 @@
-import Foundation
+import UIKit
+import WordPressLegacy
 import WordPressShared
 
 class NoteBlockTableViewCell: WPTableViewCell {
 
-    /// Represents the (full, side to side) Separator Insets
+    /// Represents the (full, side to side) Separator Insets. They stop at the safe area, so the
+    /// separator stays clear of the iPhone Duo's side strip and the sensor housing in landscape.
     ///
-    private let fullSeparatorInsets = UIEdgeInsets.zero
+    var fullSeparatorInsets: UIEdgeInsets {
+        UIEdgeInsets(top: 0, left: safeAreaInsets.left, bottom: 0, right: safeAreaInsets.right)
+    }
 
     /// Indicates if the receiver represents a Badge Block
     ///
@@ -37,10 +41,9 @@ class NoteBlockTableViewCell: WPTableViewCell {
     ///
     @objc var separatorsView: SeparatorsView = {
         let view = SeparatorsView()
-        view.backgroundColor = .listForeground
+        view.backgroundColor = .secondarySystemGroupedBackground
         return view
     }()
-
 
     // MARK: - Overridden Methods
 
@@ -49,12 +52,23 @@ class NoteBlockTableViewCell: WPTableViewCell {
         refreshSeparators()
     }
 
-    override func awakeFromNib() {
-        super.awakeFromNib()
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+
+        preservesSuperviewLayoutMargins = true
+        selectionStyle = .blue
+        contentView.isOpaque = false
+        contentView.clipsToBounds = true
+        contentView.contentMode = .center
+        contentView.preservesSuperviewLayoutMargins = true
+
         backgroundView = separatorsView
-        backgroundColor = .listForeground
+        backgroundColor = .secondarySystemGroupedBackground
     }
 
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     // MARK: - Public API
 
@@ -78,6 +92,6 @@ class NoteBlockTableViewCell: WPTableViewCell {
     }
 
     @objc class func reuseIdentifier() -> String {
-        return classNameWithoutNamespaces()
+        classNameWithoutNamespaces()
     }
 }

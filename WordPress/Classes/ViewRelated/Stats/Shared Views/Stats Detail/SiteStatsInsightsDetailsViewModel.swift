@@ -1,6 +1,8 @@
 import Foundation
 import UIKit
 import WordPressFlux
+import WordPressKit
+import WordPressShared
 
 /// The view model used by SiteStatsDetailTableViewController to show
 /// all data for a selected stat.
@@ -19,15 +21,15 @@ class SiteStatsInsightsDetailsViewModel: Observable {
     private weak var referrerDelegate: SiteStatsReferrerDelegate?
     private weak var viewsAndVisitorsDelegate: StatsInsightsViewsAndVisitorsDelegate?
 
-    private let insightsStore = StoreContainer.shared.statsInsights
+    private let insightsStore: StatsInsightsStore
     private var insightsReceipt: Receipt?
     private var insightsChangeReceipt: Receipt?
 
-    private let periodStore = StoreContainer.shared.statsPeriod
+    private let periodStore: StatsPeriodStore
     private var periodReceipt: Receipt?
     private var periodChangeReceipt: Receipt?
 
-    private let revampStore = StoreContainer.shared.statsRevamp
+    private let revampStore: StatsRevampStore
     private var revampChangeReceipt: Receipt?
 
     private(set) var selectedDate: Date?
@@ -43,11 +45,17 @@ class SiteStatsInsightsDetailsViewModel: Observable {
     init(insightsDetailsDelegate: SiteStatsInsightsDelegate,
          detailsDelegate: SiteStatsDetailsDelegate,
          referrerDelegate: SiteStatsReferrerDelegate,
-         viewsAndVisitorsDelegate: StatsInsightsViewsAndVisitorsDelegate) {
+         viewsAndVisitorsDelegate: StatsInsightsViewsAndVisitorsDelegate,
+         insightsStore: StatsInsightsStore,
+         periodStore: StatsPeriodStore,
+         revampStore: StatsRevampStore) {
         self.insightsDetailsDelegate = insightsDetailsDelegate
         self.detailsDelegate = detailsDelegate
         self.referrerDelegate = referrerDelegate
         self.viewsAndVisitorsDelegate = viewsAndVisitorsDelegate
+        self.insightsStore = insightsStore
+        self.periodStore = periodStore
+        self.revampStore = revampStore
     }
 
     // MARK: - Data Fetching
@@ -100,12 +108,20 @@ class SiteStatsInsightsDetailsViewModel: Observable {
                     return
                 }
 
+                let selectedDate = selectedDate ?? StatsDataHelper.yesterdayDateForSite()
+                let selectedPeriod = selectedPeriod ?? .day
+
                 insightsChangeReceipt = insightsStore.onChange { [weak self] in
                     self?.emitChange()
                 }
                 insightsReceipt = insightsStore.query(storeQuery)
 
-                refreshComments()
+                periodChangeReceipt = periodStore.onChange { [weak self] in
+                    self?.emitChange()
+                }
+                periodReceipt = periodStore.query(.allCachedPeriodData(date: selectedDate, period: selectedPeriod, unit: selectedPeriod))
+
+                refreshComments(date: selectedDate, period: selectedPeriod)
             default:
                 guard let storeQuery = queryForInsightStatSection(statSection) else {
                     return
@@ -126,7 +142,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
             periodReceipt = periodStore.query(storeQuery)
         case let statSection where StatSection.allPostStats.contains(statSection):
-            guard let postID = postID else {
+            guard let postID else {
                 return
             }
 
@@ -140,7 +156,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
     }
 
     func fetchDataHasFailed() -> Bool {
-        guard let statSection = statSection else {
+        guard let statSection else {
             return true
         }
 
@@ -173,7 +189,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
             return periodStore.fetchingFailed(for: storeQuery)
         default:
-            guard let postID = postID else {
+            guard let postID else {
                 return true
             }
             return periodStore.fetchingFailed(for: .postStats(postID: postID))
@@ -220,7 +236,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
     }
 
     func updateSelectedDate(_ selectedDate: Date) {
-        guard let statSection = statSection else {
+        guard let statSection else {
             return
         }
 
@@ -240,51 +256,56 @@ class SiteStatsInsightsDetailsViewModel: Observable {
 
     // MARK: - Table Model
 
-    func tableViewModel() -> ImmuTable {
-        guard let statSection = statSection,
+    func tableViewSnapshot() -> ImmuTableDiffableDataSourceSnapshot {
+        guard let statSection,
               let _ = detailsDelegate else {
-            return ImmuTable.Empty
+            return ImmuTableDiffableDataSourceSnapshot()
         }
 
         if fetchDataHasFailed() {
-            return ImmuTable.Empty
+            return ImmuTableDiffableDataSourceSnapshot()
         }
 
         switch statSection {
         case .insightsViewsVisitors:
-            return periodImmuTable(for: revampStore.viewsAndVisitorsStatus) { status in
-                var rows = [ImmuTableRow]()
+            return periodImmuTable(for: revampStore.viewsAndVisitorsStatus) { _ in
+                var rows = [any HashableImmutableRow]()
 
                 let viewsAndVisitorsData = revampStore.getViewsAndVisitorsData()
                 if let periodSummary = viewsAndVisitorsData.summary {
 
                     // Views Visitors
                     let weekEnd = futureEndOfWeekDate(for: periodSummary)
-                    rows.append(contentsOf: SiteStatsImmuTableRows.viewVisitorsImmuTableRows(periodSummary,
-                                                                                             selectedSegment: selectedViewsVisitorsSegment,
-                                                                                             periodDate: selectedDate!,
-                                                                                             periodEndDate: weekEnd,
-                                                                                             statsLineChartViewDelegate: nil,
-                                                                                             siteStatsInsightsDelegate: nil,
-                                                                                             viewsAndVisitorsDelegate: viewsAndVisitorsDelegate))
+                    rows.append(
+                        contentsOf: SiteStatsImmuTableRows.viewVisitorsImmuTableRows(
+                            periodSummary,
+                            selectedSegment: selectedViewsVisitorsSegment,
+                            periodDate: selectedDate!,
+                            periodEndDate: weekEnd,
+                            siteStatsInsightsDelegate: nil,
+                            viewsAndVisitorsDelegate: viewsAndVisitorsDelegate
+                        )
+                    )
 
                     // Referrers
                     if let referrers = viewsAndVisitorsData.topReferrers {
                         let referrersData = referrersRowData(topReferrers: referrers)
                         let chartViewModel = StatsReferrersChartViewModel(referrers: referrers)
-                        let chartView: UIView? = referrers.totalReferrerViewsCount > 0 ?  chartViewModel.makeReferrersChartView() : nil
+                        let chartView: UIView? = referrers.totalReferrerViewsCount > 0 ? chartViewModel.makeReferrersChartView() : nil
 
-                        var referrersRow = TopTotalsPeriodStatsRow(itemSubtitle: StatSection.periodReferrers.itemSubtitle,
-                                                                   dataSubtitle: StatSection.periodReferrers.dataSubtitle,
-                                                                   dataRows: referrersData,
-                                                                   statSection: StatSection.periodReferrers,
-                                                                   siteStatsPeriodDelegate: nil, //TODO - look at if I need to be not null
-                                                                   siteStatsReferrerDelegate: nil,
-                                                                   siteStatsInsightsDetailsDelegate: insightsDetailsDelegate)
+                        var referrersRow = TopTotalsPeriodStatsRow(
+                            itemSubtitle: StatSection.periodReferrers.itemSubtitle,
+                            dataSubtitle: StatSection.periodReferrers.dataSubtitle,
+                            dataRows: referrersData,
+                            statSection: StatSection.periodReferrers,
+                            siteStatsPeriodDelegate: nil,
+                            //TODO - look at if I need to be not null
+                            siteStatsReferrerDelegate: nil,
+                            siteStatsInsightsDetailsDelegate: insightsDetailsDelegate
+                        )
                         referrersRow.topAccessoryView = chartView
                         rows.append(referrersRow)
                     }
-
 
                     // Countries
                     let map = countriesMap(topCountries: viewsAndVisitorsData.topCountries)
@@ -292,12 +313,18 @@ class SiteStatsInsightsDetailsViewModel: Observable {
                     if isMapShown {
                         rows.append(CountriesMapRow(countriesMap: map, statSection: .periodCountries))
                     }
-                    rows.append(CountriesStatsRow(itemSubtitle: StatSection.periodCountries.itemSubtitle,
-                                                  dataSubtitle: StatSection.periodCountries.dataSubtitle,
-                                                  statSection: isMapShown ? nil : .periodCountries,
-                                                  dataRows: countriesRowData(topCountries: viewsAndVisitorsData.topCountries),
-                                                  siteStatsPeriodDelegate: nil,
-                                                  siteStatsInsightsDetailsDelegate: insightsDetailsDelegate))
+                    rows.append(
+                        CountriesStatsRow(
+                            itemSubtitle: StatSection.periodCountries.itemSubtitle,
+                            dataSubtitle: StatSection.periodCountries.dataSubtitle,
+                            statSection: isMapShown ? nil : .periodCountries,
+                            dataRows: countriesRowData(
+                                topCountries: viewsAndVisitorsData.topCountries
+                            ),
+                            siteStatsPeriodDelegate: nil,
+                            siteStatsInsightsDetailsDelegate: insightsDetailsDelegate
+                        )
+                    )
                     return rows
                 }
 
@@ -307,63 +334,84 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             let status = insightsStore.followersTotalsStatus
             let type: InsightType = .followersTotals
             return insightsImmuTable(for: (type, status)) {
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(TotalInsightStatsRow(dataRow: createFollowerTotalInsightsRow(), statSection: .insightsFollowerTotals, siteStatsInsightsDelegate: nil))
 
                 let dotComFollowersCount = insightsStore.getDotComFollowers()?.dotComFollowersCount ?? 0
                 let emailFollowersCount = insightsStore.getEmailFollowers()?.emailFollowersCount ?? 0
-                let publicizeCount = insightsStore.getPublicizeCount()
 
-                if dotComFollowersCount > 0 || emailFollowersCount > 0 || publicizeCount > 0 {
-                    let chartViewModel = StatsFollowersChartViewModel(dotComFollowersCount: dotComFollowersCount,
-                                                                      emailFollowersCount: emailFollowersCount,
-                                                                      publicizeCount: publicizeCount)
+                if dotComFollowersCount > 0 || emailFollowersCount > 0 {
+                    let chartViewModel = StatsFollowersChartViewModel(
+                        dotComFollowersCount: dotComFollowersCount,
+                        emailFollowersCount: emailFollowersCount
+                    )
 
                     let chartView: UIView = chartViewModel.makeFollowersChartView()
 
-                    var chartRow = TopTotalsPeriodStatsRow(itemSubtitle: "",
-                            dataSubtitle: "",
-                            dataRows: followersRowData(dotComFollowersCount: dotComFollowersCount,
-                                                                             emailFollowersCount: emailFollowersCount,
-                                                                             othersCount: publicizeCount,
-                                                                             totalCount: dotComFollowersCount + emailFollowersCount + publicizeCount),
-                            statSection: StatSection.insightsFollowersWordPress,
-                            siteStatsPeriodDelegate: nil, //TODO - look at if I need to be not null
-                            siteStatsReferrerDelegate: nil)
+                    var chartRow = TopTotalsPeriodStatsRow(
+                        itemSubtitle: "",
+                        dataSubtitle: "",
+                        dataRows: followersRowData(
+                            dotComFollowersCount: dotComFollowersCount,
+                            emailFollowersCount: emailFollowersCount,
+                            totalCount: dotComFollowersCount + emailFollowersCount
+                        ),
+                        statSection: StatSection.insightsFollowersWordPress,
+                        siteStatsPeriodDelegate: nil,
+                        //TODO - look at if I need to be not null
+                        siteStatsReferrerDelegate: nil
+                    )
                     chartRow.topAccessoryView = chartView
                     rows.append(chartRow)
                 }
 
-                rows.append(TabbedTotalsStatsRow(tabsData: [tabDataForFollowerType(.insightsFollowersWordPress),
-                                                            tabDataForFollowerType(.insightsFollowersEmail)],
+                rows.append(
+                    TabbedTotalsStatsRow(
+                        tabsData: [
+                            tabDataForFollowerType(.insightsFollowersWordPress),
+                            tabDataForFollowerType(.insightsFollowersEmail)
+                        ],
                         statSection: .insightsFollowersWordPress,
                         siteStatsInsightsDelegate: insightsDetailsDelegate,
                         siteStatsDetailsDelegate: detailsDelegate,
-                        showTotalCount: false))
+                        showTotalCount: false
+                    )
+                )
                 return rows
             }
         case .insightsLikesTotals:
-            return periodImmuTable(for: revampStore.likesTotalsStatus) { status in
-                var rows = [ImmuTableRow]()
+            return periodImmuTable(for: revampStore.likesTotalsStatus) { _ in
+                var rows = [any HashableImmutableRow]()
 
                 let likesTotalsData = revampStore.getLikesTotalsData()
 
                 if let summary = likesTotalsData.summary {
-                    rows.append(TotalInsightStatsRow(dataRow: createLikesTotalInsightsRow(periodSummary: summary),
-                                                     statSection: statSection,
-                                                     siteStatsInsightsDelegate: nil)
+                    rows.append(
+                        TotalInsightStatsRow(
+                            dataRow: createLikesTotalInsightsRow(
+                                periodSummary: summary
+                            ),
+                            statSection: statSection,
+                            siteStatsInsightsDelegate: nil
+                        )
                     )
                 }
 
                 if let topPostsAndPages = likesTotalsData.topPostsAndPages {
-                    rows.append(TopTotalsPeriodStatsRow(itemSubtitle: StatSection.periodPostsAndPages.itemSubtitle,
-                                                        dataSubtitle: StatSection.periodPostsAndPages.dataSubtitle,
-                                                        dataRows: postsAndPagesRowData(topPostsAndPages: topPostsAndPages),
-                                                        statSection: StatSection.periodPostsAndPages,
-                                                        siteStatsPeriodDelegate: nil,
-                                                        siteStatsReferrerDelegate: nil,
-                                                        siteStatsInsightsDetailsDelegate: insightsDetailsDelegate,
-                                                        siteStatsDetailsDelegate: detailsDelegate))
+                    rows.append(
+                        TopTotalsPeriodStatsRow(
+                            itemSubtitle: StatSection.periodPostsAndPages.itemSubtitle,
+                            dataSubtitle: StatSection.periodPostsAndPages.dataSubtitle,
+                            dataRows: postsAndPagesRowData(
+                                topPostsAndPages: topPostsAndPages
+                            ),
+                            statSection: StatSection.periodPostsAndPages,
+                            siteStatsPeriodDelegate: nil,
+                            siteStatsReferrerDelegate: nil,
+                            siteStatsInsightsDetailsDelegate: insightsDetailsDelegate,
+                            siteStatsDetailsDelegate: detailsDelegate
+                        )
+                    )
                 }
 
                 return rows
@@ -380,7 +428,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
                 }
             }()
             return insightsImmuTable(for: (.allComments, status)) {
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(TotalInsightStatsRow(dataRow: createCommentsTotalInsightsRow(), statSection: .insightsCommentsTotals, siteStatsInsightsDelegate: nil))
 
                 let authorsTabData = tabDataForCommentType(.insightsCommentsAuthors)
@@ -400,7 +448,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .insightsTagsAndCategories:
             return insightsImmuTable(for: (.allTagsAndCategories, insightsStore.allTagsAndCategoriesStatus)) {
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesHeaderRow(itemSubtitle: StatSection.insightsTagsAndCategories.itemSubtitle,
                         dataSubtitle: StatSection.insightsTagsAndCategories.dataSubtitle))
                 rows.append(contentsOf: tagsAndCategoriesRows())
@@ -412,7 +460,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .periodPostsAndPages:
             return periodImmuTable(for: periodStore.topPostsAndPagesStatus) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesHeaderRow(itemSubtitle: StatSection.periodPostsAndPages.itemSubtitle,
                         dataSubtitle: StatSection.periodPostsAndPages.dataSubtitle))
                 rows.append(contentsOf: postsAndPagesRows(for: status))
@@ -420,7 +468,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .periodSearchTerms:
             return periodImmuTable(for: periodStore.topSearchTermsStatus) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesHeaderRow(itemSubtitle: StatSection.periodSearchTerms.itemSubtitle,
                         dataSubtitle: StatSection.periodSearchTerms.dataSubtitle))
                 rows.append(contentsOf: searchTermsRows(for: status))
@@ -428,7 +476,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .periodVideos:
             return periodImmuTable(for: periodStore.topVideosStatus) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesHeaderRow(itemSubtitle: StatSection.periodVideos.itemSubtitle,
                         dataSubtitle: StatSection.periodVideos.dataSubtitle))
                 rows.append(contentsOf: videosRows(for: status))
@@ -436,7 +484,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .periodClicks:
             return periodImmuTable(for: periodStore.topClicksStatus) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesHeaderRow(itemSubtitle: StatSection.periodClicks.itemSubtitle,
                         dataSubtitle: StatSection.periodClicks.dataSubtitle))
                 rows.append(contentsOf: clicksRows(for: status))
@@ -444,7 +492,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .periodAuthors:
             return periodImmuTable(for: periodStore.topAuthorsStatus) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesHeaderRow(itemSubtitle: StatSection.periodAuthors.itemSubtitle,
                         dataSubtitle: StatSection.periodAuthors.dataSubtitle))
                 rows.append(contentsOf: authorsRows(for: status))
@@ -452,7 +500,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .periodReferrers:
             return periodImmuTable(for: periodStore.topReferrersStatus) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesHeaderRow(itemSubtitle: StatSection.periodReferrers.itemSubtitle,
                         dataSubtitle: StatSection.periodReferrers.dataSubtitle))
                 rows.append(contentsOf: referrersRows(for: status))
@@ -460,10 +508,10 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .periodCountries:
             return periodImmuTable(for: periodStore.topCountriesStatus) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 let map = countriesMap(topCountries: periodStore.getTopCountries())
                 if !map.data.isEmpty {
-                    rows.append(CountriesMapRow(countriesMap: map))
+                    rows.append(CountriesMapRow(countriesMap: map, statSection: .periodCountries))
                 }
                 rows.append(DetailSubtitlesCountriesHeaderRow(itemSubtitle: StatSection.periodCountries.itemSubtitle,
                         dataSubtitle: StatSection.periodCountries.dataSubtitle))
@@ -472,14 +520,14 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .periodPublished:
             return periodImmuTable(for: periodStore.topPublishedStatus) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesHeaderRow(itemSubtitle: "", dataSubtitle: ""))
                 rows.append(contentsOf: publishedRows(for: status))
                 return rows
             }
         case .periodFileDownloads:
             return periodImmuTable(for: periodStore.topFileDownloadsStatus) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesHeaderRow(itemSubtitle: StatSection.periodFileDownloads.itemSubtitle,
                         dataSubtitle: StatSection.periodFileDownloads.dataSubtitle))
                 rows.append(contentsOf: fileDownloadsRows(for: status))
@@ -487,7 +535,7 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .postStatsMonthsYears:
             return periodImmuTable(for: periodStore.postStatsFetchingStatuses(for: postID)) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesCountriesHeaderRow(itemSubtitle: StatSection.postStatsMonthsYears.itemSubtitle,
                         dataSubtitle: StatSection.postStatsMonthsYears.dataSubtitle))
                 rows.append(contentsOf: postStatsRows(status: status))
@@ -495,14 +543,14 @@ class SiteStatsInsightsDetailsViewModel: Observable {
             }
         case .postStatsAverageViews:
             return periodImmuTable(for: periodStore.postStatsFetchingStatuses(for: postID)) { status in
-                var rows = [ImmuTableRow]()
+                var rows = [any HashableImmutableRow]()
                 rows.append(DetailSubtitlesCountriesHeaderRow(itemSubtitle: StatSection.postStatsAverageViews.itemSubtitle,
                         dataSubtitle: StatSection.postStatsAverageViews.dataSubtitle))
                 rows.append(contentsOf: postStatsRows(forAverages: true, status: status))
                 return rows
             }
         default:
-            return ImmuTable.Empty
+            return ImmuTableDiffableDataSourceSnapshot()
         }
     }
 
@@ -530,12 +578,6 @@ class SiteStatsInsightsDetailsViewModel: Observable {
 
     // MARK: - Refresh Data
 
-    func refreshPeriodOverviewData(date: Date, period: StatsPeriodUnit = .week, forceRefresh: Bool = false) {
-        ActionDispatcher.dispatch(PeriodAction.refreshPeriodOverviewData(date: date,
-                period: period,
-                forceRefresh: forceRefresh))
-    }
-
     func refreshFollowers(forceRefresh: Bool = true) {
         ActionDispatcher.dispatch(InsightAction.refreshInsights(forceRefresh: forceRefresh))
     }
@@ -548,7 +590,8 @@ class SiteStatsInsightsDetailsViewModel: Observable {
         ActionDispatcher.dispatch(StatsRevampStoreAction.refreshLikesTotals(date: date))
     }
 
-    func refreshComments() {
+    func refreshComments(date: Date, period: StatsPeriodUnit) {
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .timeIntervalsSummary(date: date, period: period)))
         ActionDispatcher.dispatch(InsightAction.refreshComments)
     }
 
@@ -562,83 +605,82 @@ class SiteStatsInsightsDetailsViewModel: Observable {
     }
 
     func refreshPostsAndPages() {
-        guard let selectedDate = selectedDate,
-              let selectedPeriod = selectedPeriod else {
+        guard let selectedDate,
+              let selectedPeriod else {
             return
         }
-        ActionDispatcher.dispatch(PeriodAction.refreshPostsAndPages(date: selectedDate, period: selectedPeriod))
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .allPostsAndPages(date: selectedDate, period: selectedPeriod)))
     }
 
     func refreshSearchTerms() {
-        guard let selectedDate = selectedDate,
-              let selectedPeriod = selectedPeriod else {
+        guard let selectedDate,
+              let selectedPeriod else {
             return
         }
-        ActionDispatcher.dispatch(PeriodAction.refreshSearchTerms(date: selectedDate, period: selectedPeriod))
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .allSearchTerms(date: selectedDate, period: selectedPeriod)))
     }
 
     func refreshVideos() {
-        guard let selectedDate = selectedDate,
-              let selectedPeriod = selectedPeriod else {
+        guard let selectedDate,
+              let selectedPeriod else {
             return
         }
-        ActionDispatcher.dispatch(PeriodAction.refreshVideos(date: selectedDate, period: selectedPeriod))
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .allVideos(date: selectedDate, period: selectedPeriod)))
     }
 
     func refreshClicks() {
-        guard let selectedDate = selectedDate,
-              let selectedPeriod = selectedPeriod else {
+        guard let selectedDate,
+              let selectedPeriod else {
             return
         }
-        ActionDispatcher.dispatch(PeriodAction.refreshClicks(date: selectedDate, period: selectedPeriod))
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .allClicks(date: selectedDate, period: selectedPeriod)))
     }
 
     func refreshAuthors() {
-        guard let selectedDate = selectedDate,
-              let selectedPeriod = selectedPeriod else {
+        guard let selectedDate,
+              let selectedPeriod else {
             return
         }
-        ActionDispatcher.dispatch(PeriodAction.refreshAuthors(date: selectedDate, period: selectedPeriod))
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .allAuthors(date: selectedDate, period: selectedPeriod)))
     }
 
     func refreshReferrers() {
-        guard let selectedDate = selectedDate,
-              let selectedPeriod = selectedPeriod else {
+        guard let selectedDate,
+              let selectedPeriod else {
             return
         }
-        ActionDispatcher.dispatch(PeriodAction.refreshReferrers(date: selectedDate, period: selectedPeriod))
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .allReferrers(date: selectedDate, period: selectedPeriod)))
     }
 
     func refreshCountries() {
-        guard let selectedDate = selectedDate,
-              let selectedPeriod = selectedPeriod else {
+        guard let selectedDate,
+              let selectedPeriod else {
             return
         }
-        ActionDispatcher.dispatch(PeriodAction.refreshCountries(date: selectedDate, period: selectedPeriod))
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .allCountries(date: selectedDate, period: selectedPeriod)))
     }
 
     func refreshPublished() {
-        guard let selectedDate = selectedDate,
-              let selectedPeriod = selectedPeriod else {
+        guard let selectedDate,
+              let selectedPeriod else {
             return
         }
-        ActionDispatcher.dispatch(PeriodAction.refreshPublished(date: selectedDate, period: selectedPeriod))
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .allPublished(date: selectedDate, period: selectedPeriod)))
     }
 
     func refreshFileDownloads() {
-        guard let selectedDate = selectedDate,
-              let selectedPeriod = selectedPeriod else {
+        guard let selectedDate,
+              let selectedPeriod else {
             return
         }
-        ActionDispatcher.dispatch(PeriodAction.refreshFileDownloads(date: selectedDate, period: selectedPeriod))
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .allFileDownloads(date: selectedDate, period: selectedPeriod)))
     }
 
     func refreshPostStats() {
-        guard let postID = postID else {
+        guard let postID else {
             return
         }
-
-        ActionDispatcher.dispatch(PeriodAction.refreshPostStats(postID: postID))
+        ActionDispatcher.dispatch(PeriodAction.refreshPeriod(query: .postStats(postID: postID)))
     }
 
     // MARK: - Views & Visitors
@@ -671,8 +713,8 @@ private extension SiteStatsInsightsDetailsViewModel {
 
     func queryForPeriodStatSection(_ statSection: StatSection) -> PeriodQuery? {
 
-        guard let selectedDate = selectedDate,
-              let selectedPeriod = selectedPeriod else {
+        guard let selectedDate,
+              let selectedPeriod else {
             return nil
         }
 
@@ -696,7 +738,7 @@ private extension SiteStatsInsightsDetailsViewModel {
         case .periodFileDownloads:
             return .allFileDownloads(date: selectedDate, period: selectedPeriod)
         case .insightsViewsVisitors, .insightsLikesTotals:
-            return .periods(date: selectedDate, period: selectedPeriod)
+            return .allCachedPeriodData(date: selectedDate, period: selectedPeriod, unit: selectedPeriod)
         default:
             return nil
         }
@@ -772,7 +814,7 @@ private extension SiteStatsInsightsDetailsViewModel {
 
     // MARK: - Tags and Categories
 
-    func tagsAndCategoriesRows() -> [ImmuTableRow] {
+    func tagsAndCategoriesRows() -> [any HashableImmutableRow] {
         return expandableDataRowsFor(tagsAndCategoriesRowData())
     }
 
@@ -803,7 +845,7 @@ private extension SiteStatsInsightsDetailsViewModel {
 
     func annualRowData() -> [StatsTotalRowData] {
 
-        guard let selectedDate = selectedDate else {
+        guard let selectedDate else {
             return []
         }
 
@@ -816,19 +858,19 @@ private extension SiteStatsInsightsDetailsViewModel {
         }
 
         return [StatsTotalRowData(name: AnnualSiteStats.totalPosts,
-                data: annualInsights.totalPostsCount.abbreviatedString()),
-            StatsTotalRowData(name: AnnualSiteStats.totalComments,
-                    data: annualInsights.totalCommentsCount.abbreviatedString()),
-            StatsTotalRowData(name: AnnualSiteStats.commentsPerPost,
-                    data: Int(round(annualInsights.averageCommentsCount)).abbreviatedString()),
-            StatsTotalRowData(name: AnnualSiteStats.totalLikes,
-                    data: annualInsights.totalLikesCount.abbreviatedString()),
-            StatsTotalRowData(name: AnnualSiteStats.likesPerPost,
-                    data: Int(round(annualInsights.averageLikesCount)).abbreviatedString()),
-            StatsTotalRowData(name: AnnualSiteStats.totalWords,
-                    data: annualInsights.totalWordsCount.abbreviatedString()),
-            StatsTotalRowData(name: AnnualSiteStats.wordsPerPost,
-                    data: Int(round(annualInsights.averageWordsCount)).abbreviatedString())]
+                                  data: annualInsights.totalPostsCount.abbreviatedString()),
+                StatsTotalRowData(name: AnnualSiteStats.totalComments,
+                                  data: annualInsights.totalCommentsCount.abbreviatedString()),
+                StatsTotalRowData(name: AnnualSiteStats.commentsPerPost,
+                                  data: Int(round(annualInsights.averageCommentsCount)).abbreviatedString()),
+                StatsTotalRowData(name: AnnualSiteStats.totalLikes,
+                                  data: annualInsights.totalLikesCount.abbreviatedString()),
+                StatsTotalRowData(name: AnnualSiteStats.likesPerPost,
+                                  data: Int(round(annualInsights.averageLikesCount)).abbreviatedString()),
+                StatsTotalRowData(name: AnnualSiteStats.totalWords,
+                                  data: annualInsights.totalWordsCount.abbreviatedString()),
+                StatsTotalRowData(name: AnnualSiteStats.wordsPerPost,
+                                  data: Int(round(annualInsights.averageWordsCount)).abbreviatedString())]
     }
 
     // MARK: - Posts and Pages
@@ -876,7 +918,6 @@ private extension SiteStatsInsightsDetailsViewModel {
             return []
         }
 
-
         var mappedSearchTerms = searchTerms.searchTerms.map { StatsTotalRowData(name: $0.term,
                 data: $0.viewsCount.abbreviatedString(),
                 statSection: .periodSearchTerms) }
@@ -914,7 +955,7 @@ private extension SiteStatsInsightsDetailsViewModel {
 
     // MARK: - Clicks
 
-    func clicksRows(for status: StoreFetchingStatus) -> [ImmuTableRow] {
+    func clicksRows(for status: StoreFetchingStatus) -> [any HashableImmutableRow] {
         return expandableDataRowsFor(clicksRowData(), status: status)
     }
 
@@ -934,7 +975,7 @@ private extension SiteStatsInsightsDetailsViewModel {
 
     // MARK: - Authors
 
-    func authorsRows(for status: StoreFetchingStatus) -> [ImmuTableRow] {
+    func authorsRows(for status: StoreFetchingStatus) -> [any HashableImmutableRow] {
         return expandableDataRowsFor(authorsRowData(), status: status)
     }
 
@@ -956,7 +997,7 @@ private extension SiteStatsInsightsDetailsViewModel {
 
     // MARK: - Referrers
 
-    func referrersRows(for status: StoreFetchingStatus) -> [ImmuTableRow] {
+    func referrersRows(for status: StoreFetchingStatus) -> [any HashableImmutableRow] {
         return expandableDataRowsFor(referrersRowData(topReferrers: periodStore.getTopReferrers()), status: status)
     }
 
@@ -991,7 +1032,7 @@ private extension SiteStatsInsightsDetailsViewModel {
     }
 
     // MARK: - Followers
-    func followersRowData(dotComFollowersCount: Int, emailFollowersCount: Int, othersCount: Int, totalCount: Int) -> [StatsTotalRowData] {
+    func followersRowData(dotComFollowersCount: Int, emailFollowersCount: Int, totalCount: Int) -> [StatsTotalRowData] {
         var rowData = [StatsTotalRowData]()
 
         rowData.append(
@@ -1006,12 +1047,6 @@ private extension SiteStatsInsightsDetailsViewModel {
                         statSection: .insightsFollowersEmail)
         )
 
-        rowData.append(
-                StatsTotalRowData(name: StatSection.insightsPublicize.tabTitle,
-                        data: "\(othersCount.abbreviatedString()) (\(roundedPercentage(numerator: othersCount, denominator: totalCount))%)",
-                        statSection: .insightsFollowersWordPress)
-        )
-
         return rowData
     }
 
@@ -1024,7 +1059,7 @@ private extension SiteStatsInsightsDetailsViewModel {
     func countriesRowData(topCountries: StatsTopCountryTimeIntervalData?) -> [StatsTotalRowData] {
         return topCountries?.countries.map { StatsTotalRowData(name: $0.name,
                 data: $0.viewsCount.abbreviatedString(),
-                icon: UIImage(named: $0.code),
+                icon: StatsTotalRowData.flagImage(for: $0.code),
                 statSection: .periodCountries) }
                 ?? []
     }
@@ -1033,10 +1068,8 @@ private extension SiteStatsInsightsDetailsViewModel {
         let countries = topCountries?.countries ?? []
         return CountriesMap(minViewsCount: countries.last?.viewsCount ?? 0,
                 maxViewsCount: countries.first?.viewsCount ?? 0,
-                data: countries.reduce([String: NSNumber]()) { (dict, country) in
-                    var nextDict = dict
-                    nextDict.updateValue(NSNumber(value: country.viewsCount), forKey: country.code)
-                    return nextDict
+                data: countries.reduce(into: [String: NSNumber]()) { dict, country in
+                    dict.updateValue(NSNumber(value: country.viewsCount), forKey: country.code)
                 })
     }
 
@@ -1062,15 +1095,19 @@ private extension SiteStatsInsightsDetailsViewModel {
     }
 
     func fileDownloadsRowData() -> [StatsTotalRowData] {
-        return periodStore.getTopFileDownloads()?.fileDownloads.map { StatsTotalRowData(name: $0.file,
+        return periodStore.getTopFileDownloads()?.fileDownloads.map {
+            StatsTotalRowData(
+                id: UUID(),
+                name: $0.file,
                 data: $0.downloadCount.abbreviatedString(),
-                statSection: .periodFileDownloads) }
-                ?? []
+                statSection: .periodFileDownloads
+            )
+        } ?? []
     }
 
     // MARK: - Post Stats
 
-    func postStatsRows(forAverages: Bool = false, status: StoreFetchingStatus) -> [ImmuTableRow] {
+    func postStatsRows(forAverages: Bool = false, status: StoreFetchingStatus) -> [any HashableImmutableRow] {
         return expandableDataRowsFor(postStatsRowData(forAverages: forAverages), status: status)
     }
 
@@ -1092,7 +1129,7 @@ private extension SiteStatsInsightsDetailsViewModel {
 
             let rowValue: Int = {
                 if forAverages {
-                    return months.count > 0 ? (yearTotalViews / months.count) : 0
+                    return !months.isEmpty ? (yearTotalViews / months.count) : 0
                 }
                 return yearTotalViews
             }()
@@ -1115,7 +1152,7 @@ private extension SiteStatsInsightsDetailsViewModel {
         var detailDataRows = [DetailDataRow]()
 
         for (idx, rowData) in rowsData.enumerated() {
-            let isLastRow = idx == rowsData.endIndex-1 && status != .loading
+            let isLastRow = idx == rowsData.endIndex - 1 && status != .loading
             detailDataRows.append(DetailDataRow(rowData: rowData,
                     detailsDelegate: detailsDelegate,
                     hideIndentedSeparator: isLastRow,
@@ -1125,8 +1162,8 @@ private extension SiteStatsInsightsDetailsViewModel {
         return detailDataRows
     }
 
-    func expandableDataRowsFor(_ rowsData: [StatsTotalRowData], status: StoreFetchingStatus = .idle) -> [ImmuTableRow] {
-        var detailDataRows = [ImmuTableRow]()
+    func expandableDataRowsFor(_ rowsData: [StatsTotalRowData], status: StoreFetchingStatus = .idle) -> [any HashableImmutableRow] {
+        var detailDataRows = [any HashableImmutableRow]()
 
         for (idx, rowData) in rowsData.enumerated() {
 
@@ -1142,7 +1179,7 @@ private extension SiteStatsInsightsDetailsViewModel {
                 return false
             }()
 
-            let isLastRow = idx == rowsData.endIndex-1 && status != .loading
+            let isLastRow = idx == rowsData.endIndex - 1 && status != .loading
 
             // Toggle the indented separator line based on expanded states.
             // If the current row is expanded, hide the separator.
@@ -1162,7 +1199,7 @@ private extension SiteStatsInsightsDetailsViewModel {
 
             // Add child rows
             for (idx, childRowData) in childRowsData.enumerated() {
-                let isLastRow = idx == childRowsData.endIndex-1
+                let isLastRow = idx == childRowsData.endIndex - 1
 
                 // If this is the last child row, toggle the full separator based on
                 // next parent's expanded state to prevent duplicate lines.
@@ -1209,7 +1246,7 @@ private extension SiteStatsInsightsDetailsViewModel {
 
                     // If this is the last grandchild row, toggle the full separator based on
                     // next child's expanded state to prevent duplicate lines.
-                    let hideFullSeparator = (idx == grandChildRowsData.endIndex-1) ? nextChildExpanded : true
+                    let hideFullSeparator = (idx == grandChildRowsData.endIndex - 1) ? nextChildExpanded : true
 
                     detailDataRows.append(childRow(rowData: grandChildRowData,
                             hideFullSeparator: hideFullSeparator,
@@ -1227,7 +1264,6 @@ private extension SiteStatsInsightsDetailsViewModel {
                 hideIndentedSeparator: true,
                 hideFullSeparator: hideFullSeparator,
                 showImage: showImage)
-
     }
 
     func parentRow(rowData: StatsTotalRowData, hideIndentedSeparator: Bool, hideFullSeparator: Bool, expanded: Bool) -> DetailExpandableRow {
@@ -1246,13 +1282,12 @@ private extension SiteStatsInsightsDetailsViewModel {
         return StatsDataHelper.expandedRowLabelsDetails[statSection]?.contains(rowData.name) ?? false
     }
 
-    func insightsImmuTable(for row: (type: InsightType, status: StoreFetchingStatus), rowsBlock: () -> [ImmuTableRow]) -> ImmuTable {
+    func insightsImmuTable(for row: (type: InsightType, status: StoreFetchingStatus), rowsBlock: () -> [any HashableImmutableRow]) -> ImmuTableDiffableDataSourceSnapshot {
         if insightsStore.containsCachedData(for: row.type) {
-            let sections = rowsBlock().map({ ImmuTableSection(rows: [$0]) })
-            return ImmuTable(sections: sections)
+            return .multiSectionSnapshot(rowsBlock())
         }
 
-        var rows = [ImmuTableRow]()
+        var rows = [any HashableImmutableRow]()
 
         switch row.status {
         case .loading, .idle:
@@ -1263,26 +1298,25 @@ private extension SiteStatsInsightsDetailsViewModel {
             break
         }
 
-        var sections: [ImmuTableSection] = []
-        var ghostRows: [ImmuTableRow] = []
+        var snapshot = ImmuTableDiffableDataSourceSnapshot()
+        var ghostRows: [any HashableImmutableRow] = []
 
         rows.forEach({ row in
             if row is StatsGhostTopHeaderImmutableRow || row is StatsGhostDetailRow {
                 ghostRows.append(row)
             } else {
-                sections.append(ImmuTableSection(rows: [row]))
+                snapshot.addSection([row])
             }
         })
 
-        let ghostSection = ImmuTableSection(rows: ghostRows)
-        sections.append(ghostSection)
-        return ImmuTable(sections: sections)
+        snapshot.addSection(ghostRows)
+        return snapshot
     }
 
     func periodImmuTable(for status: StoreFetchingStatus,
-                         rowsBlock: (StoreFetchingStatus) -> [ImmuTableRow]
-    ) -> ImmuTable {
-        var rows = [ImmuTableRow]()
+                         rowsBlock: (StoreFetchingStatus) -> [any HashableImmutableRow]
+    ) -> ImmuTableDiffableDataSourceSnapshot {
+        var rows = [any HashableImmutableRow]()
 
         switch status {
         case .loading, .idle:
@@ -1303,30 +1337,30 @@ private extension SiteStatsInsightsDetailsViewModel {
             break
         }
 
-        var countriesRows: [ImmuTableRow] = []
-        var sections: [ImmuTableSection] = []
+        var countriesRows: [any HashableImmutableRow] = []
+        var snapshot = ImmuTableDiffableDataSourceSnapshot()
 
         rows.forEach({ row in
             if row is CountriesMapRow || row is CountriesStatsRow {
                 countriesRows.append(row)
             } else {
-                sections.append(ImmuTableSection(rows: [row]))
+                snapshot.addSection([row])
             }
-
         })
-        let countriesSection = ImmuTableSection(rows: countriesRows)
-        sections.append(countriesSection)
-        return ImmuTable(sections: sections)
+
+        snapshot.addSection(countriesRows)
+        return snapshot
     }
 
-    func getGhostSequence() -> [ImmuTableRow] {
-        var rows = [ImmuTableRow]()
+    func getGhostSequence() -> [any HashableImmutableRow] {
+        var rows = [any HashableImmutableRow]()
         rows.append(StatsGhostTopHeaderImmutableRow())
         rows.append(contentsOf: (Constants.Sequence.rows).map { index in
             let isLastRow = index == Constants.Sequence.maxRowCount
             return StatsGhostDetailRow(hideTopBorder: true,
                     isLastRow: isLastRow,
-                    enableTopPadding: true)
+                    enableTopPadding: true,
+                    index: index)
         })
         return rows
     }
@@ -1352,7 +1386,7 @@ private extension SiteStatsInsightsDetailsViewModel {
 
     // Return the future end of the week date if current period end date is not an end of the week
     func futureEndOfWeekDate(for summary: StatsSummaryTimeIntervalData?) -> Date? {
-        guard let summary = summary else {
+        guard let summary else {
             return nil
         }
 

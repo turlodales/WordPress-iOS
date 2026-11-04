@@ -1,7 +1,9 @@
 import UIKit
-import CocoaLumberjack
 import WordPressFlux
+import WordPressKit
 import WordPressShared
+import WordPressSharedUI
+import WordPressUI
 
 class JetpackRestoreWarningViewController: UIViewController {
 
@@ -59,7 +61,7 @@ class JetpackRestoreWarningViewController: UIViewController {
         warningView.configure(with: publishedDate)
 
         warningView.confirmHandler = { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
@@ -79,11 +81,10 @@ class JetpackRestoreWarningViewController: UIViewController {
             self?.dismiss(animated: true)
         }
 
-        warningView.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = .systemBackground
         view.addSubview(warningView)
-        view.pinSubviewToAllEdges(warningView)
+        warningView.pinEdges(to: view.safeAreaLayoutGuide)
     }
-
 }
 
 extension JetpackRestoreWarningViewController: JetpackRestoreWarningView {

@@ -1,6 +1,6 @@
 import UIKit
 import Gridicons
-import WordPressShared
+import WordPressUI
 
 /// Progress view displayed in cells in the media library to indicate that an
 /// asset is currently being processed, uploaded, or has failed to upload.
@@ -36,14 +36,14 @@ class CircularProgressView: UIView {
             switch self {
             case .primary:
                 return Appearance(
-                    progressIndicatorAppearance: ProgressIndicatorView.Appearance(lineColor: .primary(.shade40)),
+                    progressIndicatorAppearance: ProgressIndicatorView.Appearance(lineColor: UIAppColor.primary(.shade40)),
                     backgroundColor: .clear,
-                    accessoryViewTintColor: .neutral(.shade70),
-                    accessoryViewBackgroundColor: .listBackground)
+                    accessoryViewTintColor: UIAppColor.neutral(.shade70),
+                    accessoryViewBackgroundColor: .systemGroupedBackground)
             case .mediaCell:
                 return Appearance(
                     progressIndicatorAppearance: ProgressIndicatorView.Appearance(lineColor: .white),
-                    backgroundColor: .neutral(.shade70),
+                    backgroundColor: UIAppColor.neutral(.shade70),
                     accessoryViewTintColor: .white,
                     accessoryViewBackgroundColor: .clear)
             case .white:
@@ -66,7 +66,7 @@ class CircularProgressView: UIView {
     // MARK: - public fields
 
     let retryView = AccessoryView()
-    @objc var errorView: UIView = UIView() {
+    @objc var errorView = UIView() {
         didSet {
             oldValue.removeFromSuperview()
             configureErrorView()
@@ -123,7 +123,6 @@ class CircularProgressView: UIView {
 
     // MARK: - public methods
 
-
     /// Shows the error state. (Obj-C helper)
     ///
     @objc func showError() {
@@ -175,7 +174,7 @@ class CircularProgressView: UIView {
         NSLayoutConstraint.activate([
             progressIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
             progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor)
-            ])
+        ])
     }
 
     private func configureErrorView() {
@@ -199,7 +198,7 @@ class CircularProgressView: UIView {
             view.bottomAnchor.constraint(equalTo: bottomAnchor),
             view.leadingAnchor.constraint(equalTo: leadingAnchor),
             view.trailingAnchor.constraint(equalTo: trailingAnchor)
-            ])
+        ])
 
         view.isHidden = true
     }
@@ -273,7 +272,7 @@ final class AccessoryView: UIView {
         NSLayoutConstraint.activate([
             container.centerXAnchor.constraint(equalTo: centerXAnchor),
             container.centerYAnchor.constraint(equalTo: centerYAnchor)
-            ])
+        ])
     }
 }
 
@@ -338,6 +337,11 @@ final class ProgressIndicatorView: UIView {
         progressTrackLayer.addSublayer(progressLayer)
         progressLayer.isHidden = false
         progressLayer.strokeEnd = 0.0
+
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _: UITraitCollection) in
+            self.updateColors()
+            self.setNeedsDisplay()
+        }
     }
 
     func configureLayer(_ layer: CAShapeLayer) {
@@ -370,12 +374,6 @@ final class ProgressIndicatorView: UIView {
         if state == .indeterminate {
             startAnimating()
         }
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        updateColors()
-        setNeedsDisplay()
     }
 
     private func stateDidChange() {

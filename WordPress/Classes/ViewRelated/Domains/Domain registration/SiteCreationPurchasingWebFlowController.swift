@@ -1,6 +1,10 @@
 import UIKit
 import AutomatticTracks
 import Sentry
+import WordPressData
+import WordPressShared
+import WordPressKit
+import WebKit
 
 final class SiteCreationPurchasingWebFlowController {
 
@@ -10,8 +14,6 @@ final class SiteCreationPurchasingWebFlowController {
         static let wordpressBaseURL = "https://wordpress.com"
         static let checkoutWebAddress = "\(wordpressBaseURL)/checkout"
         static let checkoutSuccessURLPrefix = "\(checkoutWebAddress)/thank-you/"
-        static let storeSandboxCookieName = "store_sandbox"
-        static let storeSandboxCookieDomain = ".wordpress.com"
     }
 
     // MARK: - Dependencies
@@ -73,7 +75,7 @@ final class SiteCreationPurchasingWebFlowController {
     /// Process the domain purchasing result before handing it over to the caller.
     private func middleware(for completion: CompletionHandler?, domain: DomainSuggestion, site: Blog) -> CompletionHandler {
         return { [weak self] result in
-            if let self = self {
+            if let self {
                 self.handleError(result: result, domain: domain, site: site)
                 self.trackCompletionEvents(result: result, domain: domain, site: site)
             }
@@ -133,7 +135,7 @@ final class SiteCreationPurchasingWebFlowController {
             source: origin?.rawValue ?? ""
         )
         self.webViewURLChangeObservation = webViewController.webView.observe(\.url, options: [.new, .old]) { [weak self] _, change in
-            guard let self = self, let newURL = change.newValue as? URL else {
+            guard let self, let newURL = change.newValue as? URL else {
                 return
             }
             let oldURL = change.oldValue as? URL
@@ -145,8 +147,7 @@ final class SiteCreationPurchasingWebFlowController {
 
         // 1. Inject sandbox store cookie
         // 2. Present a new web view instance or reload the existing one.
-        let cookieStore = webViewController.webView.configuration.websiteDataStore.httpCookieStore
-        self.injectSandboxStoreCookie(into: cookieStore) { [weak self] _ in
+        webViewController.configureSandboxStore { [weak self] in
             guard let self else {
                 return
             }
@@ -171,26 +172,8 @@ final class SiteCreationPurchasingWebFlowController {
         completion?(result)
     }
 
-    /// Injects the sandbox store cookie into the cookie store.
-    private func injectSandboxStoreCookie(into cookieStore: WKHTTPCookieStore, completion: @escaping (Bool) -> Void) {
-        if let storeSandboxCookie = (HTTPCookieStorage.shared.cookies?.first {
-            $0.properties?[.name] as? String == Constants.storeSandboxCookieName &&
-            $0.properties?[.domain] as? String == Constants.storeSandboxCookieDomain
-        }) {
-            cookieStore.getAllCookies { cookies in
-                var newCookies = cookies
-                newCookies.append(storeSandboxCookie)
-                cookieStore.setCookies(newCookies) {
-                    completion(true)
-                }
-            }
-        } else {
-            completion(false)
-        }
-    }
-
-    /// Handles URL changes in the web view.  We only allow the user to stay within certain URLs.  Falling outside these URLs
-    /// results in the web view being dismissed.  This method also handles the success condition for a successful domain registration
+    /// Handles URL changes in the web view. We only allow the user to stay within certain URLs. Falling outside these URLs
+    /// results in the web view being dismissed. This method also handles the success condition for a successful domain registration
     /// through said web view.
     ///
     /// - Parameters:

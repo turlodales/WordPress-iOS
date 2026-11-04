@@ -1,4 +1,7 @@
+import UIKit
+import BuildSettingsKit
 import StoreKit
+import WordPressShared
 
 // MARK: - App Ratings
 //
@@ -6,17 +9,17 @@ extension NotificationsViewController {
     static let contactURL = "https://support.wordpress.com/contact/"
 
     func setupAppRatings() {
-        inlinePromptView.setupHeading(AppConstants.AppRatings.prompt)
+        inlinePromptView.setupHeading(ratingPrompt)
         let yesTitle = NSLocalizedString("notifications.appRatings.prompt.yes.buttonTitle", value: "I like it",
                                          comment: "This is one of the buttons we display inside of the prompt to review the app")
         let noTitle = NSLocalizedString("notifications.appRatings.prompt.no.buttonTitle", value: "Could improve",
                                         comment: "This is one of the buttons we display inside of the prompt to review the app")
 
-        inlinePromptView.setupYesButton(title: yesTitle) { [weak self] button in
+        inlinePromptView.setupYesButton(title: yesTitle) { [weak self] _ in
             self?.likedApp()
         }
 
-        inlinePromptView.setupNoButton(title: noTitle) { [weak self] button in
+        inlinePromptView.setupNoButton(title: noTitle) { [weak self] _ in
             self?.dislikedApp()
         }
 
@@ -39,8 +42,9 @@ extension NotificationsViewController {
         // Note: Optimistically assuming our prompting succeeds since we try to stay
         // in line and not prompt more than two times a year
         AppRatingUtility.shared.ratedCurrentVersion()
-        DispatchQueue.main.async {
-            SKStoreReviewController.requestReview()
+        DispatchQueue.main.async { [weak self] in
+            guard let windowScene = self?.view.window?.windowScene else { return }
+            AppStore.requestReview(in: windowScene)
         }
     }
 
@@ -58,10 +62,10 @@ extension NotificationsViewController {
                                              comment: "This is one of the buttons we display when prompting the user for a review")
             let noTitle = NSLocalizedString("notifications.appRatings.sendFeedback.no.buttonTitle", value: "No thanks",
                                             comment: "This is one of the buttons we display when prompting the user for a review")
-            self?.inlinePromptView.setupYesButton(title: yesTitle) { [weak self] button in
+            self?.inlinePromptView.setupYesButton(title: yesTitle) { [weak self] _ in
                 self?.gatherFeedback()
             }
-            self?.inlinePromptView.setupNoButton(title: noTitle) { [weak self] button in
+            self?.inlinePromptView.setupNoButton(title: noTitle) { [weak self] _ in
                 self?.dismissRatingsPrompt()
             }
         }
@@ -85,5 +89,16 @@ extension NotificationsViewController {
         WPAnalytics.track(.appReviewsDeclinedToRateApp)
         AppRatingUtility.shared.declinedToRateCurrentVersion()
         hideInlinePrompt(delay: 0.0)
+    }
+}
+
+private var ratingPrompt: String {
+    switch BuildSettings.current.brand {
+    case .wordpress:
+        NSLocalizedString("appRatings.wordpress.prompt", value: "What do you think about WordPress?", comment: "This is the string we display when prompting the user to review the WordPress app")
+    case .jetpack:
+        NSLocalizedString("appRatings.jetpack.prompt", value: "What do you think about Jetpack?", comment: "This is the string we display when prompting the user to review the Jetpack app")
+    case .reader:
+        NSLocalizedString("appRatings.reader.prompt", value: "What do you think about Reader?", comment: "This is the string we display when prompting the user to review the Reader app")
     }
 }

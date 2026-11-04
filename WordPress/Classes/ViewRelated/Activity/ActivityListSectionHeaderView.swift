@@ -1,6 +1,7 @@
 import Foundation
+import WordPressShared
 
-class ActivityListSectionHeaderView: UITableViewHeaderFooterView {
+class ActivityListSectionHeaderView: UITableViewHeaderFooterView, NibLoadable {
     @IBOutlet weak var titleLabel: UILabel!
     @IBOutlet weak var separator: UIView!
     @IBOutlet weak var backgroundColorView: UIView!
@@ -11,8 +12,8 @@ class ActivityListSectionHeaderView: UITableViewHeaderFooterView {
     override func awakeFromNib() {
         super.awakeFromNib()
         WPStyleGuide.applyBorderStyle(separator)
-        separator.backgroundColor = .divider
+        separator.backgroundColor = .separator
 
-        backgroundColorView.backgroundColor = .listBackground
+        backgroundColorView.backgroundColor = .systemGroupedBackground
     }
 }

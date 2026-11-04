@@ -1,19 +1,21 @@
 import Foundation
+import WordPressData
 import WordPressKit
 
 @objc enum EditorSettingsServiceError: Int, Swift.Error {
     case mobileEditorNotSet
 }
 
-@objc class EditorSettingsService: CoreDataService {
+@objc public class EditorSettingsService: NSObject {
 
-    private lazy var coreDataStackSwift: CoreDataStackSwift = {
-        // The concrete type of coreDataStack is actually ContextManager, which also conforms to CoreDataStackSwift.
-        (coreDataStack as? CoreDataStackSwift) ?? ContextManager.shared
-    }()
+    let coreDataStack: CoreDataStack
+
+    @objc public init(coreDataStack: CoreDataStack) {
+        self.coreDataStack = coreDataStack
+    }
 
     @objc(syncEditorSettingsForBlog:success:failure:)
-    func syncEditorSettings(for blog: Blog, success: @escaping () -> Void, failure: @escaping (Swift.Error) -> Void) {
+    public func syncEditorSettings(for blog: Blog, success: @escaping () -> Void, failure: @escaping (Swift.Error) -> Void) {
         guard let api = api(for: blog) else {
             // SelfHosted non-jetpack sites won't sync with remote.
             return success()
@@ -25,8 +27,8 @@ import WordPressKit
         }
 
         let service = EditorServiceRemote(wordPressComRestApi: api)
-        service.getEditorSettings(siteID, success: { (settings) in
-            self.coreDataStackSwift.performAndSave({ context in
+        service.getEditorSettings(siteID, success: { settings in
+            self.coreDataStack.performAndSave({ context in
                 let blogInContext = try context.existingObject(with: blog.objectID) as! Blog
                 try self.update(blogInContext, remoteEditorSettings: settings)
             }, completion: { result in
@@ -72,13 +74,13 @@ import WordPressKit
         let service = EditorServiceRemote(wordPressComRestApi: api)
         service.postDesignateMobileEditorForAllSites(remoteEditor, setOnlyIfEmpty: !overrideRemote, success: { response in
             self.updateAllSites(with: response, completion: onSuccess)
-        }) { (error) in
+        }) { error in
             DDLogError("Error saving editor settings: \(error)")
         }
     }
 
     func api(for blog: Blog) -> WordPressComRestApi? {
-        return blog.wordPressComRestApi()
+        return blog.wordPressComRestApi
     }
 
     var apiForDefaultAccount: WordPressComRestApi? {
@@ -103,7 +105,7 @@ private extension EditorSettingsService {
     }
 
     func updateSite(withID siteID: Int, editor: EditorSettings.Mobile, account: WPAccount, settings: GutenbergSettings) {
-        if let blog = account.blogs.first(where: { $0.dotComID?.intValue == siteID }) {
+        if let blog = account.blogs?.first(where: { $0.dotComID?.intValue == siteID }) {
             settings.setGutenbergEnabled(editor == .gutenberg, for: blog)
         }
     }

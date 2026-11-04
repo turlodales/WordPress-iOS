@@ -1,5 +1,6 @@
 import UIKit
 import Combine
+import WordPressData
 
 final class DashboardQuickActionsViewModel {
     var onViewWillAppear: (() -> Void)?
@@ -29,7 +30,6 @@ final class DashboardQuickActionsViewModel {
                 DashboardQuickActionItemViewModel(
                     image: $0.image,
                     title: $0.localizedTitle,
-                    tourElement: $0.tourElement,
                     action: $0
                 )
             }
@@ -44,7 +44,6 @@ final class DashboardQuickActionsViewModel {
     }
 
     func viewWillDisappear() {
-
     }
 }
 
@@ -52,7 +51,6 @@ struct DashboardQuickActionItemViewModel: Hashable {
     let image: UIImage?
     let title: String
     var details: String?
-    var tourElement: QuickStartTourElement?
     let action: DashboardQuickAction
 }
 
@@ -98,20 +96,14 @@ enum DashboardQuickAction: String, CaseIterable {
         }
     }
 
-    var tourElement: QuickStartTourElement? {
+    var accessibilityIdentifier: String {
         switch self {
-        case .posts:
-            return nil
-        case .pages:
-            return .pages
-        case .media:
-            return .mediaScreen
-        case .comments:
-            return nil
-        case .stats:
-            return .stats
-        case .more:
-            return .siteMenu
+        case .stats: "quick_actions_stats"
+        case .posts: "quick_actions_posts"
+        case .pages: "quick_actions_pages"
+        case .media: "quick_actions_media"
+        case .comments: "quick_actions_comments"
+        case .more: "quick_actions_more"
         }
     }
 

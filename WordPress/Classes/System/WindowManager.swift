@@ -1,5 +1,5 @@
-import Foundation
-import WordPressAuthenticator
+import UIKit
+import WordPressData
 
 /// This class takes care of managing the App window and its `rootViewController`.
 /// This is mostly intended to handle the UI transitions between authenticated and unauthenticated user sessions.
@@ -24,7 +24,7 @@ class WindowManager: NSObject {
     /// The root view controller for the window.
     ///
     var rootViewController: UIViewController? {
-        return window.rootViewController
+        window.rootViewController
     }
 
     init(window: UIWindow) {
@@ -33,8 +33,8 @@ class WindowManager: NSObject {
 
     // MARK: - Initial App UI
 
-    /// Shows the initial UI for the App to be shown right after launch.  This method will present the sign-in flow if the user is not
-    /// authenticated, or the actuall App UI if the user is already authenticated.
+    /// Shows the initial UI for the App to be shown right after launch. This method will present the sign-in flow if the user is not
+    /// authenticated, or the actual App UI if the user is already authenticated.
     ///
     public func showUI(for blog: Blog? = nil, animated: Bool = true) {
         if AccountHelper.isLoggedIn {
@@ -46,7 +46,6 @@ class WindowManager: NSObject {
 
     /// Shows the SignIn UI flow if the conditions to do so are met.
     ///
-    @objc
     func showFullscreenSignIn() {
         guard isShowingFullscreenSignIn == false && AccountHelper.isLoggedIn == false else {
             return
@@ -65,11 +64,11 @@ class WindowManager: NSObject {
 
     /// Shows the UI for authenticated users.
     ///
-    @objc func showAppUI(for blog: Blog? = nil, animated: Bool = true, completion: Completion? = nil) {
+    func showAppUI(for blog: Blog? = nil, animated: Bool = true, completion: Completion? = nil) {
         isShowingFullscreenSignIn = false
         RootViewCoordinator.shared.showAppUI(animated: animated, completion: completion)
 
-        guard let blog = blog else {
+        guard let blog else {
             return
         }
 
@@ -84,7 +83,7 @@ class WindowManager: NSObject {
         RootViewCoordinator.shared.showSignInUI(completion: completion)
     }
 
-    /// Shows the specified VC as the root VC for the managed window.  Takes care of animating the transition whenever the existing
+    /// Shows the specified VC as the root VC for the managed window. Takes care of animating the transition whenever the existing
     /// root VC isn't `nil` (this is because a `nil` VC means we're showing the initial VC on a call to this method).
     ///
     func show(_ viewController: UIViewController, animated: Bool = true, completion: Completion? = nil) {
@@ -99,12 +98,13 @@ class WindowManager: NSObject {
 
         UIView.transition(
             with: window,
-            duration: WPAnimationDurationDefault,
+            duration: 0.33,
             options: .transitionCrossDissolve,
             animations: nil,
             completion: { _ in
                 completion?()
-            })
+            }
+        )
     }
 
     // MARK: Temporary Overlaying Window
@@ -113,9 +113,15 @@ class WindowManager: NSObject {
     /// - Parameter rootViewController: View controller to be used as the root view controller for the newly created window.
     ///
     func displayOverlayingWindow(with rootViewController: UIViewController) {
+        // A window without a scene never displays, so fail loudly instead of
+        // creating an invisible overlay. The main window is always scene-attached
+        // while UI is on screen. Bail before tearing down any existing overlay.
+        guard let windowScene = self.window.windowScene else {
+            assertionFailure("displayOverlayingWindow requires a scene-attached main window")
+            return
+        }
         clearOverlayingWindow()
-        let windowFrame = window.frame
-        let window = UIWindow(frame: windowFrame)
+        let window = UIWindow(windowScene: windowScene)
         window.rootViewController = rootViewController
         window.windowLevel = .alert
         window.isHidden = false
@@ -123,11 +129,10 @@ class WindowManager: NSObject {
         overlayingWindow = window
     }
 
-
     /// Removes the temporary overlaying window if it exists. And makes the main window the key window again.
     ///
     func clearOverlayingWindow() {
-        guard let overlayingWindow = overlayingWindow else {
+        guard let overlayingWindow else {
             return
         }
         overlayingWindow.isHidden = true

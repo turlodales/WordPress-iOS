@@ -1,10 +1,11 @@
 #import "WPError.h"
-#import "WPAccount.h"
-#import <WordPressShared/NSString+XMLExtensions.h>
-#import <wpxmlrpc/WPXMLRPC.h>
 #import "WordPress-Swift.h"
+@import WordPressData;
+@import WordPressShared;
+@import WordPressSharedUI;
+@import WordPressKit;
+@import WordPressSharedObjC;
 
-NSInteger const SupportButtonIndex = 0;
 
 @interface WPError ()
 
@@ -43,26 +44,6 @@ NSInteger const SupportButtonIndex = 0;
               okPressedBlock:nil];
 }
 
-+ (void)showXMLRPCErrorAlert:(NSError *)error
-{
-    NSString *cleanedErrorMsg = [error localizedDescription];
-
-    if ([error.domain isEqualToString:WPXMLRPCFaultErrorDomain] && error.code == 401) {
-        cleanedErrorMsg = NSLocalizedString(@"Sorry, you cannot access this feature. Please check your User Role on this site.", @"");
-    }
-
-    // ignore HTTP auth canceled errors
-    if ([error.domain isEqual:NSURLErrorDomain] && error.code == NSURLErrorUserCancelledAuthentication) {
-        [WPError internalInstance].alertShowing = NO;
-        return;
-    }
-
-    if ([cleanedErrorMsg rangeOfString:@"NSXMLParserErrorDomain"].location != NSNotFound) {
-        cleanedErrorMsg = NSLocalizedString(@"The app can't recognize the server response. Please, check the configuration of your site.", @"");
-    }
-
-    [self showAlertWithTitle:NSLocalizedString(@"Error", @"Generic popup title for any type of error.") message:cleanedErrorMsg];
-}
 
 + (NSDictionary<NSString *,NSString *> *)titleAndMessageFromNetworkingError:(NSError *)error
                                                                desiredTitle:(NSString *)desiredTitle
@@ -86,10 +67,10 @@ NSInteger const SupportButtonIndex = 0;
 
 + (BOOL)showWPComSigninIfErrorIsInvalidAuth:(nonnull NSError *)error {
     if ([error.domain isEqualToString:WordPressComRestApiErrorDomain]) {
-        DDLogError(@"wp.com API error: %@: %@", error.userInfo[WordPressComRestApi.ErrorKeyErrorCode],
+        WPLogError(@"wp.com API error: %@: %@", error.userInfo[WordPressComRestApi.ErrorKeyErrorCode],
                    [error localizedDescription]);
-        if (error.code == WordPressComRestApiErrorInvalidToken || error.code == WordPressComRestApiErrorAuthorizationRequired) {
-            [WordPressAuthenticationManager showSigninForWPComFixingAuthToken];
+        if (error.code == WordPressComRestApiErrorCodeInvalidToken || error.code == WordPressComRestApiErrorCodeAuthorizationRequired) {
+            [ObjCBridge showSigninForWPComFixingAuthToken];
             return YES;
         }
     }
@@ -115,7 +96,7 @@ NSInteger const SupportButtonIndex = 0;
         }
         [WPError internalInstance].alertShowing = YES;
 
-        DDLogInfo(@"Showing alert with title: %@ and message %@", title, message);
+        WPLogInfo(@"Showing alert with title: %@ and message %@", title, message);
         UIAlertController *alertController = [UIAlertController alertControllerWithTitle:title
                                                                                  message:[message stringByStrippingHTML]
                                                                           preferredStyle:UIAlertControllerStyleAlert];
@@ -130,15 +111,12 @@ NSInteger const SupportButtonIndex = 0;
         [alertController addAction:action];
         
         // Add the 'Need help' button only if internet is accessible (i.e. if the user can actually get help).
-        if (showSupport && ReachabilityUtils.isInternetReachable) {
+        if (showSupport) {
             NSString *supportText = NSLocalizedString(@"Need Help?", @"'Need help?' button label, links off to the WP for iOS FAQ.");
-            UIAlertAction *action = [UIAlertAction actionWithTitle:supportText
-                                                             style:UIAlertActionStyleCancel
-                                                           handler:^(UIAlertAction * _Nonnull __unused action) {
-                                                               SupportTableViewController *supportVC = [[SupportTableViewController alloc] init];
-                                                               [supportVC showFromTabBar];
-                                                               [WPError internalInstance].alertShowing = NO;
-                                                           }];
+            UIAlertAction *action = [UIAlertAction actionWithTitle:supportText style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull __unused action) {
+                [ObjCBridge showSupportTableViewController];
+                [WPError internalInstance].alertShowing = NO;
+            }];
             [alertController addAction:action];
         }
         [alertController presentFromRootViewController];

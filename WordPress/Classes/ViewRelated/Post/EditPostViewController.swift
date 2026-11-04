@@ -1,4 +1,7 @@
 import UIKit
+import SwiftUI
+import WordPressData
+import WordPressShared
 
 class EditPostViewController: UIViewController {
 
@@ -9,8 +12,6 @@ class EditPostViewController: UIViewController {
 
     /// appear instantly, without animations
     @objc var showImmediately: Bool = false
-    /// appear with the post epilogue visible
-    @objc var openWithPostPost: Bool = false
     /// appear with media pre-inserted into the post
     var insertedMedia: [Media]? = nil
     /// is editing a reblogged post
@@ -18,18 +19,13 @@ class EditPostViewController: UIViewController {
     /// the entry point for the editor
     var entryPoint: PostEditorEntryPoint = .unknown
 
-    private let loadAutosaveRevision: Bool
-
     @objc fileprivate(set) var post: Post?
     private let prompt: BloggingPrompt?
     fileprivate var hasShownEditor = false
     fileprivate var editingExistingPost = false
     fileprivate let blog: Blog
-    fileprivate lazy var postPost: PostPostViewController = {
-        return UIStoryboard(name: "PostPost", bundle: nil).instantiateViewController(withIdentifier: "PostPostViewController") as! PostPostViewController
-    }()
 
-    @objc var onClose: ((_ changesSaved: Bool) -> ())?
+    @objc var onClose: (() -> ())?
     @objc var afterDismiss: (() -> Void)?
 
     override var modalPresentationStyle: UIModalPresentationStyle {
@@ -47,10 +43,9 @@ class EditPostViewController: UIViewController {
     /// Initialize as an editor with the provided post
     ///
     /// - Parameter post: post to edit
-    @objc convenience init(post: Post, loadAutosaveRevision: Bool = false) {
-        self.init(post: post, blog: post.blog, loadAutosaveRevision: loadAutosaveRevision)
+    @objc convenience init(post: Post) {
+        self.init(post: post, blog: post.blog)
     }
-
 
     /// Initialize as an editor to create a new post for the provided blog
     ///
@@ -73,10 +68,9 @@ class EditPostViewController: UIViewController {
     ///   - post: the post to edit
     ///   - blog: the blog to create a post for, if post is nil
     /// - Note: it's preferable to use one of the convenience initializers
-    fileprivate init(post: Post?, blog: Blog, loadAutosaveRevision: Bool = false, prompt: BloggingPrompt? = nil) {
+    fileprivate init(post: Post?, blog: Blog, prompt: BloggingPrompt? = nil) {
         self.post = post
-        self.loadAutosaveRevision = loadAutosaveRevision
-        if let post = post {
+        if let post {
             if !post.originalIsDraft() {
                 editingExistingPost = true
             }
@@ -88,12 +82,6 @@ class EditPostViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
         modalTransitionStyle = .coverVertical
-        restorationIdentifier = RestorationKey.viewController.rawValue
-        restorationClass = EditPostViewController.self
-
-        addChild(postPost)
-        view.addSubview(postPost.view)
-        postPost.didMove(toParent: self)
     }
 
     required init?(coder: NSCoder) {
@@ -103,34 +91,21 @@ class EditPostViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
 
-        // show postpost, which will be transparent
         view.isOpaque = false
         view.backgroundColor = .clear
-
-        if openWithPostPost {
-            showPostPost()
-        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 
-        if !openWithPostPost && !hasShownEditor {
+        if !hasShownEditor {
             showEditor()
             hasShownEditor = true
         }
     }
 
-    override var preferredStatusBarStyle: UIStatusBarStyle {
-        if openWithPostPost {
-            return .darkContent
-        } else {
-            return WPStyleGuide.preferredStatusBarStyle
-        }
-    }
-
     fileprivate func postToEdit() -> Post {
-        if let post = post {
+        if let post {
             return post
         } else {
             let newPost = blog.createDraftPost()
@@ -143,41 +118,99 @@ class EditPostViewController: UIViewController {
     // MARK: - Show editor by settings and post
 
     fileprivate func showEditor() {
-        let editor = editorFactory.instantiateEditor(
-            for: postToEdit(),
-            loadAutosaveRevision: loadAutosaveRevision,
-            replaceEditor: { [weak self] (editor, replacement) in
-                self?.replaceEditor(editor: editor, replacement: replacement)
-        })
-        editor.postIsReblogged = postIsReblogged
-        editor.entryPoint = entryPoint
-        showEditor(editor)
+        let post = postToEdit()
+
+        // Check if application password is required for this post
+        if editorFactory.requiresApplicationPasswordForEditor(post: post) {
+            showApplicationPasswordRequired(for: post)
+        } else {
+            // Proceed with normal editor instantiation
+            let editor = editorFactory.instantiateEditor(
+                for: post,
+                replaceEditor: { [weak self] editor, replacement in
+                    self?.replaceEditor(editor: editor, replacement: replacement)
+            })
+            editor.postIsReblogged = postIsReblogged
+            editor.entryPoint = entryPoint
+            showEditor(editor)
+        }
+    }
+
+    private func showApplicationPasswordRequired(for post: Post) {
+        let feature = NSLocalizedString(
+            "applicationPasswordRequired.feature.blockEditor",
+            value: "Block Editor",
+            comment: "Feature name for the block editor in application password required prompt"
+        )
+
+        let applicationPasswordView = ApplicationPasswordRequiredView(
+            blog: post.blog,
+            localizedFeatureName: feature,
+            source: "block_editor",
+            presentingViewController: self
+        ) { [weak self] _ in
+            // Once authenticated, dismiss the application password view and show editor
+            guard let self else { return EmptyView() }
+
+            let editor = self.editorFactory.instantiateEditor(
+                for: post,
+                replaceEditor: { [weak self] editor, replacement in
+                    self?.replaceEditor(editor: editor, replacement: replacement)
+            })
+            editor.postIsReblogged = self.postIsReblogged
+            editor.entryPoint = self.entryPoint
+
+            // Dismiss application password view, then present the editor
+            self.dismiss(animated: true) {
+                self.showEditor(editor)
+            }
+
+            return EmptyView()
+        }
+
+        let hostingController = UIHostingController(rootView: applicationPasswordView)
+
+        hostingController.navigationItem.leftBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .close,
+            target: self,
+            action: #selector(dismissApplicationPasswordView)
+        )
+
+        let navController = AztecNavigationController(rootViewController: hostingController)
+        navController.modalPresentationStyle = .fullScreen
+        navController.view.backgroundColor = .systemBackground
+
+        present(navController, animated: !showImmediately)
+    }
+
+    @objc private func dismissApplicationPasswordView() {
+        // Dismiss the ApplicationPasswordRequiredView, then close the entire EditPostViewController
+        // since there's no meaningful content to show without the editor
+        dismiss(animated: true) { [weak self] in
+            self?.closeEditor()
+        }
     }
 
     private func showEditor(_ editor: EditorViewController) {
-        editor.onClose = { [weak self, weak editor] changesSaved, showPostEpilogue in
-            guard let strongSelf = self else {
+        editor.onClose = { [weak self, weak editor] in
+            guard let self else {
                 editor?.dismiss(animated: true) {}
                 return
             }
-
-            // NOTE:
-            // We need to grab the latest Post Reference, since it may have changed (ie. revision / user picked a
-            // new blog).
-            if changesSaved {
-                strongSelf.post = editor?.post as? Post
-            }
-            strongSelf.closeEditor(changesSaved, showPostEpilogue: showPostEpilogue)
+            self.closeEditor()
         }
 
         let navController = AztecNavigationController(rootViewController: editor)
         navController.modalPresentationStyle = .fullScreen
+        navController.view.backgroundColor = .systemBackground
 
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.prepare()
 
-        postPost.present(navController, animated: !showImmediately) {
-            generator.impactOccurred()
+        present(navController, animated: !showImmediately) {
+            if !(editor is NewGutenbergViewController) {
+                generator.impactOccurred()
+            }
 
             if let insertedMedia = self.insertedMedia {
                 editor.prepopulateMediaItems(insertedMedia)
@@ -192,95 +225,24 @@ class EditPostViewController: UIViewController {
         }
     }
 
-    @objc func closeEditor(_ changesSaved: Bool = true, showPostEpilogue: Bool, from presentingViewController: UIViewController? = nil) {
-        onClose?(changesSaved)
-
-        var dismissPostPostImmediately = true
-        if showPostEpilogue && shouldShowPostPost(hasChanges: changesSaved) {
-            showPostPost()
-            dismissPostPostImmediately = false
-        }
-
+    @objc func closeEditor(from presentingViewController: UIViewController? = nil) {
+        onClose?()
         dismiss(animated: true) {
-            if dismissPostPostImmediately {
-                self.closePostPost(animated: false)
-            }
+            self.closeEditor(animated: false)
         }
     }
 
-    private func showPostPost() {
-        guard let post = post else {
-            return
-        }
-
-        postPost.setup(post: post)
-        postPost.hideEditButton = isPresentingOverEditor()
-        postPost.onClose = {
-            self.closePostPost(animated: true)
-        }
-        postPost.reshowEditor = {
-            self.showEditor()
-        }
-        postPost.preview = {
-            self.previewPost()
-        }
-    }
-
-    /// - Returns: `true` if `self` was presented over an existing `EditPostViewController`, otherwise `false`.
-    private func isPresentingOverEditor() -> Bool {
-        guard
-            let aztecNavigationController = presentingViewController as? AztecNavigationController,
-            aztecNavigationController.presentingViewController is EditPostViewController
-        else {
-            return false
-        }
-        return true
-    }
-
-    @objc func shouldShowPostPost(hasChanges: Bool) -> Bool {
-        guard let post = post else {
-            return false
-        }
-        if openWithPostPost {
-            return true
-        }
-        if editingExistingPost {
-            return false
-        }
-        if postPost.revealPost {
-            return true
-        }
-        if post.originalIsDraft() {
-            return false
-        }
-        return hasChanges
-    }
-
-    @objc func previewPost() {
-        guard let post = post else {
-            return
-        }
-
-        let controller = PreviewWebKitViewController(post: post, source: "edit_post_preview")
-        controller.trackOpenEvent()
-        let navWrapper = LightNavigationController(rootViewController: controller)
-        if postPost.traitCollection.userInterfaceIdiom == .pad {
-            navWrapper.modalPresentationStyle = .fullScreen
-        }
-        postPost.present(navWrapper, animated: true) {}
-    }
-
-    @objc func closePostPost(animated: Bool) {
+    @objc func closeEditor(animated: Bool) {
         // this reference is needed in the completion
         let presentingController = self.presentingViewController
         // will dismiss self
         dismiss(animated: animated) { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 return
             }
             self.afterDismiss?()
-            guard let post = self.post,
-                  post.isPublished(),
+            guard let post = self.post?.getOriginal(),
+                  post.status == .publish,
                   !self.editingExistingPost,
                   let controller = presentingController else {
                 return
@@ -295,36 +257,49 @@ class EditPostViewController: UIViewController {
 }
 
 // MARK: - State Restoration
-//
-extension EditPostViewController: UIViewControllerRestoration {
-    enum RestorationKey: String {
-        case viewController = "EditPostViewControllerRestorationID"
-        case post = "EditPostViewControllerPostRestorationID"
-    }
 
-    class func viewController(withRestorationIdentifierPath identifierComponents: [String],
-                              coder: NSCoder) -> UIViewController? {
-        guard let identifier = identifierComponents.last, identifier == RestorationKey.viewController.rawValue else {
+extension EditPostViewController {
+    static func restore() -> UIViewController? {
+        wpAssert(Thread.isMainThread)
+
+        guard let value = UserDefaults.standard.string(forKey: restorationBlogURLKey),
+              let postURL = URL(string: value) else {
+            return nil
+        }
+        UserDefaults.standard.removeObject(forKey: restorationBlogURLKey)
+        restorationDate = Date()
+
+        let context = ContextManager.shared.mainContext
+        guard let postID = context.persistentStoreCoordinator?.safeManagedObjectID(forURIRepresentation: postURL),
+              let object = try? context.existingObject(with: postID),
+              let post = (object as? AbstractPost)?.latest() else {
             return nil
         }
 
-        let context = ContextManager.sharedInstance().mainContext
-
-        guard let postURL = coder.decodeObject(forKey: RestorationKey.post.rawValue) as? URL,
-            let postID = context.persistentStoreCoordinator?.managedObjectID(forURIRepresentation: postURL),
-            let post = try? context.existingObject(with: postID),
-            let reloadedPost = post as? Post
-            else {
-                return nil
-        }
-
-        return EditPostViewController(post: reloadedPost)
-    }
-
-    override func encodeRestorableState(with coder: NSCoder) {
-        super.encodeRestorableState(with: coder)
-        if let post = post {
-            coder.encode(post.objectID.uriRepresentation(), forKey: RestorationKey.post.rawValue)
+        switch post {
+        case let post as Post:
+            return EditPostViewController(post: post)
+        case let page as Page:
+            return EditPageViewController(page: page)
+        default:
+            wpAssertionFailure("unexpected post type", userInfo: [
+                "post_type": type(of: post)
+            ])
+            return nil
         }
     }
+
+    static func encode(post: AbstractPost) {
+        wpAssert(Thread.isMainThread)
+
+        if let restorationDate, Date().timeIntervalSince(restorationDate) < 0.5 {
+            return // Appears to be crashing repeatedly
+        }
+        let postURL = post.getOriginal().objectID.uriRepresentation().absoluteString
+        UserDefaults.standard.set(postURL, forKey: restorationBlogURLKey)
+    }
+
+    private static var restorationDate: Date?
+
+    private static let restorationBlogURLKey = "EditPostViewControllerRestorationBlogURLKey"
 }

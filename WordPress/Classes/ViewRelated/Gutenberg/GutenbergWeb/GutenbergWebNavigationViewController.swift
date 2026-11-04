@@ -1,4 +1,7 @@
+import UIKit
 import Gutenberg
+import WordPressData
+import WordPressShared
 
 class GutenbergWebNavigationController: UINavigationController {
     private let gutenbergWebController: GutenbergWebViewController
@@ -34,7 +37,7 @@ class GutenbergWebNavigationController: UINavigationController {
 
         guard let menuViewControllerClass = NSClassFromString("UIDocumentMenuViewController"), // Silence deprecation warning.
             viewControllerToPresent.isKind(of: menuViewControllerClass),
-            UIDevice.current.userInterfaceIdiom == .phone
+            traitCollection.userInterfaceIdiom == .phone
         else {
             return
         }
@@ -61,7 +64,7 @@ extension GutenbergWebNavigationController: GutenbergWebDelegate {
     }
 
     func webController(controller: GutenbergWebSingleBlockViewController, didLog log: String) {
-        DDLogVerbose(log)
+        DDLogVerbose("\(log)")
     }
 
     private func dismiss(webController: GutenbergWebSingleBlockViewController) {

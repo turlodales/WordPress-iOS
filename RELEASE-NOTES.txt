@@ -1,7 +1,534 @@
+27.5
+-----
+* [*] Plugins: Fix plugin descriptions being unreadable in dark mode and the Watch on YouTube button not responding [#26330]
+* [*] Plugins: Fix YouTube videos in plugin descriptions showing a player error and running off the screen [#26327]
+* [***] The app now requires iOS 18 or later. Devices running iOS 17 no longer receive app updates [#26154]
+* [*] Keep profile pictures up to date across the app after changing your Gravatar [#26163]
+* [*] Fix tab bar titles showing truncated and misaligned on iOS 26 [#26162]
+* [*] Reader: Load related post thumbnails and other images whose address redirects [#26296]
+* [*] Reader: Show a name for every subscription, including sites the app cannot load [#26274]
+* [*] Share Extension: Fix a crash when sharing a photo [#26251]
+* [*] Site Creation: Keep the design list's place when the iPad window is resized [#26224]
+* [*] iPad: Fix an open editor or Site Creation closing the first time the window is narrowed [#26223]
+* [*] Fix the preview of a self-hosted post opened from Spotlight closing a second after it opens [#26223]
+* [*] iPad: Fix notices being cut off or covering the tab bar after resizing the app window [#26204]
+* [*] Reader: Fix the spacing around headings in posts [#26170]
+* [*] Stats: Fix the back button missing on iPhone Duo and on Plus and Pro Max iPhones in landscape [#26207]
+* [**] iPad and large iPhones: Screens now adapt to the app window's size in split view, Stage Manager and landscape, not the device type [#26201]
+* [*] Experimental editor: Recover from editor crashes, and ask before saving while media is still uploading [#26267]
+
+
+27.4
+-----
+* [*] Reader: Fix inline images appearing blank on iOS 27 [#26120]
+* [*] iPad: Fix the app getting stuck in the compact tab bar layout after resizing or switching apps [#26123]
+* [*] Reader: Fix post tag outlines almost disappearing after switching between light and dark mode [#26168]
+* [*] Reader: Fix some article toolbar icons turning white after liking a post on iOS 26 [#26169]
+* [*] Reader: Make the article toolbar buttons easier to see over images on iOS 26 and later [#26176]
+* [*] Reader: Fix the rest of a post disappearing after an iframe added without a wrapper, such as a Google Calendar embed in a Custom HTML block [#26181]
+* [*] Site Creation: Keep the design list's place when the iPad window is resized [#26224]
+* [*] iPad: Fix an open editor or Site Creation closing the first time the window is narrowed [#26223]
+* [*] Fix the preview of a self-hosted post opened from Spotlight closing a second after it opens [#26223]
+* [*] iPad: Fix notices being cut off or covering the tab bar after resizing the app window [#26204]
+* [*] Stats: Fix the back button missing on iPhone Duo and on Plus and Pro Max iPhones in landscape [#26207]
+* [**] iPad and large iPhones: Screens now adapt to the app window's size in split view, Stage Manager and landscape, not the device type [#26201]
+
+27.3
+-----
+* [*] Accessibility: VoiceOver now announces which post categories are selected [#25737]
+* [*] Stats: Improve performance when opening the Stats screen [#25938]
+* [*] [internal] Stop donating screen activities as Siri predictions now that App Shortcuts cover them [#25757]
+* [*] Fix an issue where the Reader tab and Me tab show incorrect state after logging out [#25952]
+* [*] Stats: Open the latest post when tapping the Latest Post Summary card in the Insights tab [#25896]
+* [*] Site menu: Hide Application Passwords for WordPress.com sites that don't support them
+
+27.2
+-----
+* [*] Reader: Fix YouTube videos embedded in comments showing a player error instead of the video [#25929]
+* [*] Fix an issue where an https self-hosted site's application password could be sent over insecure http when using its REST API [#25914]
+* [*] Custom Post Types: Make custom post types with REST API and editor support available in My Site [#25849]
+* [*] Stop the media picker from removing gallery images when you cancel it in the experimental editor [#25866]
+* [*] Stats: Fix the screen getting stuck on a loading indicator for self-hosted sites that are not connected to Jetpack [#25858]
+* [*] Fix an issue where XML-RPC credentials for an https self-hosted site could be sent over insecure http [#25869]
+* [*] Stats: Fix an issue where new post may not appear in the Subscribers -> Emails card [#25895]
+* [*] [internal] Experimental Gutenberg editor: add a per-site "Use Third-Party Blocks (Beta)" toggle to Site Settings, matching Android [#25889]
+* [*] Fixes an isuse where back up logs incorrectly show up in some Personal plan sites
+
+27.1
+-----
+* [*] [internal] Experimental Gutenberg editor: add Lockdown Mode detection [#25776]
+* [*] [internal] In-app updates: guard the flexible update notice against double-posting when two update checks race [#25666]
+* [*] [build tooling] Add a String Catalog localization pipeline (plurals + build-free catalog generation) with a CI coverage gate [#25688]
+* [*] [internal] Stats widgets: migrate the site picker from SiriKit to App Intents [#25753]
+* [*] Fix categories and tags not working on self-hosted sites with XML-RPC disabled [#25767]
+* [*] Fix Blogging Reminders text color in dark mode [#25780]
+* [*] Share extensions: Fix the site picker showing an error while sites are still loading [#25798]
+* [*] Share Extension: Fix a crash after uploading a post to WordPress.com [#25773]
+* [*] Add App Shortcuts for creating a post and opening Notifications, Stats, and the Reader from Siri, Spotlight, and the Shortcuts app [#25754]
+
+
+27.0
+-----
+* [*] Remove the Free GIF Library media source. The Tenor service it relied on shuts down on June 30, 2026 [#25634]
+* [*] [internal] Jetpack Social: use new publicize API to support Jetpack Social [#25587]
+
+26.9
+-----
+* [*] All self-hosted sites now sign in using application passwords [#25424]
+* [*] Comments: Fix "Trash" trailing action not updating the status of the comments cached on the device [#25485]
+* [*] Stats: Add a confirmation dialog when marking referrers as spam [#25475]
+* [*] Stats: Fix timezone label showing "Standard Time" during daylight saving time - thanks @btraviswright for the report! [#25495]
+* [*] Reader: Fix an issue with Article screen not updating comments if comment is posted from inline section [#25483]
+* [*] Reader: Fix button style [#25447]
+* [*] Reader: Add smart cropping for featured images in the feed so it never cut the heads off [#25451]
+* [*] Reader: Fix separator not visible in Dark Mode for comments [#25466]
+* [*] Reader: Fix an issue with "Notificaton Settings" showing incorrect state right after subscribing [#25459]
+* [*] Reader: Fix an issue with "Notificaton Settings" button shown when you are not subscribed [#25459]
+* [*] Reader: Fix a regression with anchors not working in posts [#25459]
+* [*] Reader: Fix an issue with Subscribe button not working for Freshly Pressed posts [#25476]
+* [*] Reader: Fix an issue with empty state not disappearing on Reader Comments view after you post a comment [#25484]
+* [*] Reader: Fix an issues with Reader failing to clear cached comments if all the comments are deleted [#25482]
+* [*] Reader: Fix an issue with the article view removing autoplay without showing controls [#25468]
+* [*] Menus: Fix an issue with footer view in Menu Editing not resizing [#25481]
+* [*] About screen: Remove the non-functional Twitter/X link - thanks @zynp-KC for reporting! [#25496]
+* [*] Notifications: Attempt to fix incorrect avatars in the notifications [#25501]
+
+26.8
+-----
+* [*] Enrich push notifications with icons [#25346]
+* [*] Fix an issue Social Sharing placeholder card showing unsupported services [#25336]
+* [*] Stats: Include Today in "Last X" intervals like "Last 7 days" [#25361]
+* [*] Stats: Add new "Last 14 days" period [#25361]
+* [*] Stats: The incomplete dates (include today) are displayed using dotted line on a line chart and are more visible on a bar chart too [#25361]
+* [*] Stats: Fix an issue where tapping on a bar in a bar chart would somtimes select an adjacent bar [#25374]
+* [*] Stats: Improve bar selection. When you tap on a bar, it will now select this subrange without fully navigating it, which makes it much easier to go through multiple subranges. [#25374]
+* [*] Stats: Usability improvements [#25404]
+* [*] Stats: Show the anouncemnet and enable by default [#25411]
+* [*] Reader: Fix an issue with the "Comments" screen sometimes failing to scroll to the comment selected from the "Notifications" [#25389]
+* [*] Reader: Fix an issue with pan gesture failing to dismiss Lightbox [#25372]
+* [*] Reader: Fix color of links in comments [#25390]
+* [*] Reader: Fix color or links in dark mode on custom themes [#25391]
+* [*] Reader: Fix "Leave Comment" button wrong background color with a custom reading theme [#25412]
+* [*] Reader: Add support for viewing media galleries fullscreen with a way to swipe between images [#25365]
+* [*] Notifications: Fix navigational buttons spacing [#25401]
+* [*] [internal] Fix retain cycle in Reader Article screen [#25364]
+* [*] Fix incorrect default Post Format in new posts [#25369]
+* [*] Posts and Pages are available to XMLRPC-disable sites [#25382]
+* [*] Activity Log: Show when actions were performed by an MCP agent [#25397]
+* [*] Fix post list preview showing an extra blank line when content contains paragraph separators [#25349]
+
+26.7
+-----
+* [**] Stats: Add new "Adds" tab to show WordAdds earnings and stats [#25165]
+* [*] For sites that are authenticated with application passwords, the app no longer requires xml-rpc to be enabled. But in that scenario, only limited features are available: XML-RPC needs to be enabled to use all features. [#25183]
+* [**] Stats: Add "Devices" view to the "Traffic" tab [#25176]
+* [**] Stats: Add "UTM" view to the "Traffic" tab [#25178]
+* [*] Stats: Fix a few issues with charts (x axis labels alignment, occasionally incorrect displayed date period, and more) [#25185]
+* [*] Stats: the "Post Stats" screen will now automatically show "Last 7 days" instead of attempting to show unavailable hourly data when "Today" or other "day" period is selected [#25210]
+* [*] Stats: Minor design improvements and simplifcations [#25215], [#25214]
+* [*] Insights: Fix empty posting activity [#25219]
+* [*] Activity Logs: Minor visual improvements [#25220]
+* [*] Reader: The post tags are now displayed in the original order [#25229]
+* [*] Notifications: Fix notifications sometimes displaying wrong avatars [#25265]
+* [*] A new experimental feature: Custom Post Types. [#25267]
+
+
+26.6
+-----
+* [**] Intelligence: Expand AI-based features to more locales [#25034]
+* [**] Reader: Add "Freshly Pressed" to Discover [#24828]
+* [*] Reader: Fix Send button design in Comments [#25092]
+* [*] Rename "Recommended" to "For You" [#25123]
+* [*] Reader: Fix article view ignoring `use_excerpt` [#25108]
+* [*] Reader: Add translation support for posts [#25089]
+* [*] Reader: Collapse multiple spaces in site titles into one [#25094]
+* [*] Reader: Add a "Leave Comment" button to directly to the "Comments" under the article (one less tap to leave a comment) [#25155]
+* [*] Reader: You can now reply and like the comments directly under the artile and see more of them [#25155]
+* [*] Reader: Collapse very long comments so it's easier to navigate large comment threads [#25155]
+* [*] Reader: Fix an issue where in rare scenarios comments would be displayed with a wrong height [#25156]
+* [*] Post Settings: Fix post Visibility discoverability [#25127]
+* [*] Post Settings: Fix an issue with button "Done" sometimes disappearing when you entering password for post when publishing [#25138]
+* [*] Post Settings: Show the selected value for the "Access" field [#25138]
+* [*] Fix previewing posts on WordPress.com atomic sites [#25045]
+* [**] Stats: Add Country/Region/City picker to the Locations card [#25125]
+* [*] Stats: Rename "External Links" to "Clicks" to be consistent with the web [#25090]
+* [*] Stats: Add an option to disable automatic comparisons and remember the selection across launches [#25143]
+* [*] Stats: Add long-press support for bars in a "Bar Chart" view [#25133]
+* [*] Stats: Fix an issue where bar chart would prevent vertical scroll [#25133]
+* [*] Stats: Fix an issue with External Links (Clicks) sometimes displayed incorrectly [#25128]
+* [*] Stats: Fix locations data discrepancy with the web [#25105]
+* [*] Stats: Add days/weeks/months/years picker for bar and line charts [#25093]
+* [*] Stats: Fix an issue with weekly data for the comparison period sometimes not being shown correctly [#25093]
+* [*] Stats: Fix ordering of Top List items with the same metrics – sort by name [#25135]
+* [*] Techical: Remove obsolete Core Data models to slightly reduce the app size (-6.4 MB) [#25124]
+* [*] Update some illustrations, app shortcut icons, and more to better match the system [#25141], [#25115], [#25140], [#25122]
+* [*] Site Picker -> Add self-hosted sites now uses Application Password authentication [#25148]
+
+
+26.5
+-----
+* [*] Add "Status" field to the "Post Settings" screen to make it easier to move posts from one state to another [#24939]
+* [*] Add "Publish Date" back to "Post Settings" for draft and pending posts [#24939]
+* [*] Use "Menlo" font for the password field to make it easier to distinguish between characters like `0` and `0`  [#24939]
+* [*] Add "Access" section to "Post Settings" [#24942]
+* [*] Add "Discussion" to "Post Settings" [#24948]
+* [*] Add "File Size" to Site Media Details [#24947]
+* [*] Fix an issue with posts duplicated in Discover [#25015]
+* [*] Add "Email to Subscribers" row to "Publishing" sheet [#24946]
+* [*] Add permalink preview in the slug editor and make other improvements [#24949]
+* [*] Add two accessible font sizes to Reader display settings [#25013]
+* [*] Fix an issue with Reader failing to parse some search results [#25022]
+* [*] Fix search for RSS feeds in Reader [#25023]
+* [*] Add "Taxonomies" to Site Settings [#24955]
+* [*] Update "Categories" picker to indicate multiple selection [#24952]
+* [*] Fix a bug where the app can't access some Jetpack connected sites [#24976]
+* [*] Add support for editing custom taxonomy terms from "Post Settings" [#24964]
+* [*] Fix a bug where the app can't access some Jetpack connected sites [#24976]
+* [*] Add support for editing custom taxonomy terms from "Post Settings" [#24964]
+* [*] Fix overly long related post titles in Reader [#25011]
+* [*] Increase number of lines for post tiles in Reader to three [#25019]
+* [*] Fix horizontal insets in Reader article view [#25010]
+* [*] Fix an issue with duplicated subscriptions for Jetpack-connected sites [#25026]
+* [*] Fixed several reader bugs causing posts to load strangely, or not at all [#25016]
+
+26.4
+-----
+* [**] [New Stats] Add "Today" card [#24898]
+* [**] [Intelligence] Add support for generating excerpts for posts [#24852]
+* [**] [Intelligence] Add auto-suggested tags for posts [#24886]
+* [**] [Intelligence] Add "Summarize Post" features in Reader [#24892]
+* [*] Fix a few minor visual issues on iOS 26 [#24863], [#24863], [#24901], [#24865], [#24866], [#24867], [#24890], [#24899]
+* [*] Fix an issue with "Homepage" not shown in Top List in New Stats [#24902]
+* [*] Fix an issue with themes in Reader [#24881]
+* [*] Fix an issue with Reader article rendering when iOS "Display Zoom" is enabled [#24895]
+* [*] Fix an issue with "Add Media" button not visible in "Media" under some scenarios [#24900]
+* [*] Fix performance issues with search in Reader Subscriptions [#24841]
+* [*] Fix New Stats layout not adapting for resizing windows [#24908]
+* [*] Fix rare crash in Stats / Subscribers [#24907]
+* [*] Fix an issue with toolbar in Reader articles sporadically reappearing [#24896]
+* [*] Improve performance and animations when showing a full Top List with a large number of items [#24868]
+* [*] Fix an issue with New Stats resetting the preferred preset after selecting a custom range [#24899]
+* [*] Show the Top 10 and 50 items in the Top List screen in a dedicated section [#24868]
+* [*] Add pull-to-refresh to the new Traffic tab [#24898]
+* [*] Improve the "Tags" picker in "Post Settings" [#24883]
+
+26.3.1
+------
+* [*] Fix an issue with Top Posts not loading for some users [#24860]
+* [*] Fix crash in Reader Article view [#24857]
+* [*] Fix more minor visual glitches on iOS 26 [#24858]
+
+26.3
+-----
+* [*] Fix a rare crash when scrolling the Reader sidebar [#24816]
+* [*] Fix an issue with Notification Settings button not working in the Reader Subscriptions context menus for subscriptions [#24778]
+* [*] Fix an issue with tooltip in bar charts in Stats preventing scrolling [#24822]
+* [*] Fix rare crash in Reader when loading posts [#24815]
+
+26.2
+-----
+* [*] New Stats: Add support for selecting dates directly from the bar chart [#24768]
+* [*] New Stats: Add support for "weeks" granularity [#24767]
+* [*] New Stats: Fix an issue with bar chart showing incorrect labels depending on the site reporting time zone [#24768]
+* [*] New Stats: Fix an issue with date controls clipped on Touch ID devices [#24773]
+* [*] New Stats: Fix dark mode support in custom range picker [#24770]
+* [*] New Stats: Fix edit card menu shown in the wrong places [#24774]
+* [*] Fix Split View mode on iPad on some scenarios in portrait mode [#24705]
+
+26.1
+-----
+* [*] Remove global error popups from the site dashboard [#24707]
+* [*] Fix crash when saving raw block editor settings [#24711]
+* [*] Fix app hang when opening Posts or Pages [#24728]
+
+26.0
+-----
+* [**] Add new “Subscribers” screen that shows both your email and Reader subscribers [#24513]
+* [*] Improve search in TimeZone Picker for more accurate results [#24612]
+* [*] Add new "Author Picker" for "Post Settings" with search and better design [#24621]
+* [*] Fix an issue with “Stats / Subscribers” sometimes not showing the latest email subscribers [#24513]
+* [*] Fix an issue with "Stats" / "Subscribers" / "Emails" showing html encoded characters [#24513]
+* [*] Add search to “Jetpack Activity List” and display actors and dates [#24597]
+* [*] Fix an issue with content in "Restore" and "Download Backup" flows covering the navigation bar [#24597]
+* [*] Show when the downloadable backup expires in Backup List [#24597]
+* [*] Fix incorrectly capitalized tag "WordPress" in Reader [#24649]
+* [*] Fix an issue with domains sometimes being incorrectly sorted on the "Domain Search" screen [#24631]
+* [*] Fix a couple of visual issues in Post List [#24647]
+* [*] Fix an issue where the empty state view covering top tabs on the "Users" screen [#24659]
+* [*] Fix an issue with invisible "Super Admin" badge on the "Users" screen [#24659]
+* [*] Fix the "network connection lost" issue [#24661]
+
+25.9
+-----
+
+* [*] Fix YouTube video embedded in comments [#24482]
+* [*] Show Comment Details screen when viewing a comment from Notifications (as opposed to opening the thread that often fails to scroll to the selected comment) [#24476]
+* [*] Minor improvementes to the Comment Details screen [#24484]
+* [*] Fix an issue with unedited draft pages created from templates failing to generate a preview [#24470]
+* [*] Fix and issue Stats showing stale unique visitors count when views are updated [#24356]
+* [*] Fix a crash on iPad after deleting the last site [#24241]
+* [*] Fix an issue with an app not syncing blogs on launch which would sometimes lead to it incorrectly showing an empty state view or deleted sites [#24243]
+* [*] Add a banner on Me tab to ask user to validate their email [#24172]
+* [*] Updated site display logic in sidebar to prioritize showing the currently selected site on iPad. [#24277]
+
+25.8
+-----
+* [**] The comments are now displayed using the same styles across the app and with better support for rich comments, especially for P2 sites [#24055]
+* [**] The comment composer now opens fullscreen, shows previews of the comment you are replying to, supports savings drafts, and clearly communicates the upload state and errors [#24075]
+* [*] Add depth indicators for comment threads to make them easier to follow [#24117]
+* [*] Enable dismissing the virtual keyboard in the experimental editor [#23988]
+* [*] Fix an issue with some featured images missing in Reader [#24137]
+* [*] Remove Submit Feedback form from the Me menu [#24020]
+* [*] Update iconography in Reader to match WordPress design system [#24132]
+* [*] Fix unselectable group blocks in the experimental editor [https://github.com/wordpress-mobile/GutenbergKit/pull/68]
+* [*] Prevent a intermittent crash when opening the experimental editor's "more" menu [#24065]
+* [*] Fix an issue with follow/unfollow buttons not working for tags [#24130]
+* [*] Fix an issue with tag header using incorrect copy for follow/unfollow button [#24130]
+* [*] Add a context menu for tags in the Reader menu [#24130]
+* [*] Fix incorrect background color for draft post cells on dashboard [#24080]
+* [*] Fix an issue with comments sometimes displaying black text on black background in dark mode [#23536]
+* [*] Fix broken header view visible when post is loading [#24123]
+* [*] Fix incorrect sizing of images and other attachments in comments [#19943]
+* [*] Fix P2 Comments: Empty list item appears after embedded lists [#18690]
+* [*] Fix Reader Comments: Reply button is hidden when pasting long text (the ap now uses a sheet) [#17964]
+* [*] Fix Reader Comments: Cells could sometimes be displayed overlapping another cell [#17653]
+* [*] Fix Notifications: quote blocks in the Reply screen are not styled correctly [#13971]
+* [*] Fix an issue with "Follow Conversation" button not visible on some P2s [#24135]
+* [*] Fix an issue with "Enable Comments Notifications" button being visible and not working correctly on some P2s [#24135]
+* [*] Fix Notifications pointing to large threads sometimes break the app [#23993]
+* [*] Fix an issue with search results disappearing after returning from site details [#24121]
+* [*] Fix Reader: Opening comments is slow [#21887]
+* [*] Fix an issue with comments button being disabled when shown from Comments or Notifications [#24120]
+* [*] Fix unexpected "unsaved changes" notice when closing an un-edited post containing media in the experimental editor [#24102]
+* [*] Add "Notification Settings" bell to the "Site Details" screen [#24134]
+* [*] Fix an issue where the "Notifications Settings" bell for site subscriptions was not updated after the changes [#24134]
+* [*] Update the logic behind the bell. It now show the "bell with waves" when push notifications are enabled [#24134]
+* [*] Add a user profile view that shows when you tap on a comment author. [#24139]
+* [*] Add a "Comments Closed" view and disable the "Add Comment" button instead of hiding it in case the comments are closed [#24139]
+* [*] Fix an issue with subscribers fully reloading after closing details making the screen unusable. [#24139]
+* [*] Fix an issue with “Info” button on comments not available until your approve the comment, defeating the purpose [#24139]
+
+25.7
+-----
+* [**] Add Image Playground support (part of Apple Intelligence suite) for adding images to your posts, generated featured image, site icons, and more [#23688]
+* [**] Enable history navigation (undo and redo) for the experimental editor. [#23961]
+* [**] Various bug fixes and improvements in the new experimental editor [#23919]
+* [**] Enhance the Gravatar Quick Editor by adding features that allow users to delete and share their avatars. [#23868]
+* [**] Add new lightbox screen for images with modern transitions and enhanced performance [#23922]
+* [**] Add the capability to create an avatar using Apple Image Playground through the Gravatar Quick Editor. [#23868]
+* [*] Fix sorting in Stats Subscriber Emails (latest first) [#23913]
+* [*] Reader: Fix a couple of rare crashes in Reader [#23907]
+* [*] Add prefetching to Reader streams [#23928]
+* [*] Reader: The post cover now uses the standard aspect ratio for covers, so there is no jumping. There are also a few minor improvements to the layout and animations of the cover and the header [#23897, #23909]
+* [*] Reader: Move the "Reading Preferences" button to the "More" menu [#23897]
+* [*] Reader: Fix an issue with empty state views being non-scrollable in streams [#23908]
+* [*] Reader: Hide post toolbar when reading an article and fix like button animations [#23909]
+* [*] Reader: Fix off-by-one error in post details like counter when post is liked by you [#23912]
+* [*] Fix an issue with blogging reminders prompt not being shown after publishing a new post [#23930]
+* [*] Fix transitions in Blogging Reminders flow, improve accessibility, add close buttons [#23931]
+* [*] Fix an issue with compliance popover not dismissing for self-hosted site [#23932]
+* [*] Fix dynamic type support in the compliance popover [#23932]
+* [*] Improve transisions and interactive dismiss gestures for sheets [#23933]
+* [*] Add "Share" action to site link context menu on dashboard [#23935]
+* [*] Fix layout issues in Privacy Settings section of App Settings [#23936]
+* [*] Fix incorrect chevron icons direction in RTL languages [#23940]
+* [*] Fix an issue with clear navigation bar background in revision browser [#23941]
+* [*] Fix an issue with comments being lost on request failure [#23942]
+* [*] Fix an issue with Referrers in Stats showing invalid icons [#23943]
+* [*] Integrate zoom transitions in Themes, Reader [#23945, #23947]
+* [*] Fix an issue with site icons cropped in share extensions [#23950]
+* [*] Show selected filter in the Discover navigation bar [#23956]
+* [*] Enable fast deceleration for filters on the Discover tab [#23954]
+* [*] Disable universal links support for QR code login. You can only scan the codes using the app now. [#23953]
+* [*] Add scroll-to-top button to Reader streams [#23957]
+* [*] Add a quick way to replace a featured image for a post [#23962]
+* [*] Fix an issue with posts in Reader sometimes showing incorrect covers [#23914]
+* [*] Fix non-stable order in Posts and Pages section in Stats [#23915]
+* [*] (P2) Reader: Fix an issue with a missing "Mark as Read/Unread" button that was removed in the previous release [#23917]
+* [*] (P2) Reader: Show "read" status for P2 posts in the feeds [#23917]
+* [*] Fix some missing or invalid social sharing icons [#23918]
+* [*] Fix small tap area for “More” button in the Subscriptions screen in Reader [#23964]
+* [*] Fix “Notification Settings” for individual posts sometimes being clipped [#23964]
+* [*] Add context menu (long-press) and previews for subscriptions with quick access to “Share”, “Copy Link”, “Add to Favorites”, “Notification Settings”, and “Unsubscribe” buttons in both the Subscriptions view and the Sidebar in Reader [#23964]
+* [*] Fix an issue with fullscreen button in reply view clipped by the notch [#23965]
+* [*] Remove "Lazy Images" option that is no longer part of the Jetpack plugin [#23966]
+* [*] Fix an issue with "Speed up your site" section not refreshing (fails silently) [#23966]
+* [*] Fix an issue with small tap area of the ellipsis in the post list [#23973]
+* [*] Avoid unexpectedly marking post content as unsaved. [#23969]
+* [*] Fix an issue with Mastodon connection not working [#23981]
+* [**] Send feedback from within the experimental editor "more" options menu. [#23980]
+* [**] Support accessing the code editor within the experimental editor. [#23979]
+* [*] Fix WKWebView retain cycle in Reader [#24028]
+
+25.6
+-----
+* [*] [internal] Update Gravatar SDK to 3.0.0 [#23701]
+* [*] Use the Gravatar Quick Editor to update the avatar [#23729]
+* [*] (Hidden under a feature flag) User Management for self-hosted sites. [#23768]
+* [*] Add URL and ID to the Media details screen, add IDs for posts [#23887]
+* [*] Enable quick access to notifications from Reader on iPad [#23882]
+* [*] Add support for restricted posts in Reader [#23853]
+* [*] Fix minor appearance issues in the Blaze campaign list [#23891]
+* [*] Improve the sidebar animations and layout on some iPad models [#23886]
+* [*] Fix an issue with posts shown embedded in the notifications popover on iPad [#23889]
+
+25.5
+-----
+* [***] Use web-based sign-in flow (hidden under a feature flag) [#23675]
+* [*] Enable navigating to an individual post's stats from within the "view more" screen for author stats. [#23761]
+* [*] [Jetpack-only] Enable pubishing to non-Jetpack sites when sharing content to the Jetpack app. [#23778]
+* [*] Use the Gravatar Quick Editor to update the avatar [#23729]
+
+25.4
+-----
+
+
+25.3
+-----
+
+
+25.2
+-----
+
+* [*] [Jetpack-only] Stats: Made optimizations to enhance scrolling performance. [#22847]
+* [*] Simplify post list context menu sections [#23356]
+* [*] Fix an issue with incorrect snackbar shown when saving drafts manually [#23358]
+* [**] Support editing media metadata for sites not powered by Jetpack and reliant on XML-RPC [#23316]
+* [*] Fix rare crash in the unsupported block editor [#23379]
+* [**] Block editor: Fixed an issue preventing some users from editing or creating content [https://github.com/wordpress-mobile/gutenberg-mobile/pull/6967]
+* [*] Block editor: Added partial prefix support for creating Headings, List, and Quote blocks [https://github.com/WordPress/gutenberg/pull/62576]
+
+25.1
+-----
+* [*] [internal] Block editor: Add onContentUpdate bridge functionality [#23234]
+* [*] Fix a rare crash when trashing posts [#23321]
+* [*] Fix an issue with a missing navigation bar background in Post Settings [#23334]
+* [*] Fix an issue where the app will sometimes save empty drafts [#23342]
+* [*] Add `.networkConnectionLost` to the list of "offline" scenarios so that the "offline changes" badge and fast retries work for this use case [#23348]
+* [*] If draft sync fails, the app will now show the "Retry" button in the context menu along with the error message [#23355]
+* [*] Fix an issue with post content structure not loading in some scenarios [#23347]
+* [*] Fix a rare crash when updating posts with categories [#23354]
+* [*] Fix an issue where a Page editor will not close automatically after trying to update a permanently deleted post [#23363]
+* [*] Fix an issue where you could remove the scheduled date on a scheduled post [#23360]
+* [*] The Post List screen now fetches updates faster and shows a spinner when refreshing stale data [#23362]
+
+25.0
+-----
+* [*] Fix button overlap in the "Post Published" sheet on small devices [#23210]
+* [*] [internal] Incorporate a parser to handle Gutenberg blocks more efficiently for improved performance [#22886]
+* [**] Improve performance of Image and Gallery block processors to avoid long delay when saving a post [#22896]
+* [*] Improve performance of File block processor [#22897]
+* [*] [internal] Prompt users to keep the app up to date on their devices, so they can try new features, as well as benefit from performance improvements and bug fixes [#23195, #23216, #23218, #23211]
+* [**] [Jetpack-only] Reader: Add a new feed dedicated to tags [#23242]
+
+24.9.1
+-----
+* [**] Fix bug where the option to switch to the Jetpack app is broken [#23276]
+
+24.9
+-----
+* [*] Add "Parent Page" to "Page Settings" [#23136]
+* [*] Add "Slug" and "Excerpt" fields to "Page Settings" [#23135]
+* [*] Make it easier to "Share" and "Blaze" a published post with an updated success view [##23128]
+* [*] Add support for viewing trashed posts and pages and restoring them from the editor [#23142]
+* [***] [Jetpack-only] Reorganized Stats to include updated Traffic and Insights tabs, along with a newly added Subscribers tab to improve subscriber metrics analysis [#23159]
+* [*] Impove the "Post Settings" screen groups/ordering to better align with Gutenberg [#23164]
+* [*] Update the "More" menu in the Editor to use modern iOS design and update copy to match Gutenberg [#23145]
+* [*] Update the "Revisions" list design and fix an issue with the footer displaying incorrect "Date Created" for drafts [#23145]
+* [***] Fix multiple post sync issues: [#21895], [#22037], [#8111], [#10168], [#17343], [#14221], [#12800], [#12073], [#14572], [#9319], [#21941], [#3070], [#3978], [#9449], [#13023], [#21472]
+* [**] Fix [#4870], [#14798], an issue where the app sometimes overwrites the changes made on the remote. The app will now show a new "Conflict Resolution" screen if there is a conflict. It will also no longer try to auto-upload changes to an existing published post or publish a draft, eliminating multiple possible failure points.
+* [**] Fix [#12121], [#13724], [#14251], [#18517], [#17086], [#15767], [#16514], [#13654] and other untracked issues with the "Publish Date" field in Post Settings. The app now has a new date picker that makes it easier to pick and remove the selected date. It also makes it clear if the blog is in a different time zones from your local timezone. The "Publish Date" field was also removed from the Post Settings screen for draft posts – the date needs to be selected right before publishing.
+* [**] Add a new "Media Uploads" screen to the "Publishing Sheet" where you can see the status of the pending uploads. It also shows error messages for each individual upload (if any) and allows you to cancel the failing uploads.
+* [*] Fix [#21940], [#13432], [#11435], issues where "Discard Changes" would sometimes delete the entire draft or appear when no changes were made
+* [*] Fix [#12099] by removing the "Status" field from Post Settings that was leading to multiple unexpected and confusing scenarios. The app now manages the transitions between state the same way as Gutenberg, so it should feel more familiar to the users.
+* [*] Fix [#10663], an issue with unclear error messages. The messages for "synchronous" operations will not appear as alerts with detailed information about the error. The error for drafts will also appear more clearly.
+* [*] Update the "Autosave Available" dialog to work the same way as in Gutenberg and to better represent what this feature is – it can no longer be confused with a "Data Conflict" dialog (fixes [#13093])
+* [*] Fix [#22107], [#19540], [#13632] by removing the "Draft Uploaded" snackbar
+* [*] Fix editor state restoration in the Jetpack app
+* [*] Update the support for pending posts to have clearer flows for both admins and contributors
+* [*] Fix [#19886], an issue with a missing error message when selecting a page author that's not eligible to be a page author
+* [*] Fix [#22969] an issue where Post List content occasionally stops updating
+* [*] Fix [#3862] by adding a "Password Protected" badge in [#23154]
+* [*] Fix [#21093], a rare crash in "View Stats for Posts" – [#23155]
+* [*] Fix [#22247], a rare crash in Post List
+* [*] Update the app to use `wp.createPost` and `wp.editPost` instead of the respective deprecated `metaWeblog.*` methods (closes [#1385])
+
+24.8
+-----
+* [*] [internal] Update Reachability. [#23030]
+* [*] Move "Settings" context menu action in "Pages" from the submenu to a separate section to make it easily discoverable and make it available for unpublished posts [#23065]
+* [*] [Jetpack-only] Add "Stats" context menu action to "Pages" [#23065]
+
+24.7
+-----
+
+* [**] [Jetpack-only] Reader: Introducing Reading Preferences, an experimental feature that allows users to customize their Reader post content screen with the color, font, and size that they like the most. [#22999]
+* [*] [Jetpack-only] Stats: Optimized the Insights tab to enhance loading and scrolling performance. [#22592]
+
+
+24.6
+-----
+* [**] Block editor: Highlight text fixes [https://github.com/WordPress/gutenberg/pull/57650]
+* [*] [Jetpack-only] Stats: Eliminated common error causes in the Insights tab. [#22890]
+* [*] [Jetpack-only] Reader: Fix displaying stale site information [#22885]
+
+24.5
+-----
+* [*] [internal] Block editor: Remove code associated to Story block [#22758]
+* [**] [internal] Block editor: Upgrade React Native to version 0.73.3 [#22588]
+* [*] Remove "Edit" button from "Post Published" screen [#22762]
+* [*] Remove "Publish" button from "Preview" screen [#22763]
+* [**] Block editor: Add error boundary components and exception logging [#22655]
+
+24.4
+-----
+* [***] [Jetpack-only] Improved Notifications experience with richer UI elements and interactions
+* [**] [Jetpack-only] Block editor: Introduce VideoPress v5 support, to fix issues using video block with dotcom and Jetpack sites [https://github.com/wordpress-mobile/gutenberg-mobile/pull/6634]
+* [*] Block editor: Prevent crash when autoscrolling to blocks [https://github.com/WordPress/gutenberg/pull/59110]
+* [*] Block editor: Remove opacity change when images are being uploaded [https://github.com/WordPress/gutenberg/pull/59264]
+* [*] Block editor: Media & Text blocks correctly show an error message when the attached video upload fails [https://github.com/WordPress/gutenberg/pull/59288]
+* [**] [internal] Refactored .org REST API calls. [#22612]
+* [**] [internal] Update loading images in Reader posts list and Posts list. [#22707]
+* [***] [Jetpack-only] Stats: Introducing Traffic tab, delivering improved graphs, and combining Days/Weeks/Months/Years tabs into one, behind a feature flag. [#22746]
+
+24.3
+-----
+* [***] [internal] Refactored websocket connections to Pinghub. [#22611]
+* [**] Multiple pre-publishing sheet fixes and improvements [#22606]
+* [*] Gravatar: Adds informative new view about Gravatar to the profile editing page. [#22615]
+* [*] [internal][WordPress-only] Updates Jetpack banners and badges copy for consistency [#20123]
+
+24.2
+-----
+* [*] [Jetpack-only] Fixed a UI bug where the Dynamic Dashboard Card would slightly jump on first launch.
+* [**] Prevent images from temporarily disappearing when uploading media [https://github.com/WordPress/gutenberg/pull/57869]
+* [*] [Jetpack-only] Site Monitoring: Add Metrics, PHP Logs, and Web Server Logs under Site Monitoring [#22475, #22499, #22504, #22500]
+* [***] [Jetpack-only] Reader: introduced new UI/UX for content navigation and filtering [#22536]
+
+24.0.1
+-----
+* [**] Fix crash when RichText values are not defined [https://github.com/wordpress-mobile/gutenberg-mobile/pull/6563]
+
 24.1
 -----
+* [*] Block Editor: Fix missing custom color indicator for custom gradients [https://github.com/WordPress/gutenberg/pull/57605]
+* [**] Block Editor: Display a notice when a network connection is unavailable [https://github.com/WordPress/gutenberg/pull/56934]
+* [**] Block Editor: Image block media uploads display a custom error message when there is no internet connection [https://github.com/wordpress-mobile/WordPress-iOS/pull/22282]
+* [**] Image block media uploads display a custom error message when there is no internet connection [https://github.com/wordpress-mobile/WordPress-iOS/pull/22282]
+* [**] Improve media previews on long-press: load higher-resolution thumbnails and increase the preview size, add support for GIFs and video playback, enable for documents and other files [#22274]
+* [*] Add prefetching to Site Media details screen [#22292]
 * [*] Allow trashing draft and scheduled posts with no confirmation [#22337]
 * [*] Add "Share" action to the site context menu [#22298]
+* [*] Update the post "Publish" context action for Contributors to  "Submit for Review" instead of "Publish" [#22358]
+* [**] Add a pre-publishing sheet to the "Publish" flow invoked from the post context menu as a replacement for a simple confirmation sheet [#22358]
+* [**] Block Editor: Media uploads that failed due to lack of internet connectivity automatically retry once a connection is re-established [https://github.com/wordpress-mobile/WordPress-iOS/pull/22238]
+* [**] Block Editor: Manually retrying a single failed media upload will retry all failed media uploads in a post [https://github.com/wordpress-mobile/WordPress-iOS/pull/22240]
+* [*] [internal] Drop iOS 14 Support: Remove deprecated UIDocumentPickerViewController API [#22286]
+* [**] [internal] Site creation is re-enabled for WordPress users with no sites. [#22415]
+* [***] [internal] Refactor WP.com sign in API requests [#22421]
+* [*] Add In-App Feedback Prompt. [#22050]
+* [**] Disabled the ability of creating new Story posts. [#22453]
+* [**] Disabled Story block [#22449]
 
 24.0
 -----

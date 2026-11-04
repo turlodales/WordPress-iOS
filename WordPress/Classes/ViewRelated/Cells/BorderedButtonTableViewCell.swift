@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 // UITableViewCell that displays a full width button with a border.
 // Properties:
@@ -25,7 +26,7 @@ class BorderedButtonTableViewCell: UITableViewCell {
     private var normalColor = Defaults.normalColor
     private var highlightedColor = Defaults.highlightedColor
     private var borderColor = Defaults.normalColor
-    private var buttonBackgroundColor: UIColor = .basicBackground
+    private var buttonBackgroundColor: UIColor = .systemBackground
 
     // Toggles the loading state of the cell.
     var isLoading: Bool = false {
@@ -47,13 +48,17 @@ class BorderedButtonTableViewCell: UITableViewCell {
         // Bordered background matching the button
         let imageView = UIImageView()
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.image = UIImage.renderBackgroundImage(fill: .clear, border: borderColor)
+        imageView.image = UIImage.renderBackgroundImage(
+            fill: .clear,
+            border: borderColor,
+            traitCollection: traitCollection
+        )
         return imageView
     }()
 
     private lazy var loadingOverlayView: UIView = {
         let view = UIView()
-        view.backgroundColor = .basicBackground
+        view.backgroundColor = .systemBackground
         view.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(loadingBackgroundView)
@@ -67,6 +72,18 @@ class BorderedButtonTableViewCell: UITableViewCell {
         return view
     }()
 
+    // MARK: - Init
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        registerForDisplayScaleChanges()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDisplayScaleChanges()
+    }
+
     // MARK: - Configure
 
     func configure(buttonTitle: String,
@@ -75,7 +92,7 @@ class BorderedButtonTableViewCell: UITableViewCell {
                    highlightedColor: UIColor = Defaults.highlightedColor,
                    borderColor: UIColor? = nil,
                    buttonInsets: UIEdgeInsets = Defaults.buttonInsets,
-                   backgroundColor: UIColor = .basicBackground) {
+                   backgroundColor: UIColor = .systemBackground) {
         self.buttonTitle = buttonTitle
         self.titleFont = titleFont
         self.normalColor = normalColor
@@ -85,14 +102,6 @@ class BorderedButtonTableViewCell: UITableViewCell {
         self.buttonBackgroundColor = backgroundColor
         configureView()
     }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
-            updateButtonBorderColors()
-        }
-    }
-
 }
 
 // MARK: - Private Extension
@@ -102,6 +111,11 @@ private extension BorderedButtonTableViewCell {
     func configureView() {
         selectionStyle = .none
         accessibilityTraits = .button
+
+        registerForTraitChanges(UITraitCollection.systemTraitsAffectingColorAppearance) {
+            (self: Self, _: UITraitCollection) in
+            self.updateButtonBorderColors()
+        }
 
         configureButton()
         contentView.addSubview(button)
@@ -137,15 +151,33 @@ private extension BorderedButtonTableViewCell {
     }
 
     func updateButtonBorderColors() {
-        button.setBackgroundImage(.renderBackgroundImage(fill: .clear, border: borderColor), for: .normal)
-        button.setBackgroundImage(.renderBackgroundImage(fill: borderColor, border: borderColor), for: .highlighted)
+        button.setBackgroundImage(
+            .renderBackgroundImage(fill: .clear, border: borderColor, traitCollection: traitCollection),
+            for: .normal
+        )
+        button.setBackgroundImage(
+            .renderBackgroundImage(fill: borderColor, border: borderColor, traitCollection: traitCollection),
+            for: .highlighted
+        )
+    }
+
+    /// The rendered border images are one pixel wide, so re-render them when the display scale changes.
+    func registerForDisplayScaleChanges() {
+        registerForTraitChanges([UITraitDisplayScale.self]) { (self: BorderedButtonTableViewCell, _) in
+            self.updateButtonBorderColors()
+            self.loadingBackgroundView.image = UIImage.renderBackgroundImage(
+                fill: .clear,
+                border: self.borderColor,
+                traitCollection: self.traitCollection
+            )
+        }
     }
 
     struct Defaults {
-        static let buttonInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        static let buttonInsets = UIEdgeInsets.zero
         static let titleFont = WPStyleGuide.fontForTextStyle(.body, fontWeight: .semibold)
-        static let normalColor: UIColor = .text
-        static let highlightedColor: UIColor = .textInverted
+        static let normalColor: UIColor = .label
+        static let highlightedColor: UIColor = .label.variantInverted
     }
 
     func toggleLoading(_ loading: Bool) {
@@ -164,5 +196,4 @@ private extension BorderedButtonTableViewCell {
 
         loadingOverlayView.isHidden = !loading
     }
-
 }

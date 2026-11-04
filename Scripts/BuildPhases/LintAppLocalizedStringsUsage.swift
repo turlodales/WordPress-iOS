@@ -79,7 +79,8 @@ extension Xcodeproj {
         case .projectRoot:
             return object.path.map { URL(fileURLWithPath: $0, relativeTo: projectDirectory) } ?? projectDirectory
         case .buildProductsDir, .devDir, .sdkDir:
-            print("\(self.projectURL.path): warning: Reference \(objectUUID) is relative to \(object.sourceTree.rawValue), which is not supported by the linter")
+            // Those source trees point outside the source directory (e.g. the generated `Secrets-*.swift`
+            // files), so there is nothing for the linter to scan. Skip them without reporting.
             return nil
         }
     }
@@ -269,7 +270,7 @@ enum LintResult { case ok, skipped, violationsFound([(line: Int, col: Int)]) }
 /// Lint a given file for usages of `NSLocalizedString` instead of `AppLocalizedString`
 func lint(fileAt url: URL, targetName: String) throws -> LintResult {
     guard ["m", "swift"].contains(url.pathExtension) else { return .skipped }
-    let content = try String(contentsOf: url)
+    let content = try String(contentsOf: url, encoding: .utf8)
     var lineNo = 0
     var violations: [(line: Int, col: Int)] = []
     content.enumerateLines { line, _ in
@@ -324,3 +325,4 @@ do {
     print("\(projectPath): error: Error while parsing the project file \(projectPath): \(error.localizedDescription)")
     exit(2)
 }
+

@@ -1,5 +1,6 @@
 import UIKit
-
+import WordPressData
+import WordPressShared
 
 class SelectPostViewController: UITableViewController {
 
@@ -71,13 +72,12 @@ class SelectPostViewController: UITableViewController {
     }
 }
 
-
 // MARK: - UITableViewDataSource Conformance
 //
 extension SelectPostViewController {
 
     override func numberOfSections(in tableView: UITableView) -> Int {
-        guard let count =  fetchController.sections?.count else {
+        guard let count = fetchController.sections?.count else {
             return 0
         }
 
@@ -122,7 +122,6 @@ extension SelectPostViewController {
     }
 }
 
-
 // MARK: - UITableViewDelegate Conformance
 //
 extension SelectPostViewController {
@@ -132,7 +131,6 @@ extension SelectPostViewController {
         callback?(post)
     }
 }
-
 
 // MARK: - UISearchResultsUpdating Conformance
 //

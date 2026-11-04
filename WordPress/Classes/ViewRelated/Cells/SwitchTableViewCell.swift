@@ -1,5 +1,6 @@
 import Foundation
 import WordPressShared
+import WordPressUI
 
 /// The purpose of this class is to simply display a regular TableViewCell, with a Switch on the right hand side.
 ///
@@ -9,7 +10,7 @@ open class SwitchTableViewCell: WPTableViewCell {
 
     @objc open var name: String {
         get {
-            return textLabel?.text ?? String()
+            textLabel?.text ?? String()
         }
         set {
             textLabel?.text = newValue
@@ -18,11 +19,37 @@ open class SwitchTableViewCell: WPTableViewCell {
 
     @objc open var on: Bool {
         get {
-            return flipSwitch.isOn
+            flipSwitch.isOn
         }
         set {
             flipSwitch.isOn = newValue
         }
+    }
+
+    /// Whether the row can be toggled.
+    ///
+    /// Disabling the `flipSwitch` alone isn't enough: the whole row carries a tap gesture that
+    /// toggles the value, so the switch would still change when the row is tapped. A disabled row
+    /// also dims its label, to match how the switch reads.
+    @objc open var isEnabled: Bool = true {
+        didSet {
+            flipSwitch.isEnabled = isEnabled
+            tapGestureRecognizer.isEnabled = isEnabled
+            applyLabelColor()
+        }
+    }
+
+    private func applyLabelColor() {
+        textLabel?.textColor = isEnabled ? .label : .secondaryLabel
+    }
+
+    open override func prepareForReuse() {
+        super.prepareForReuse()
+
+        // Callers that never touch `isEnabled` — most of them — would otherwise inherit both the
+        // flag and the dimmed label from whichever row last used this cell, with no `didSet` to
+        // put either back.
+        isEnabled = true
     }
 
     // MARK: - Initializers
@@ -40,7 +67,6 @@ open class SwitchTableViewCell: WPTableViewCell {
         self.init(style: .default, reuseIdentifier: nil)
     }
 
-
     // MARK: - UITapGestureRecognizer Helpers
     @IBAction func rowWasPressed(_ recognizer: UITapGestureRecognizer) {
         // Manually relay the event, since .ValueChanged doesn't get posted if we toggle the switch
@@ -49,14 +75,10 @@ open class SwitchTableViewCell: WPTableViewCell {
         switchDidChange(flipSwitch)
     }
 
-
-
     // MARK: - UISwitch Helpers
     @IBAction func switchDidChange(_ theSwitch: UISwitch) {
         onChange?(theSwitch.isOn)
     }
-
-
 
     // MARK: - Private Helpers
     fileprivate func setupSubviews() {

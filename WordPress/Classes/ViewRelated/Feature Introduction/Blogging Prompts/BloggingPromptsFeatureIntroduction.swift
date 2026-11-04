@@ -1,4 +1,6 @@
 import UIKit
+import WordPressData
+import WordPressUI
 
 /// This displays a Feature Introduction specifically for Blogging Prompts.
 
@@ -9,9 +11,8 @@ class BloggingPromptsFeatureIntroduction: FeatureIntroductionViewController {
     private var interactionType: BloggingPromptsFeatureIntroduction.InteractionType
 
     enum InteractionType {
-        // Two buttons are displayed, both perform an action. Shows a site picker
-        // if `blog` is `nil` and user has multiple sites.
-        case actionable(blog: Blog?)
+        // Two buttons are displayed, both perform an action.
+        case actionable(blog: Blog)
         // One button is displayed, which only dismisses the view.
         case informational
 
@@ -77,7 +78,6 @@ class BloggingPromptsFeatureIntroduction: FeatureIntroductionViewController {
         WPAnalytics.track(.promptsIntroductionModalDismissed)
         super.closeButtonTapped()
     }
-
 }
 
 extension BloggingPromptsFeatureIntroduction: FeatureIntroductionDelegate {
@@ -101,7 +101,6 @@ extension BloggingPromptsFeatureIntroduction: FeatureIntroductionDelegate {
         WPAnalytics.track(.promptsIntroductionModalRemindMe)
         presenter?.secondaryButtonSelected()
     }
-
 }
 
 private extension BloggingPromptsFeatureIntroduction {
@@ -143,8 +142,7 @@ private extension BloggingPromptsFeatureIntroduction {
 
     enum HeaderStyle {
         static let imageName = "icon-lightbulb-outline"
-        static let startGradientColor: UIColor = .warning(.shade30)
-        static let endGradientColor: UIColor = .accent(.shade40)
+        static let startGradientColor: UIColor = UIAppColor.warning(.shade30)
+        static let endGradientColor: UIColor = UIAppColor.accent(.shade40)
     }
-
 }

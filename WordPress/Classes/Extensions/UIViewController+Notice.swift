@@ -1,4 +1,4 @@
-import Foundation
+import UIKit
 import WordPressFlux
 
 extension UIViewController {
@@ -25,9 +25,5 @@ extension UIViewController {
 
     @objc func dismissNotice() {
         ActionDispatcher.dispatch(NoticeAction.dismiss)
-    }
-
-    @objc func dismissQuickStartTaskCompleteNotice() {
-        QuickStartTourGuide.shared.dismissTaskCompleteNotice()
     }
 }

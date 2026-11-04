@@ -1,4 +1,5 @@
-import Foundation
+import UIKit
+import WordPressData
 
 enum ReaderRoute {
     case root
@@ -19,35 +20,41 @@ enum ReaderRoute {
 
 extension ReaderRoute: Route {
     var path: String {
+        // Guaranteed to be safe force-unwrap if `alternatePaths` is exhaustive and returns at least one value
+        // for every variant
+        alternatePaths.first!
+    }
+
+    var alternatePaths: [RoutePath] {
         switch self {
         case .root:
-            return "/read"
+            return ["/read", "/reader"]
         case .discover:
-            return "/discover"
+            return ["/discover"]
         case .search:
-            return "/read/search"
+            return ["/read/search", "/reader/search"]
         case .a8c:
-            return "/read/a8c"
+            return ["/read/a8c", "/reader/a8c"]
         case .p2:
-            return "/read/p2"
+            return ["/read/p2", "/reader/p2"]
         case .likes:
-            return "/activities/likes"
+            return ["/activities/likes"]
         case .manageFollowing:
-            return "/following/manage"
+            return ["/following/manage"]
         case .list:
-            return "/read/list/:username/:list_name"
+            return ["/read/list/:username/:list_name", "/reader/list/:username/:list_name"]
         case .tag:
-            return "/tag/:tag_name"
+            return ["/tag/:tag_name"]
         case .feed:
-            return "/read/feeds/:feed_id"
+            return ["/read/feeds/:feed_id", "/reader/feeds/:feed_id"]
         case .blog:
-            return "/read/blogs/:blog_id"
+            return ["/read/blogs/:blog_id", "/reader/blogs/:blog_id"]
         case .feedsPost:
-            return "/read/feeds/:feed_id/posts/:post_id"
+            return ["/read/feeds/:feed_id/posts/:post_id", "/reader/feeds/:feed_id/posts/:post_id"]
         case .blogsPost:
-            return "/read/blogs/:blog_id/posts/:post_id"
+            return ["/read/blogs/:blog_id/posts/:post_id", "/reader/blogs/:blog_id/posts/:post_id"]
         case .wpcomPost:
-            return "/:post_year/:post_month/:post_day/:post_name"
+            return ["/:post_year/:post_month/:post_day/:post_name"]
         }
     }
 
@@ -66,62 +73,54 @@ extension ReaderRoute: Route {
 
 extension ReaderRoute: NavigationAction {
     func perform(_ values: [String: String], source: UIViewController? = nil, router: LinkRouter) {
-        guard JetpackFeaturesRemovalCoordinator.jetpackFeaturesEnabled() else {
-            RootViewCoordinator.sharedPresenter.showReaderTab() // Show static reader tab
+        guard JetpackFeaturesRemovalCoordinator.isReaderAvailable() else {
+            RootViewCoordinator.sharedPresenter.showReader() // Show static reader tab
             return
         }
-        guard let coordinator = RootViewCoordinator.sharedPresenter.readerCoordinator else {
-            return
-        }
+        let presenter = RootViewCoordinator.sharedPresenter
 
         switch self {
         case .root:
-            coordinator.showReaderTab()
+            presenter.showReader()
         case .discover:
-            coordinator.showDiscover()
+            presenter.showReader(path: .discover)
         case .search:
-            coordinator.showSearch()
+            presenter.showReader(path: .search)
         case .a8c:
-            coordinator.showA8C()
+            presenter.showReaderTeam(named: ReaderTeamTopic.a8cSlug)
         case .p2:
-            coordinator.showP2()
+            presenter.showReaderTeam(named: ReaderTeamTopic.p2Slug)
         case .likes:
-            coordinator.showMyLikes()
+            presenter.showReader(path: .likes)
         case .manageFollowing:
-            coordinator.showManageFollowing()
+            presenter.showReader(path: .subscriptions)
         case .list:
-            if let username = values["username"],
-                let listName = values["list_name"] {
-                coordinator.showList(named: listName, forUser: username)
+            if let username = values["username"], let list = values["list_name"] {
+                presenter.showReaderList(named: list, forUser: username)
             }
         case .tag:
             if let tagName = values["tag_name"] {
-                coordinator.showTag(named: tagName)
+                presenter.showReader(path: .makeWithTagName(tagName))
             }
         case .feed:
-            if let feedIDValue = values["feed_id"],
-                let feedID = Int(feedIDValue) {
-                coordinator.showStream(with: feedID, isFeed: true)
+            if let feedIDValue = values["feed_id"], let feedID = Int(feedIDValue) {
+                presenter.showReader(path: .site(siteID: feedID, isFeed: true))
             }
         case .blog:
-            if let blogIDValue = values["blog_id"],
-                let blogID = Int(blogIDValue) {
-                coordinator.showStream(with: blogID, isFeed: false)
+            if let blogIDValue = values["blog_id"], let blogID = Int(blogIDValue) {
+                presenter.showReader(path: .site(siteID: blogID, isFeed: false))
             }
         case .feedsPost:
             if let (feedID, postID) = feedAndPostID(from: values) {
-                coordinator.showPost(with: postID, for: feedID, isFeed: true)
+                presenter.showReader(path: .post(postID: postID, siteID: feedID, isFeed: true))
             }
         case .blogsPost:
             if let (blogID, postID) = blogAndPostID(from: values) {
-                coordinator.showPost(with: postID, for: blogID, isFeed: false)
+                presenter.showReader(path: .post(postID: postID, siteID: blogID))
             }
         case .wpcomPost:
-            if let urlString = values[MatchedRouteURLComponentKey.url.rawValue],
-               let url = URL(string: urlString),
-               isValidWpcomUrl(values) {
-
-                coordinator.showPost(with: url)
+            if let urlString = values[MatchedRouteURLComponentKey.url.rawValue], let url = URL(string: urlString) {
+                presenter.showReader(path: .postURL(url))
             }
         }
     }
@@ -147,25 +146,25 @@ extension ReaderRoute: NavigationAction {
 
         return (blogID, postID)
     }
+}
 
-    func isValidWpcomUrl(_ values: [String: String]) -> Bool {
-        let year = Int(values["post_year"] ?? "") ?? 0
-        let month = Int(values["post_month"] ?? "") ?? 0
-        let day = Int(values["post_day"] ?? "") ?? 0
+// MARK: - RootViewPresenter (Extensions)
 
-        // we assume no posts were made in the 1800's or earlier
-        func isYear(_ year: Int) -> Bool {
-            year > 1900
+private extension RootViewPresenter {
+    func showReaderTeam(named teamName: String) {
+        let topic = ContextManager.shared.mainContext.firstObject(
+            ofType: ReaderTeamTopic.self,
+            matching: NSPredicate(format: "slug = %@", teamName)
+        )
+        if let topic {
+            showReader(path: .topic(topic))
         }
+    }
 
-        func isMonth(_ month: Int) ->  Bool {
-            (1...12).contains(month)
+    func showReaderList(named listName: String, forUser user: String) {
+        let context = ContextManager.shared.mainContext
+        if let topic = ReaderListTopic.named(listName, forUser: user, in: context) {
+            showReader(path: .topic(topic))
         }
-
-        func isDay(_ day: Int) -> Bool {
-            (1...31).contains(day)
-        }
-
-        return isYear(year) && isMonth(month) && isDay(day)
     }
 }

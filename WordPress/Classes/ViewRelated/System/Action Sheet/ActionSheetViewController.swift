@@ -1,16 +1,16 @@
+import WordPressUI
+
 struct ActionSheetButton {
     let title: String
     let image: UIImage
     let identifier: String
-    let highlight: Bool
     let badge: UIView?
     let action: () -> Void
 
-    init(title: String, image: UIImage, identifier: String, highlight: Bool = false, badge: UIView? = nil, action: @escaping () -> Void) {
+    init(title: String, image: UIImage, identifier: String, badge: UIView? = nil, action: @escaping () -> Void) {
         self.title = title
         self.image = image
         self.identifier = identifier
-        self.highlight = highlight
         self.badge = badge
         self.action = action
     }
@@ -22,27 +22,27 @@ class ActionSheetViewController: UIViewController {
         static let gripHeight: CGFloat = 5
         static let cornerRadius: CGFloat = 8
         static let buttonSpacing: CGFloat = 8
-        static let additionalSafeAreaInsetsRegular: UIEdgeInsets = UIEdgeInsets(top: 20, left: 0, bottom: 20, right: 0)
+        static let additionalSafeAreaInsetsRegular = UIEdgeInsets(top: 20, left: 0, bottom: 20, right: 0)
         static let minimumWidth: CGFloat = 300
         static let maximumWidth: CGFloat = 600
 
         enum Header {
             static let spacing: CGFloat = 16
-            static let insets: UIEdgeInsets = UIEdgeInsets(top: 0, left: 18, bottom: 0, right: 18)
+            static let insets = UIEdgeInsets(top: 0, left: 18, bottom: 0, right: 18)
         }
 
         enum Button {
             static let height: CGFloat = 54
             static let contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 18, bottom: 0, trailing: 35)
             static let imagePadding: CGFloat = 16
-            static let imageTintColor: UIColor = .neutral(.shade30)
-            static let font: UIFont = .preferredFont(forTextStyle: .callout)
-            static let textColor: UIColor = .text
+            static let imageTintColor: UIColor = .label
+            static let font: UIFont = WPStyleGuide.fontForTextStyle(.headline, fontWeight: .medium)
+            static let textColor: UIColor = .label
             static let badgeHorizontalPadding: CGFloat = 10
         }
 
         enum Stack {
-            static let insets: UIEdgeInsets = UIEdgeInsets(top: 5, left: 0, bottom: 0, right: 0)
+            static let insets = UIEdgeInsets(top: 5, left: 0, bottom: 0, right: 0)
         }
     }
 
@@ -81,7 +81,7 @@ class ActionSheetViewController: UIViewController {
         view.clipsToBounds = true
         view.layer.cornerRadius = Constants.cornerRadius
         view.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMinXMinYCorner]
-        view.backgroundColor = .basicBackground
+        view.backgroundColor = .systemBackground
 
         let headerLabelView = UIView()
         let headerLabel = UILabel()
@@ -93,15 +93,17 @@ class ActionSheetViewController: UIViewController {
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
         headerLabel.adjustsFontForContentSizeCategory = true
 
-        let buttonViews = buttons.map({ (buttonInfo) -> UIButton in
+        let buttonViews = buttons.map({ buttonInfo -> UIButton in
             return button(buttonInfo)
         })
 
-
+        // The buttons set the width of the scroll view's content, so match the scroll view, which
+        // stays inside the safe area. Otherwise the content is wider than the scroll view on the
+        // iPhone Duo's outer screen, and the header is cut off.
         let buttonConstraints = buttonViews.flatMap { button in
             [
                 button.heightAnchor.constraint(equalToConstant: Constants.Button.height),
-                button.widthAnchor.constraint(equalTo: view.widthAnchor),
+                button.widthAnchor.constraint(equalTo: view.safeAreaLayoutGuide.widthAnchor),
             ]
         }
 
@@ -115,7 +117,7 @@ class ActionSheetViewController: UIViewController {
         scrollView.addSubview(stackView)
         scrollView.pinSubviewToAllEdges(stackView)
 
-        if let headerView = headerView {
+        if let headerView {
             stackView.addArrangedSubview(headerView)
         }
 
@@ -145,6 +147,25 @@ class ActionSheetViewController: UIViewController {
         self.scrollView = scrollView
         refreshForTraits()
         updateScrollViewHeight()
+        updatePreferredContentSize()
+
+        registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self, UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
+            self.refreshForTraits()
+            self.updatePreferredContentSize()
+        }
+    }
+
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+
+        // viewDidLoad runs before presentation, so presentingViewController and the
+        // final traits are only valid here. This replaces the first post-presentation
+        // trait callback the old override relied on. viewIsAppearing fires once per
+        // appearance transition and the popover reframe does not re-enter it, so it
+        // cannot restart the CMM-2111 recursion (that loop ran through
+        // viewDidLayoutSubviews, which never calls updatePreferredContentSize()).
+        refreshForTraits()
+        updatePreferredContentSize()
     }
 
     private func button(_ info: ActionSheetButton) -> UIButton {
@@ -168,7 +189,7 @@ class ActionSheetViewController: UIViewController {
             return configuration
         }()
         button.configurationUpdateHandler = { button in
-            button.configuration?.background.backgroundColor = button.isHighlighted ? .divider : .clear
+            button.configuration?.background.backgroundColor = button.isHighlighted ? .separator : .clear
         }
         button.contentHorizontalAlignment = .leading
         button.accessibilityIdentifier = info.identifier
@@ -182,26 +203,7 @@ class ActionSheetViewController: UIViewController {
             ])
         }
 
-        if info.highlight {
-            addSpotlight(to: button)
-        }
         return button
-    }
-
-    private func addSpotlight(to button: UIButton) {
-        let spotlight = QuickStartSpotlightView()
-        spotlight.translatesAutoresizingMaskIntoConstraints = false
-        button.addSubview(spotlight)
-
-        NSLayoutConstraint.activate([
-            spotlight.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -Constants.Header.insets.right),
-            spotlight.centerYAnchor.constraint(equalTo: button.centerYAnchor)
-        ])
-    }
-
-    open override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        refreshForTraits()
     }
 
     private func refreshForTraits() {
@@ -218,14 +220,28 @@ class ActionSheetViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+
         updateScrollViewHeight()
+    }
+
+    /// Sets `preferredContentSize`. Assigning it while presented in a popover
+    /// synchronously reframes the popover and re-enters `viewDidLayoutSubviews`;
+    /// driving this assignment from a repeating, layout-driven caller recursed
+    /// until the stack overflowed (CMM-2111). The invariant that prevents the loop:
+    /// the popover reframe this triggers must not re-enter the caller, so never
+    /// call this from a layout callback such as `viewDidLayoutSubviews`. Its actual
+    /// callers (`viewDidLoad`, the trait-change registration, and `viewIsAppearing`)
+    /// each run per presentation or per discrete trait change, so the reframe does
+    /// not re-enter them.
+    private func updatePreferredContentSize() {
+        view.layoutIfNeeded()
         let compressedSize = view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         let width = min(max(Constants.minimumWidth, compressedSize.width), Constants.maximumWidth)
         preferredContentSize = CGSize(width: width, height: compressedSize.height)
     }
 
     private func updateScrollViewHeight() {
-        guard let scrollView = scrollView else {
+        guard let scrollView else {
             return
         }
         scrollView.layoutIfNeeded()

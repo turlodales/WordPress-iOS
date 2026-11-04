@@ -1,5 +1,8 @@
 import Foundation
-
+import WordPressData
+import WordPressKit
+import WordPressShared
+import WordPressSharedUI
 
 /// The purpose of this service is to encapsulate the Restful API that performs Mobile 2FA
 /// Code Verification.
@@ -29,25 +32,27 @@ class PushAuthenticationService {
             return
         }
 
-        self.authenticationServiceRemote!.authorizeLogin(token,
-            success: {
-                            completion(true)
-                        },
-            failure: {
-                            completion(false)
-                        })
-
+        self.authenticationServiceRemote!
+            .authorizeLogin(
+                token,
+                success: {
+                    completion(true)
+                },
+                failure: {
+                    completion(false)
+                }
+            )
     }
 
     /// Helper method to get the WordPress.com REST Api, if any
     ///
-    /// - Returns: WordPressComRestApi instance.  It can be an anonymous API instance if there are no credentials.
+    /// - Returns: WordPressComRestApi instance. It can be an anonymous API instance if there are no credentials.
     ///
     private func apiForRequest(in context: NSManagedObjectContext) -> WordPressComRestApi {
 
         var api: WordPressComRestApi? = nil
 
-        if let unwrappedRestApi = (try? WPAccount.lookupDefaultWordPressComAccount(in: context))?.wordPressComRestApi {
+        if let unwrappedRestApi = (try? WPAccount.defaultWordPressComAccountRestAPI(in: context)) {
             if unwrappedRestApi.hasCredentials() {
                 api = unwrappedRestApi
             }

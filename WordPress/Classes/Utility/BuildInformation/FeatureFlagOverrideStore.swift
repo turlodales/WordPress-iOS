@@ -1,24 +1,24 @@
 import Foundation
+import WordPressShared
 
 // Protocol allows easier unit testing, so we can implement mock
 // feature flags to use in test cases.
 //
 protocol OverridableFlag: CustomStringConvertible {
     var originalValue: Bool { get }
-    var canOverride: Bool { get }
+    var key: String { get }
 }
 
 /// Used to override values for feature flags at runtime in debug builds
 ///
 struct FeatureFlagOverrideStore {
+    static let didChangeNotification = Notification.Name("FeatureFlagOverrideStore.didChange")
+    static let notificationFeatureFlagKey = "featureFlag"
+
     private let store: KeyValueDatabase
 
     init(store: KeyValueDatabase = UserDefaults.standard) {
         self.store = store
-    }
-
-    private func key(for flag: OverridableFlag) -> String {
-        return "ff-override-\(String(describing: flag))"
     }
 
     /// - returns: True if the specified feature flag is overridden
@@ -29,12 +29,8 @@ struct FeatureFlagOverrideStore {
 
     /// Removes any existing overridden value and stores the new value
     ///
-    func override(_ featureFlag: OverridableFlag, withValue value: Bool) throws {
-        guard featureFlag.canOverride == true else {
-            throw FeatureFlagError.cannotBeOverridden
-        }
-
-        let key = self.key(for: featureFlag)
+    func override(_ featureFlag: OverridableFlag, withValue value: Bool) {
+        let key = featureFlag.key
 
         if isOverridden(featureFlag) {
             store.removeObject(forKey: key)
@@ -43,21 +39,38 @@ struct FeatureFlagOverrideStore {
         if value != featureFlag.originalValue {
             store.set(value, forKey: key)
         }
+
+        postDidChangeNotification(for: featureFlag)
     }
 
     func removeOverride(for featureFlag: OverridableFlag) {
-        store.removeObject(forKey: key(for: featureFlag))
+        store.removeObject(forKey: featureFlag.key)
+        postDidChangeNotification(for: featureFlag)
     }
 
     /// - returns: The overridden value for the specified feature flag, if one exists.
     /// If no override exists, returns `nil`.
     ///
     func overriddenValue(for featureFlag: OverridableFlag) -> Bool? {
-        guard let value = store.object(forKey: key(for: featureFlag)) as? Bool else {
+        guard let object = store.object(forKey: featureFlag.key) else {
             return nil
         }
+        switch object {
+        case let value as Bool:
+            return value
+        case let value as String:
+            return (value as NSString).boolValue
+        default:
+            return nil
+        }
+    }
 
-        return value
+    private func postDidChangeNotification(for featureFlag: OverridableFlag) {
+        NotificationCenter.default.post(
+            name: Self.didChangeNotification,
+            object: nil,
+            userInfo: [Self.notificationFeatureFlagKey: featureFlag]
+        )
     }
 }
 

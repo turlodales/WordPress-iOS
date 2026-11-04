@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 import WordPressKit
 import Combine
 
@@ -96,7 +97,7 @@ final class SiteDomainsViewModel: ObservableObject {
             sections.append(section)
         }
 
-        if otherDomains.count > 0 {
+        if !otherDomains.isEmpty {
             let domainRows = otherDomains.map {
                 SiteDomainsViewModel.Section.Row(
                     viewModel: .init(
@@ -119,7 +120,7 @@ final class SiteDomainsViewModel: ObservableObject {
             sections.append(section)
         }
 
-        if sections.count == 0 || blog.canRegisterDomainWithPaidPlan {
+        if sections.isEmpty || blog.canRegisterDomainWithPaidPlan {
             sections.append(Section(title: nil, footer: nil, content: .upgradePlan))
         } else {
             sections.append(Section(title: nil, footer: nil, content: .addDomain))
@@ -128,7 +129,7 @@ final class SiteDomainsViewModel: ObservableObject {
         return sections
     }
 
-    private static func navigation(from domain: DomainsService.AllDomainsListItem) -> SiteDomainsViewModel.Section.Row.Navigation {
+    private static func navigation(from domain: DomainsService.AllDomainsListItem) -> SiteDomainsViewModel.Navigation {
         return .init(domain: domain.domain, siteSlug: domain.siteSlug, type: domain.type)
     }
 }
@@ -164,13 +165,6 @@ extension SiteDomainsViewModel {
         }
 
         struct Row: Identifiable {
-            struct Navigation: Hashable {
-                let domain: String
-                let siteSlug: String
-                let type: DomainType
-                let analyticsSource: String = "site_domains"
-            }
-
             let id = UUID()
             let viewModel: AllDomainsListCardView.ViewModel
             let navigation: Navigation?
@@ -180,5 +174,12 @@ extension SiteDomainsViewModel {
         let title: String?
         let footer: String?
         let content: SectionKind
+    }
+
+    struct Navigation: Hashable {
+        let domain: String
+        let siteSlug: String
+        let type: DomainType
+        let analyticsSource: String = "site_domains"
     }
 }

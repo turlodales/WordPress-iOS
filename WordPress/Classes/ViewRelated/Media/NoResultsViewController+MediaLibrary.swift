@@ -1,3 +1,5 @@
+import WordPressUI
+
 // Empty states for Media Library
 
 extension NoResultsViewController {
@@ -8,7 +10,7 @@ extension NoResultsViewController {
     }
 
     @objc func configureForFetching() {
-        configure(title: LocalizedText.fetchingTitle, accessoryView: NoResultsViewController.loadingAccessoryView())
+        configure(title: "", accessoryView: NoResultsViewController.loadingAccessoryView())
         view.layoutIfNeeded()
     }
 
@@ -26,5 +28,4 @@ extension NoResultsViewController {
         static let fetchingTitle = NSLocalizedString("Fetching media...", comment: "Title displayed whilst fetching media from the user's media library")
         static let noResultsTitle = NSLocalizedString("No media matching your search", comment: "Message displayed when no results are returned from a media library search. Should match Calypso.")
     }
-
 }

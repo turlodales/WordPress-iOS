@@ -1,3 +1,7 @@
+import Foundation
+import WordPressData
+import WordPressKit
+
 extension CommentService {
 
     /**
@@ -46,11 +50,10 @@ extension CommentService {
                                             success(users, totalLikes.intValue, count)
                                         }
                                     }, failure: { error in
-                                        DDLogError(String(describing: error))
+                                        DDLogError("\(String(describing: error))")
                                         failure(error)
                                     })
     }
-
 }
 
 private extension CommentService {
@@ -61,7 +64,7 @@ private extension CommentService {
                         purgeExisting: Bool,
                         onComplete: @escaping (() -> Void)) {
 
-        guard let remoteLikeUsers = remoteLikeUsers,
+        guard let remoteLikeUsers,
               !remoteLikeUsers.isEmpty else {
             DispatchQueue.main.async {
                 onComplete()
@@ -93,5 +96,4 @@ private extension CommentService {
             DDLogError("Error fetching comment Like Users: \(error)")
         }
     }
-
 }

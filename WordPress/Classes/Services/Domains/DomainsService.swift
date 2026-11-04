@@ -1,7 +1,8 @@
 import Foundation
-import CocoaLumberjack
-import WordPressKit
 import CoreData
+import WordPressData
+import WordPressKit
+import WordPressShared
 
 struct FullyQuotedDomainSuggestion {
     public let domainName: String
@@ -33,7 +34,7 @@ struct DomainsService {
         self.productsRemote = ProductServiceRemote(restAPI: remote.wordPressComRestApi)
     }
 
-    /// Refreshes the domains for the specified site.  Since this method takes care of merging the new data into our local
+    /// Refreshes the domains for the specified site. Since this method takes care of merging the new data into our local
     /// persistance layer making it useful to call even without knowing the result, the completion closure is optional.
     ///
     /// - Parameters:
@@ -144,8 +145,8 @@ struct DomainsService {
         removeDomains(removedDomainNames, fromSite: siteID, in: context)
 
         // Let's try to only update objects that have changed
-        let remoteChanges = remoteDomains.filter {
-            return !localDomains.contains($0)
+        let remoteChanges = remoteDomains.filter { domain in
+            return !localDomains.contains(domain)
         }
 
         for remoteDomain in remoteChanges {
@@ -163,7 +164,7 @@ struct DomainsService {
         guard let blog = try? Blog.lookup(withID: siteID, in: context) else {
             let error = "Tried to obtain a Blog for a non-existing site (ID: \(siteID))"
             assertionFailure(error)
-            DDLogError(error)
+            DDLogError("\(error)")
             return nil
         }
 
@@ -226,7 +227,7 @@ struct DomainsService {
 
 extension DomainsService {
     init?(coreDataStack: CoreDataStack, wordPressComRestApi: WordPressComRestApi?) {
-        guard let wordPressComRestApi = wordPressComRestApi else { return nil }
+        guard let wordPressComRestApi else { return nil }
         self.init(coreDataStack: coreDataStack, remote: DomainsServiceRemote(wordPressComRestApi: wordPressComRestApi))
     }
 }

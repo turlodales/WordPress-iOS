@@ -1,4 +1,5 @@
-import Foundation
+import UIKit
+import WordPressData
 
 @objc final class AllDomainsAddDomainCoordinator: NSObject {
     static func presentAddDomainFlow(in allDomainsViewController: AllDomainsListViewController) {
@@ -11,7 +12,7 @@ import Foundation
             coordinator: coordinator
         )
 
-        let domainPurchasedCallback = { (domainViewController: UIViewController, domainName: String) in
+        let domainPurchasedCallback = { (domainViewController: UIViewController, _: String) in
             domainViewController.dismiss(animated: true) {
                 allDomainsViewController.reloadDomains()
             }
@@ -30,6 +31,7 @@ import Foundation
 
         let navigationController = UINavigationController(rootViewController: domainSuggestionsViewController)
         navigationController.isModalInPresentation = true
+        navigationController.modalPresentationStyle = .formSheet
         allDomainsViewController.present(navigationController, animated: true)
     }
 }

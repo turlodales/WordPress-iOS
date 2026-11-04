@@ -1,4 +1,5 @@
-import Foundation
+import UIKit
+import WordPressData
 
 struct BlogDashboardHelpers {
     typealias Card = BlogDashboardAnalyticPropertiesProviding & BlogDashboardPersonalizable

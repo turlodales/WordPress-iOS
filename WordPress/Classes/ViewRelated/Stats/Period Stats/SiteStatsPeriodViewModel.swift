@@ -1,10 +1,17 @@
 import Foundation
+import WordPressKit
 import WordPressFlux
+import WordPressShared
 
-/// The view model used by Period Stats.
-///
+struct StatsTrafficSection: Hashable {
+    let periodType: PeriodType
 
-class SiteStatsPeriodViewModel: Observable {
+    init(periodType: PeriodType) {
+        self.periodType = periodType
+    }
+}
+
+final class SiteStatsPeriodViewModel: Observable {
 
     // MARK: - Properties
 
@@ -12,14 +19,11 @@ class SiteStatsPeriodViewModel: Observable {
 
     private weak var periodDelegate: SiteStatsPeriodDelegate?
     private weak var referrerDelegate: SiteStatsReferrerDelegate?
-    private let store: StatsPeriodStore
-    private var selectedDate: Date
+    private let store: any StatsPeriodStoreProtocol
     private var lastRequestedDate: Date
     private var lastRequestedPeriod: StatsPeriodUnit {
         didSet {
-            if lastRequestedPeriod != oldValue {
-                mostRecentChartData = nil
-            }
+            SiteStatsDashboardPreferences.setSelected(periodUnit: lastRequestedPeriod)
         }
     }
     private var periodReceipt: Receipt?
@@ -31,23 +35,22 @@ class SiteStatsPeriodViewModel: Observable {
     private var mostRecentChartData: StatsSummaryTimeIntervalData? {
         didSet {
             if oldValue == nil {
-                guard let mostRecentChartData = mostRecentChartData else {
+                guard let mostRecentChartData else {
                     return
                 }
 
-                currentEntryIndex = mostRecentChartData.summaryData.lastIndex(where: { $0.periodStartDate <= selectedDate })
+                currentEntryIndex = mostRecentChartData.summaryData.lastIndex(where: { $0.periodStartDate <= lastRequestedDate })
                     ?? max(mostRecentChartData.summaryData.count - 1, 0)
             }
         }
     }
 
     private var currentEntryIndex: Int = 0
-
-    private let calendar: Calendar = .current
+    var currentTabIndex: Int = 0
 
     // MARK: - Constructor
 
-    init(store: StatsPeriodStore = StoreContainer.shared.statsPeriod,
+    init(store: any StatsPeriodStoreProtocol = StatsPeriodStore(),
          selectedDate: Date,
          selectedPeriod: StatsPeriodUnit,
          periodDelegate: SiteStatsPeriodDelegate,
@@ -55,26 +58,46 @@ class SiteStatsPeriodViewModel: Observable {
         self.periodDelegate = periodDelegate
         self.referrerDelegate = referrerDelegate
         self.store = store
-        self.selectedDate = selectedDate
-        self.lastRequestedDate = Date()
+        self.lastRequestedDate = StatsPeriodHelper().endDate(from: selectedDate, period: selectedPeriod)
         self.lastRequestedPeriod = selectedPeriod
+    }
 
+    func refreshTrafficOverviewData(withDate date: Date, forPeriod period: StatsPeriodUnit) {
+        if period != lastRequestedPeriod {
+            currentEntryIndex = 0
+            mostRecentChartData = nil
+        }
+        lastRequestedPeriod = period
+        lastRequestedDate = StatsPeriodHelper().endDate(from: date, period: period)
+        currentEntryIndex = entryIndex(for: lastRequestedDate)
+
+        periodReceipt = nil
+        periodReceipt = store.query(
+            .trafficOverviewData(
+                .init(
+                    date: lastRequestedDate,
+                    period: lastRequestedPeriod,
+                    chartBarsUnit: chartBarsUnit(from: lastRequestedPeriod),
+                    chartBarsLimit: chartBarsLimit(for: lastRequestedPeriod)
+                )
+            )
+        )
+    }
+
+    // MARK: - Listeners
+
+    func addListeners() {
         changeReceipt = store.onChange { [weak self] in
             self?.emitChange()
         }
     }
 
-    func startFetchingOverview() {
-        periodReceipt = store.query(.periods(date: lastRequestedDate, period: lastRequestedPeriod))
-        store.actionDispatcher.dispatch(PeriodAction.refreshPeriodOverviewData(date: lastRequestedDate,
-                                                                               period: lastRequestedPeriod,
-                                                                               forceRefresh: true))
+    func removeListeners() {
+        changeReceipt = nil
+        periodReceipt = nil
     }
 
-    func isFetchingChart() -> Bool {
-        return store.isFetchingSummary &&
-            mostRecentChartData == nil
-    }
+    // MARK: - Loading
 
     func fetchingFailed() -> Bool {
         return store.fetchingOverviewHasFailed
@@ -82,149 +105,195 @@ class SiteStatsPeriodViewModel: Observable {
 
     // MARK: - Table Model
 
-    func tableViewModel() -> ImmuTable {
-
-        var tableRows = [ImmuTableRow]()
-
+    func tableViewSnapshot() -> ImmuTableDiffableDataSourceSnapshot {
+        var snapshot = ImmuTableDiffableDataSourceSnapshot()
         if !store.containsCachedData && store.fetchingOverviewHasFailed {
-            return ImmuTable.Empty
+            return snapshot
         }
 
-        let errorBlock: (StatSection) -> [ImmuTableRow] = { section in
-            return [CellHeaderRow(statSection: section),
-                    StatsErrorRow(rowStatus: .error, statType: .period, statSection: nil)]
+        let errorBlock: (StatSection) -> [any StatsHashableImmuTableRow] = { section in
+            return [StatsErrorRow(rowStatus: .error, statType: .period, statSection: section)]
         }
-        let summaryErrorBlock: AsyncBlock<[ImmuTableRow]> = {
-            return [PeriodEmptyCellHeaderRow(),
-                    StatsErrorRow(rowStatus: .error, statType: .period, statSection: nil)]
+        let summaryErrorBlock: AsyncBlock<[any StatsHashableImmuTableRow]> = {
+            return [StatsErrorRow(rowStatus: .error, statType: .period, statSection: .periodOverviewViews)]
         }
-        let loadingBlock: (StatSection) -> [ImmuTableRow] = { section in
-            return [CellHeaderRow(statSection: section),
-                    StatsGhostTopImmutableRow()]
+        let loadingBlock: (StatSection) -> [any StatsHashableImmuTableRow] = { section in
+            return [StatsGhostTopImmutableRow(statSection: section)]
         }
 
-        tableRows.append(contentsOf: blocks(for: .summary,
-                                            type: .period,
-                                            status: store.summaryStatus,
-                                            checkingCache: { [weak self] in
-                                                return self?.mostRecentChartData != nil
-            },
-                                            block: { [weak self] in
-                                                return self?.overviewTableRows() ?? summaryErrorBlock()
-            }, loading: {
-                return [PeriodEmptyCellHeaderRow(),
-                        StatsGhostChartImmutableRow()]
-        }, error: summaryErrorBlock))
-        tableRows.append(contentsOf: blocks(for: .topPostsAndPages,
-                                            type: .period,
-                                            status: store.topPostsAndPagesStatus,
-                                            block: { [weak self] in
-                                                return self?.postsAndPagesTableRows() ?? errorBlock(.periodPostsAndPages)
-            }, loading: {
-                return loadingBlock(.periodPostsAndPages)
-            }, error: {
-                return errorBlock(.periodPostsAndPages)
-        }))
-        tableRows.append(contentsOf: blocks(for: .topReferrers,
-                                            type: .period,
-                                            status: store.topReferrersStatus,
-                                            block: { [weak self] in
-                                                return self?.referrersTableRows() ?? errorBlock(.periodReferrers)
-            }, loading: {
-                return loadingBlock(.periodReferrers)
-            }, error: {
-                return errorBlock(.periodReferrers)
-        }))
-        tableRows.append(contentsOf: blocks(for: .topClicks,
-                                            type: .period,
-                                            status: store.topClicksStatus,
-                                            block: { [weak self] in
-                                                return self?.clicksTableRows() ?? errorBlock(.periodClicks)
-            }, loading: {
-                return loadingBlock(.periodClicks)
-            }, error: {
-                return errorBlock(.periodClicks)
-        }))
-        tableRows.append(contentsOf: blocks(for: .topAuthors,
-                                            type: .period,
-                                            status: store.topAuthorsStatus,
-                                            block: { [weak self] in
-                                                return self?.authorsTableRows() ?? errorBlock(.periodAuthors)
-            }, loading: {
-                return loadingBlock(.periodAuthors)
-            }, error: {
-                return errorBlock(.periodAuthors)
-        }))
-        tableRows.append(contentsOf: blocks(for: .topCountries,
-                                            type: .period,
-                                            status: store.topCountriesStatus,
-                                            block: { [weak self] in
-                                                return self?.countriesTableRows() ?? errorBlock(.periodCountries)
-            }, loading: {
-                return loadingBlock(.periodCountries)
-            }, error: {
-                return errorBlock(.periodCountries)
-        }))
-        tableRows.append(contentsOf: blocks(for: .topSearchTerms,
-                                            type: .period,
-                                            status: store.topSearchTermsStatus,
-                                            block: { [weak self] in
-                                                return self?.searchTermsTableRows() ?? errorBlock(.periodSearchTerms)
-            }, loading: {
-                return loadingBlock(.periodSearchTerms)
-            }, error: {
-                return errorBlock(.periodSearchTerms)
-        }))
-        tableRows.append(contentsOf: blocks(for: .topPublished,
-                                            type: .period,
-                                            status: store.topPublishedStatus,
-                                            block: { [weak self] in
-                                                return self?.publishedTableRows() ?? errorBlock(.periodPublished)
-            }, loading: {
-                return loadingBlock(.periodPublished)
-            }, error: {
-                return errorBlock(.periodPublished)
-        }))
-        tableRows.append(contentsOf: blocks(for: .topVideos,
-                                            type: .period,
-                                            status: store.topVideosStatus,
-                                            block: { [weak self] in
-                                                return self?.videosTableRows() ?? errorBlock(.periodVideos)
-            }, loading: {
-                return loadingBlock(.periodVideos)
-            }, error: {
-                return errorBlock(.periodVideos)
-        }))
+        let overviewSection = StatsTrafficSection(periodType: .timeIntervalsSummary)
+        let overviewRows = blocks(for: .timeIntervalsSummary,
+                                  type: .period,
+                                  status: store.timeIntervalsSummaryStatus,
+                                  checkingCache: { [weak self] in
+            return self?.mostRecentChartData != nil
+        },
+                                  block: { [weak self] in
+            return self?.overviewTableRows() ?? summaryErrorBlock()
+        }, loading: {
+            return [StatsGhostChartImmutableRow()]
+        }, error: {
+            return summaryErrorBlock()
+        })
+            .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+        snapshot.appendSections([overviewSection])
+        snapshot.appendItems(overviewRows, toSection: overviewSection)
+
+        let topPostsAndPagesSection = StatsTrafficSection(periodType: .topPostsAndPages)
+        let topPostsAndPagesRows = blocks(for: .topPostsAndPages,
+                                          type: .period,
+                                          status: store.topPostsAndPagesStatus,
+                                          block: { [weak self] in
+            return self?.postsAndPagesTableRows() ?? errorBlock(.periodPostsAndPages)
+        }, loading: {
+            return loadingBlock(.periodPostsAndPages)
+        }, error: {
+            return errorBlock(.periodPostsAndPages)
+        })
+            .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+        snapshot.appendSections([topPostsAndPagesSection])
+        snapshot.appendItems(topPostsAndPagesRows, toSection: topPostsAndPagesSection)
+
+        let topReferrersSection = StatsTrafficSection(periodType: .topReferrers)
+        let topReferrersRows = blocks(for: .topReferrers,
+                                      type: .period,
+                                      status: store.topReferrersStatus,
+                                      block: { [weak self] in
+            return self?.referrersTableRows() ?? errorBlock(.periodReferrers)
+        }, loading: {
+            return loadingBlock(.periodReferrers)
+        }, error: {
+            return errorBlock(.periodReferrers)
+        })
+            .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+        snapshot.appendSections([topReferrersSection])
+        snapshot.appendItems(topReferrersRows, toSection: topReferrersSection)
+
+        let topClicksSection = StatsTrafficSection(periodType: .topClicks)
+        let topClicksRows = blocks(for: .topClicks,
+                                   type: .period,
+                                   status: store.topClicksStatus,
+                                   block: { [weak self] in
+            return self?.clicksTableRows() ?? errorBlock(.periodClicks)
+        }, loading: {
+            return loadingBlock(.periodClicks)
+        }, error: {
+            return errorBlock(.periodClicks)
+        })
+            .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+        snapshot.appendSections([topClicksSection])
+        snapshot.appendItems(topClicksRows, toSection: topClicksSection)
+
+        let topAuthorsSection = StatsTrafficSection(periodType: .topAuthors)
+        let topAuthorsRows = blocks(for: .topAuthors,
+                                    type: .period,
+                                    status: store.topAuthorsStatus,
+                                    block: { [weak self] in
+            return self?.authorsTableRows() ?? errorBlock(.periodAuthors)
+        }, loading: {
+            return loadingBlock(.periodAuthors)
+        }, error: {
+            return errorBlock(.periodAuthors)
+        })
+            .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+        snapshot.appendSections([topAuthorsSection])
+        snapshot.appendItems(topAuthorsRows, toSection: topAuthorsSection)
+
+        let topCountriesSection = StatsTrafficSection(periodType: .topCountries)
+        let topCountriesRows = blocks(for: .topCountries,
+                                      type: .period,
+                                      status: store.topCountriesStatus,
+                                      block: { [weak self] in
+            return self?.countriesTableRows() ?? errorBlock(.periodCountries)
+        }, loading: {
+            return loadingBlock(.periodCountries)
+        }, error: {
+            return errorBlock(.periodCountries)
+        })
+            .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+        snapshot.appendSections([topCountriesSection])
+        snapshot.appendItems(topCountriesRows, toSection: topCountriesSection)
+
+        let topSearchTermsSection = StatsTrafficSection(periodType: .topSearchTerms)
+        let topSearchTermsRows = blocks(for: .topSearchTerms,
+                                        type: .period,
+                                        status: store.topSearchTermsStatus,
+                                        block: { [weak self] in
+            return self?.searchTermsTableRows() ?? errorBlock(.periodSearchTerms)
+        }, loading: {
+            return loadingBlock(.periodSearchTerms)
+        }, error: {
+            return errorBlock(.periodSearchTerms)
+        })
+            .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+        snapshot.appendSections([topSearchTermsSection])
+        snapshot.appendItems(topSearchTermsRows, toSection: topSearchTermsSection)
+
+        let topPublishedSection = StatsTrafficSection(periodType: .topPublished)
+        let topPublishedRows = blocks(for: .topPublished,
+                                      type: .period,
+                                      status: store.topPublishedStatus,
+                                      block: { [weak self] in
+            return self?.publishedTableRows() ?? errorBlock(.periodPublished)
+        }, loading: {
+            return loadingBlock(.periodPublished)
+        }, error: {
+            return errorBlock(.periodPublished)
+        })
+            .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+        snapshot.appendSections([topPublishedSection])
+        snapshot.appendItems(topPublishedRows, toSection: topPublishedSection)
+
+        let topVideosSection = StatsTrafficSection(periodType: .topVideos)
+        let topVideosRows = blocks(for: .topVideos,
+                                   type: .period,
+                                   status: store.topVideosStatus,
+                                   block: { [weak self] in
+            return self?.videosTableRows() ?? errorBlock(.periodVideos)
+        }, loading: {
+            return loadingBlock(.periodVideos)
+        }, error: {
+            return errorBlock(.periodVideos)
+        })
+            .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+        snapshot.appendSections([topVideosSection])
+        snapshot.appendItems(topVideosRows, toSection: topVideosSection)
+
+        // Check for supportsFileDownloads and append if necessary
         if SiteStatsInformation.sharedInstance.supportsFileDownloads {
-            tableRows.append(contentsOf: blocks(for: .topFileDownloads,
-                                                type: .period,
-                                                status: store.topFileDownloadsStatus,
-                                                block: { [weak self] in
-                                                    return self?.fileDownloadsTableRows() ?? errorBlock(.periodFileDownloads)
-                }, loading: {
-                    return loadingBlock(.periodFileDownloads)
-                }, error: {
-                    return errorBlock(.periodFileDownloads)
-            }))
+            let topFileDownloadsSection = StatsTrafficSection(periodType: .topFileDownloads)
+            let topFileDownloadsRows = blocks(for: .topFileDownloads,
+                                              type: .period,
+                                              status: store.topFileDownloadsStatus,
+                                              block: { [weak self] in
+                return self?.fileDownloadsTableRows() ?? errorBlock(.periodFileDownloads)
+            }, loading: {
+                return loadingBlock(.periodFileDownloads)
+            }, error: {
+                return errorBlock(.periodFileDownloads)
+            })
+                .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+            snapshot.appendSections([topFileDownloadsSection])
+            snapshot.appendItems(topFileDownloadsRows, toSection: topFileDownloadsSection)
         }
 
-        tableRows.append(TableFooterRow())
-
-        return ImmuTable(sections: [
-            ImmuTableSection(
-                rows: tableRows)
-            ])
-    }
-
-    // MARK: - Refresh Data
-
-    func refreshPeriodOverviewData(withDate date: Date, forPeriod period: StatsPeriodUnit) {
-        selectedDate = date
-        lastRequestedPeriod = period
-        ActionDispatcher.dispatch(PeriodAction.refreshPeriodOverviewData(date: date, period: period, forceRefresh: true))
+        return snapshot
     }
 
     // MARK: - Chart Date
+
+    func entryIndex(for date: Date) -> Int {
+        let endDate = { StatsPeriodHelper().endDate(from: $0, period: self.lastRequestedPeriod) }
+        if let summaryData = mostRecentChartData?.summaryData {
+            for (index, data) in summaryData.enumerated() {
+                if endDate(data.periodStartDate) == endDate(date) {
+                    return index
+                }
+            }
+        }
+
+        return 0
+    }
 
     func chartDate(for entryIndex: Int) -> Date? {
         if let summaryData = mostRecentChartData?.summaryData,
@@ -234,58 +303,37 @@ class SiteStatsPeriodViewModel: Observable {
         }
         return nil
     }
-
-    func updateDate(forward: Bool) -> Date? {
-        if forward {
-            currentEntryIndex += 1
-        } else {
-            currentEntryIndex -= 1
-        }
-
-        guard let nextDate = chartDate(for: currentEntryIndex) else {
-            // The date doesn't exist in the chart data... we need to manually calculate it and request
-            // a refresh.
-            let increment = forward ? 1 : -1
-            let nextDate = calendar.date(byAdding: lastRequestedPeriod.calendarComponent, value: increment, to: selectedDate)!
-            refreshPeriodOverviewData(withDate: nextDate, forPeriod: lastRequestedPeriod)
-            return nextDate
-        }
-
-        return nextDate
-    }
 }
 
 // MARK: - Private Extension
 
 private extension SiteStatsPeriodViewModel {
-
     // MARK: - Create Table Rows
 
-    func overviewTableRows() -> [ImmuTableRow] {
-        var tableRows = [ImmuTableRow]()
-        tableRows.append(PeriodEmptyCellHeaderRow())
+    func overviewTableRows() -> [any StatsHashableImmuTableRow] {
+        var tableRows = [any StatsHashableImmuTableRow]()
 
         let periodSummary = store.getSummary()
         let summaryData = periodSummary?.summaryData ?? []
 
         if mostRecentChartData == nil {
             mostRecentChartData = periodSummary
-        } else if let mostRecentChartData = mostRecentChartData,
-            let periodSummary = periodSummary,
-            mostRecentChartData.periodEndDate == periodSummary.periodEndDate {
+        } else if let mostRecentChartData,
+                  let periodSummary,
+                  mostRecentChartData.periodEndDate == periodSummary.periodEndDate {
             self.mostRecentChartData = periodSummary
-        } else if let periodSummary = periodSummary,   // when there is API data that has more recent API period date
-                  let chartData = mostRecentChartData, // than our local chartData
-                  periodSummary.periodEndDate > chartData.periodEndDate {
+        } else if let periodSummary,   // when there is API data that has more recent API period date than our local chartData
+                  let chartData = mostRecentChartData {
 
-            // we validate if our periodDates match and if so we set the currentEntryIndex to the last index of the summaryData
-            // fixes issue #19688
-            if let lastSummaryDataEntry = summaryData.last,
-               periodSummary.periodEndDate == lastSummaryDataEntry.periodStartDate {
+            // Always prefer newer data
+            if periodSummary.periodEndDate >= chartData.periodEndDate {
                 mostRecentChartData = periodSummary
-                currentEntryIndex = summaryData.count - 1
-            } else {
-                mostRecentChartData = chartData
+
+                // Update currentEntryIndex if needed
+                let lastIndex = summaryData.count - 1
+                if lastIndex >= 0 {
+                    currentEntryIndex = min(currentEntryIndex, lastIndex)
+                }
             }
         }
 
@@ -315,7 +363,8 @@ private extension SiteStatsPeriodViewModel {
         let likesData = intervalData(summaryType: .likes)
         // If Summary Likes is still loading, show dashes (instead of 0)
         // to indicate it's still loading.
-        let likesLoadingStub = likesData.count > 0 ? nil : (store.isFetchingSummary ? "----" : nil)
+        // swiftlint:disable:next empty_count
+        let likesLoadingStub = likesData.count != 0 ? nil : (store.isFetchingSummary ? "----" : nil)
         let likesTabData = OverviewTabData(tabTitle: StatSection.periodOverviewLikes.tabTitle,
                                            tabData: likesData.count,
                                            tabDataStub: likesLoadingStub,
@@ -346,7 +395,7 @@ private extension SiteStatsPeriodViewModel {
             barChartStyling.append(contentsOf: chart.barChartStyling)
 
             indexToHighlight = chartData.summaryData.lastIndex(where: {
-                $0.periodStartDate.normalizedDate() <= selectedDate.normalizedDate()
+                $0.periodStartDate.normalizedDate() <= lastRequestedDate.normalizedDate()
             })
         }
 
@@ -356,55 +405,57 @@ private extension SiteStatsPeriodViewModel {
             chartStyling: barChartStyling,
             period: lastRequestedPeriod,
             statsBarChartViewDelegate: statsBarChartViewDelegate,
-            chartHighlightIndex: indexToHighlight)
+            chartHighlightIndex: indexToHighlight,
+            tabIndex: currentTabIndex
+        )
         tableRows.append(row)
 
         return tableRows
     }
 
     func intervalData(summaryType: StatsSummaryType) -> (count: Int, difference: Int, percentage: Int) {
-            guard let summaryData = mostRecentChartData?.summaryData,
-                summaryData.indices.contains(currentEntryIndex) else {
-                return (0, 0, 0)
-            }
+        guard let summaryData = mostRecentChartData?.summaryData,
+              summaryData.indices.contains(currentEntryIndex) else {
+            return (0, 0, 0)
+        }
 
-            let currentInterval = summaryData[currentEntryIndex]
-            let previousInterval = currentEntryIndex >= 1 ? summaryData[currentEntryIndex-1] : nil
+        let currentInterval = summaryData[currentEntryIndex]
+        let previousInterval = currentEntryIndex >= 1 ? summaryData[currentEntryIndex - 1] : nil
 
-            let currentCount: Int
-            let previousCount: Int
-            switch summaryType {
-            case .views:
-                currentCount = currentInterval.viewsCount
-                previousCount = previousInterval?.viewsCount ?? 0
-            case .visitors:
-                currentCount = currentInterval.visitorsCount
-                previousCount = previousInterval?.visitorsCount ?? 0
-            case .likes:
-                currentCount = currentInterval.likesCount
-                previousCount = previousInterval?.likesCount ?? 0
-            case .comments:
-                currentCount = currentInterval.commentsCount
-                previousCount = previousInterval?.commentsCount ?? 0
-            }
+        let currentCount: Int
+        let previousCount: Int
+        switch summaryType {
+        case .views:
+            currentCount = currentInterval.viewsCount
+            previousCount = previousInterval?.viewsCount ?? 0
+        case .visitors:
+            currentCount = currentInterval.visitorsCount
+            previousCount = previousInterval?.visitorsCount ?? 0
+        case .likes:
+            currentCount = currentInterval.likesCount
+            previousCount = previousInterval?.likesCount ?? 0
+        case .comments:
+            currentCount = currentInterval.commentsCount
+            previousCount = previousInterval?.commentsCount ?? 0
+        }
 
-            let difference = currentCount - previousCount
-            var roundedPercentage = 0
+        let difference = currentCount - previousCount
+        var roundedPercentage = 0
 
-            if previousCount > 0 {
-                let percentage = (Float(difference) / Float(previousCount)) * 100
-                roundedPercentage = Int(round(percentage))
-            }
+        if previousCount > 0 {
+            let percentage = (Float(difference) / Float(previousCount)) * 100
+            roundedPercentage = Int(round(percentage))
+        }
 
-            return (currentCount, difference, roundedPercentage)
+        return (currentCount, difference, roundedPercentage)
     }
 
-    func postsAndPagesTableRows() -> [ImmuTableRow] {
-        var tableRows = [ImmuTableRow]()
-        tableRows.append(CellHeaderRow(statSection: StatSection.periodPostsAndPages))
+    func postsAndPagesTableRows() -> [any StatsHashableImmuTableRow] {
+        var tableRows = [any StatsHashableImmuTableRow]()
         tableRows.append(TopTotalsPeriodStatsRow(itemSubtitle: StatSection.periodPostsAndPages.itemSubtitle,
                                                  dataSubtitle: StatSection.periodPostsAndPages.dataSubtitle,
                                                  dataRows: postsAndPagesDataRows(),
+                                                 statSection: StatSection.periodPostsAndPages,
                                                  siteStatsPeriodDelegate: periodDelegate))
 
         return tableRows
@@ -438,12 +489,12 @@ private extension SiteStatsPeriodViewModel {
         }
     }
 
-    func referrersTableRows() -> [ImmuTableRow] {
-        var tableRows = [ImmuTableRow]()
-        tableRows.append(CellHeaderRow(statSection: StatSection.periodReferrers))
+    func referrersTableRows() -> [any StatsHashableImmuTableRow] {
+        var tableRows = [any StatsHashableImmuTableRow]()
         tableRows.append(TopTotalsPeriodStatsRow(itemSubtitle: StatSection.periodReferrers.itemSubtitle,
                                                  dataSubtitle: StatSection.periodReferrers.dataSubtitle,
                                                  dataRows: referrersDataRows(),
+                                                 statSection: StatSection.periodReferrers,
                                                  siteStatsPeriodDelegate: periodDelegate,
                                                  siteStatsReferrerDelegate: referrerDelegate))
 
@@ -454,38 +505,30 @@ private extension SiteStatsPeriodViewModel {
         let referrers = store.getTopReferrers()?.referrers.prefix(10) ?? []
 
         func rowDataFromReferrer(referrer: StatsReferrer) -> StatsTotalRowData {
-            var icon: UIImage? = nil
-            var iconURL: URL? = nil
-
-            switch referrer.iconURL?.lastPathComponent {
-            case "search-engine.png":
-                icon = Style.imageForGridiconType(.search)
-            case nil:
-                icon = Style.imageForGridiconType(.globe)
-            default:
-                iconURL = referrer.iconURL
-            }
-
-            return StatsTotalRowData(name: referrer.title,
-                                     data: referrer.viewsCount.abbreviatedString(),
-                                     icon: icon,
-                                     socialIconURL: iconURL,
-                                     showDisclosure: true,
-                                     disclosureURL: referrer.url,
-                                     childRows: referrer.children.map { rowDataFromReferrer(referrer: $0) },
-                                     statSection: .periodReferrers,
-                                     isReferrerSpam: referrer.isSpam)
+            return StatsTotalRowData(
+                name: referrer.title,
+                data: referrer.viewsCount.abbreviatedString(),
+                icon: nil,
+                socialIconURL: nil,
+                showDisclosure: true,
+                disclosureURL: referrer.url,
+                childRows: referrer.children.map {
+                    rowDataFromReferrer(referrer: $0)
+                },
+                statSection: .periodReferrers,
+                isReferrerSpam: referrer.isSpam
+            )
         }
 
         return referrers.map { rowDataFromReferrer(referrer: $0) }
     }
 
-    func clicksTableRows() -> [ImmuTableRow] {
-        var tableRows = [ImmuTableRow]()
-        tableRows.append(CellHeaderRow(statSection: StatSection.periodClicks))
+    func clicksTableRows() -> [any StatsHashableImmuTableRow] {
+        var tableRows = [any StatsHashableImmuTableRow]()
         tableRows.append(TopTotalsPeriodStatsRow(itemSubtitle: StatSection.periodClicks.itemSubtitle,
                                                  dataSubtitle: StatSection.periodClicks.dataSubtitle,
                                                  dataRows: clicksDataRows(),
+                                                 statSection: StatSection.periodClicks,
                                                  siteStatsPeriodDelegate: periodDelegate))
 
         return tableRows
@@ -505,12 +548,12 @@ private extension SiteStatsPeriodViewModel {
             ?? []
     }
 
-    func authorsTableRows() -> [ImmuTableRow] {
-        var tableRows = [ImmuTableRow]()
-        tableRows.append(CellHeaderRow(statSection: StatSection.periodAuthors))
+    func authorsTableRows() -> [any StatsHashableImmuTableRow] {
+        var tableRows = [any StatsHashableImmuTableRow]()
         tableRows.append(TopTotalsPeriodStatsRow(itemSubtitle: StatSection.periodAuthors.itemSubtitle,
                                                  dataSubtitle: StatSection.periodAuthors.dataSubtitle,
                                                  dataRows: authorsDataRows(),
+                                                 statSection: StatSection.periodAuthors,
                                                  siteStatsPeriodDelegate: periodDelegate))
 
         return tableRows
@@ -519,25 +562,38 @@ private extension SiteStatsPeriodViewModel {
     func authorsDataRows() -> [StatsTotalRowData] {
         let authors = store.getTopAuthors()?.topAuthors.prefix(10) ?? []
 
-        return authors.map { StatsTotalRowData(name: $0.name,
-                                               data: $0.viewsCount.abbreviatedString(),
-                                               dataBarPercent: Float($0.viewsCount) / Float(authors.first!.viewsCount),
-                                               userIconURL: $0.iconURL,
-                                               showDisclosure: true,
-                                               childRows: $0.posts.map { StatsTotalRowData(name: $0.title, data: $0.viewsCount.abbreviatedString()) },
-                                               statSection: .periodAuthors)
+        return authors.map {
+            StatsTotalRowData(
+                name: $0.name,
+                data: $0.viewsCount.abbreviatedString(),
+                dataBarPercent: Float($0.viewsCount) / Float(authors.first!.viewsCount),
+                userIconURL: $0.iconURL,
+                showDisclosure: true,
+                childRows: $0.posts.map {
+                    StatsTotalRowData(
+                        name: $0.title,
+                        data: $0.viewsCount.abbreviatedString(),
+                        postID: $0.postID,
+                        showDisclosure: true,
+                        disclosureURL: $0.postURL,
+                        statSection: .periodAuthors
+                    )
+                },
+                statSection: .periodAuthors
+            )
         }
     }
 
-    func countriesTableRows() -> [ImmuTableRow] {
-        var tableRows = [ImmuTableRow]()
-        tableRows.append(CellHeaderRow(statSection: StatSection.periodCountries))
+    func countriesTableRows() -> [any StatsHashableImmuTableRow] {
+        var tableRows = [any StatsHashableImmuTableRow]()
         let map = countriesMap()
-        if !map.data.isEmpty {
-            tableRows.append(CountriesMapRow(countriesMap: map))
+        let isMapShown = !map.data.isEmpty
+        if isMapShown {
+            tableRows.append(CountriesMapRow(countriesMap: map, statSection: .periodCountries))
         }
         tableRows.append(CountriesStatsRow(itemSubtitle: StatSection.periodCountries.itemSubtitle,
                                            dataSubtitle: StatSection.periodCountries.dataSubtitle,
+                                           statSection: isMapShown ? nil : .periodCountries,
                                            dataRows: countriesDataRows(),
                                            siteStatsPeriodDelegate: periodDelegate))
         return tableRows
@@ -546,7 +602,7 @@ private extension SiteStatsPeriodViewModel {
     func countriesDataRows() -> [StatsTotalRowData] {
         return store.getTopCountries()?.countries.prefix(10).map { StatsTotalRowData(name: $0.name,
                                                                                      data: $0.viewsCount.abbreviatedString(),
-                                                                                     icon: UIImage(named: $0.code),
+                                                                                     icon: StatsTotalRowData.flagImage(for: $0.code),
                                                                                      statSection: .periodCountries) }
             ?? []
     }
@@ -555,19 +611,17 @@ private extension SiteStatsPeriodViewModel {
         let countries = store.getTopCountries()?.countries ?? []
         return CountriesMap(minViewsCount: countries.last?.viewsCount ?? 0,
                             maxViewsCount: countries.first?.viewsCount ?? 0,
-                            data: countries.reduce([String: NSNumber]()) { (dict, country) in
-                                var nextDict = dict
-                                nextDict.updateValue(NSNumber(value: country.viewsCount), forKey: country.code)
-                                return nextDict
+                            data: countries.reduce(into: [String: NSNumber]()) { dict, country in
+                                dict.updateValue(NSNumber(value: country.viewsCount), forKey: country.code)
         })
     }
 
-    func searchTermsTableRows() -> [ImmuTableRow] {
-        var tableRows = [ImmuTableRow]()
-        tableRows.append(CellHeaderRow(statSection: StatSection.periodSearchTerms))
+    func searchTermsTableRows() -> [any StatsHashableImmuTableRow] {
+        var tableRows = [any StatsHashableImmuTableRow]()
         tableRows.append(TopTotalsPeriodStatsRow(itemSubtitle: StatSection.periodSearchTerms.itemSubtitle,
                                                  dataSubtitle: StatSection.periodSearchTerms.dataSubtitle,
                                                  dataRows: searchTermsDataRows(),
+                                                 statSection: StatSection.periodSearchTerms,
                                                  siteStatsPeriodDelegate: periodDelegate))
 
         return tableRows
@@ -597,17 +651,17 @@ private extension SiteStatsPeriodViewModel {
         return mappedSearchTerms
     }
 
-    func publishedTableRows() -> [ImmuTableRow] {
-        var tableRows = [ImmuTableRow]()
-        tableRows.append(CellHeaderRow(statSection: StatSection.periodPublished))
+    func publishedTableRows() -> [any StatsHashableImmuTableRow] {
+        var tableRows = [any StatsHashableImmuTableRow]()
         tableRows.append(TopTotalsNoSubtitlesPeriodStatsRow(dataRows: publishedDataRows(),
+                                                            statSection: StatSection.periodPublished,
                                                             siteStatsPeriodDelegate: periodDelegate))
 
         return tableRows
     }
 
     func publishedDataRows() -> [StatsTotalRowData] {
-        return store.getTopPublished()?.publishedPosts.prefix(10).map { StatsTotalRowData.init(name: $0.title.stringByDecodingXMLCharacters(),
+        return store.getTopPublished()?.publishedPosts.prefix(10).map { StatsTotalRowData(name: $0.title.stringByDecodingXMLCharacters(),
                                                                                                data: "",
                                                                                                showDisclosure: true,
                                                                                                disclosureURL: $0.postURL,
@@ -615,12 +669,12 @@ private extension SiteStatsPeriodViewModel {
             ?? []
     }
 
-    func videosTableRows() -> [ImmuTableRow] {
-        var tableRows = [ImmuTableRow]()
-        tableRows.append(CellHeaderRow(statSection: StatSection.periodVideos))
+    func videosTableRows() -> [any StatsHashableImmuTableRow] {
+        var tableRows = [any StatsHashableImmuTableRow]()
         tableRows.append(TopTotalsPeriodStatsRow(itemSubtitle: StatSection.periodVideos.itemSubtitle,
                                                  dataSubtitle: StatSection.periodVideos.dataSubtitle,
                                                  dataRows: videosDataRows(),
+                                                 statSection: StatSection.periodVideos,
                                                  siteStatsPeriodDelegate: periodDelegate))
 
         return tableRows
@@ -636,30 +690,71 @@ private extension SiteStatsPeriodViewModel {
             ?? []
     }
 
-    func fileDownloadsTableRows() -> [ImmuTableRow] {
-        var tableRows = [ImmuTableRow]()
-        tableRows.append(CellHeaderRow(statSection: StatSection.periodFileDownloads))
+    func fileDownloadsTableRows() -> [any StatsHashableImmuTableRow] {
+        var tableRows = [any StatsHashableImmuTableRow]()
         tableRows.append(TopTotalsPeriodStatsRow(itemSubtitle: StatSection.periodFileDownloads.itemSubtitle,
                                                  dataSubtitle: StatSection.periodFileDownloads.dataSubtitle,
                                                  dataRows: fileDownloadsDataRows(),
+                                                 statSection: StatSection.periodFileDownloads,
                                                  siteStatsPeriodDelegate: periodDelegate))
 
         return tableRows
     }
 
     func fileDownloadsDataRows() -> [StatsTotalRowData] {
-        return store.getTopFileDownloads()?.fileDownloads.prefix(10).map { StatsTotalRowData(name: $0.file,
-                                                                                             data: $0.downloadCount.abbreviatedString(),
-                                                                                             statSection: .periodFileDownloads) }
-            ?? []
+        return store.getTopFileDownloads()?.fileDownloads.prefix(10).map {
+            StatsTotalRowData(
+                id: UUID(),
+                name: $0.file,
+                data: $0.downloadCount.abbreviatedString(),
+                statSection: .periodFileDownloads
+            )
+        } ?? []
+    }
+}
+
+private extension SiteStatsPeriodViewModel {
+    /// - Returns: `StatsPeriodUnit` granularity of period data we want to receive from API
+    private func chartBarsUnit(from period: StatsPeriodUnit) -> StatsPeriodUnit {
+        return period
     }
 
+    /// - Returns: Number of bars data to fetch for a given Stats period
+    private func chartBarsLimit(for period: StatsPeriodUnit) -> Int {
+        return SiteStatsTableHeaderView.defaultPeriodCount
+    }
 }
 
 extension SiteStatsPeriodViewModel: AsyncBlocksLoadable {
+    typealias CurrentStore = any StatsStoreCacheable
     typealias RowType = PeriodType
 
-    var currentStore: StatsPeriodStore {
-        return store
+    var currentStore: any StatsStoreCacheable {
+        store
+    }
+
+    func blocks<Value>(
+        for blockType: RowType...,
+        type: StatType,
+        status: StoreFetchingStatus,
+        checkingCache: CacheBlock? = nil,
+        block: AsyncBlock<Value>,
+        loading: AsyncBlock<Value>,
+        error: AsyncBlock<Value>
+    ) -> Value {
+        let containsCachedData = checkingCache?() ?? blockType.allSatisfy { store.containsCachedData(for: $0) }
+
+        if containsCachedData {
+            return block()
+        }
+
+        switch status {
+        case .loading, .idle:
+            return loading()
+        case .success:
+            return block()
+        case .error:
+            return error()
+        }
     }
 }

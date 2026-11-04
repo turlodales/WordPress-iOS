@@ -1,14 +1,13 @@
-import Foundation
-import Alamofire
+import UIKit
 
-/// Handles mbar redirects.  These are marketing redirects to URLs that mobile should handle.
+/// Handles mbar redirects. These are marketing redirects to URLs that mobile should handle.
 ///
 /// - Important: Mbar redirects are supposed to always have a destination URL that can be handled
-///     by the App.  If the final URL can't be handled by the App, then it should not really be an
-///     /mbar redirect to begin with, but a /bar redirect.  In this case, the link in the marketing
+///     by the App. If the final URL can't be handled by the App, then it should not really be an
+///     /mbar redirect to begin with, but a /bar redirect. In this case, the link in the marketing
 ///     email should be fixed.
 ///     That said, if for any reason the final URL can't be really handled by the App, the user will
-///     be sent back to the default browser.  Such a case isn't great in terms of UX because the App
+///     be sent back to the default browser. Such a case isn't great in terms of UX because the App
 ///     will be opened and then the default browser will be opened... but other than that, it is
 ///     a safe procedure.
 ///
@@ -82,16 +81,20 @@ extension MbarRoute: NavigationAction {
 
         // If we're handling the link in the app, fire off a request to the
         // original URL so that any necessary tracking takes places.
-        Alamofire.request(url)
-            .validate()
-            .responseData { response in
-                switch response.result {
-                case .success:
-                    DDLogInfo("Mbar deep link request successful.")
-                case .failure(let error):
-                    DDLogError("Mbar deep link request failed: \(error.localizedDescription)")
+        if let trackingURL = URL(string: url) {
+            URLSession.shared
+                .dataTask(with: trackingURL) { _, response, error in
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    if error == nil, (200..<300).contains(statusCode) {
+                        Loggers.app.info("Mbar deep link request successful.")
+                    } else {
+                        Loggers.app.error(
+                            "Mbar deep link request failed: \(error?.localizedDescription ?? "HTTP \(statusCode)")"
+                        )
+                    }
                 }
-            }
+                .resume()
+        }
 
         router.handle(url: redirectUrl, shouldTrack: true, source: .email(campaign: campaign(from: url)))
     }

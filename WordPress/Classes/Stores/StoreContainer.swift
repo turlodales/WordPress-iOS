@@ -1,4 +1,4 @@
-import Foundation
+import UIKit
 
 class StoreContainer {
     static let shared = StoreContainer()
@@ -13,11 +13,6 @@ class StoreContainer {
 
     let plugin = PluginStore()
     let notice = NoticeStore()
-    let timezone = TimeZoneStore()
-    let activity = ActivityStore()
-    let statsInsights = StatsInsightsStore()
-    let statsPeriod = StatsPeriodStore()
     let jetpackInstall = JetpackInstallStore()
     let statsWidgets = StatsWidgetsStore()
-    let statsRevamp = StatsRevampStore()
 }

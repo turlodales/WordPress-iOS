@@ -1,4 +1,7 @@
 import Foundation
+import AsyncImageKit
+import AVFoundation
+import WordPressData
 
 fileprivate let photonHost = "i0.wp.com"
 fileprivate let secureHttpScheme = "https"
@@ -17,8 +20,7 @@ extension URL {
 ///
 /// This also includes regular and photon URLs.
 ///
-class MediaRequestAuthenticator {
-
+struct MediaRequestAuthenticator {
     /// Errors conditions that this class can find.
     ///
     enum Error: Swift.Error {
@@ -33,6 +35,7 @@ class MediaRequestAuthenticator {
     // MARK: - Request Authentication
 
     /// Returns an authenticated request for the given URL and the media host.
+    @MainActor
     func authenticatedRequest(for url: URL, host: MediaHost) async throws -> URLRequest {
         try await withUnsafeThrowingContinuation { continuation in
             authenticatedRequest(for: url, from: host) { request in
@@ -48,7 +51,7 @@ class MediaRequestAuthenticator {
     ///
     /// - Parameters:
     ///     - url: the url for the media.
-    ///     - host: the `MediaHost` for the requested Media.  This is used for authenticating the requests.
+    ///     - host: the `MediaHost` for the requested Media. This is used for authenticating the requests.
     ///     - provide: the closure that will be called once authentication is sorted out by this class.
     ///         The request can be executed directly without having to do anything else in terms of
     ///         authentication.
@@ -60,9 +63,23 @@ class MediaRequestAuthenticator {
         onComplete provide: @escaping (URLRequest) -> (),
         onFailure fail: @escaping (Error) -> ()) {
 
+        // A private Atomic site serves its media from its own mapped domain, which the
+        // WP.com allowlist below rightly refuses to send the account token to. Route those
+        // requests through the atomic-auth-proxy instead: the token is only ever attached
+        // to public-api.wordpress.com, and WP.com decides whether the viewer can access
+        // the file.
+        if case .privateAtomicWPComSite(let siteID, _, let authToken, let siteHost) = host,
+           let siteHost,
+           !url.isWordPressComHost,
+           url.host?.lowercased() == siteHost.lowercased(),
+           let request = atomicProxyRequest(for: url, siteID: siteID, authToken: authToken) {
+            provide(request)
+            return
+        }
+
         // We want to make sure we're never sending credentials
         // to a URL that's not safe.
-        guard !url.isFileURL || url.isHostedAtWPCom || url.isPhoton() else {
+        guard url.isWordPressComHost else {
             let request = URLRequest(url: url)
             provide(request)
             return
@@ -83,7 +100,7 @@ class MediaRequestAuthenticator {
                 authToken: authToken,
                 onComplete: provide,
                 onFailure: fail)
-        case .privateAtomicWPComSite(let siteID, let username, let authToken):
+        case .privateAtomicWPComSite(let siteID, let username, let authToken, _):
             if url.isPhoton() {
                 authenticatedRequestForPrivateAtomicSiteThroughPhoton(
                     for: url,
@@ -101,6 +118,36 @@ class MediaRequestAuthenticator {
                     onFailure: fail)
             }
         }
+    }
+
+    func authenticatedAsset(for url: URL, host: MediaHost) async throws -> AVURLAsset {
+        switch host {
+        case .publicSite: AVURLAsset(url: url)
+        case .publicWPComSite: AVURLAsset(url: url)
+        case .privateSelfHostedSite: AVURLAsset(url: url)
+        case .privateWPComSite(let authToken): authenticatedAsset(for: url, authToken: authToken)
+        case .privateAtomicWPComSite(_, _, let authToken, _): authenticatedAsset(for: url, authToken: authToken)
+        }
+    }
+
+    private func authenticatedAsset(for url: URL, authToken: String) -> AVURLAsset {
+        guard url.isWordPressComHost else {
+            Loggers.networking.warning("Refusing to attach the WP.com token to a non-WP.com host: \(url.host ?? "no host")")
+            return AVURLAsset(url: url)
+        }
+
+        // Just in case, enforce HTTPs
+        var finalURL = url
+        if var components = URLComponents(url: url, resolvingAgainstBaseURL: true) {
+            components.scheme = secureHttpScheme
+            finalURL = components.url ?? url
+        }
+
+        let headers: [String: String] = ["Authorization": "Bearer \(authToken)"]
+
+        return AVURLAsset(url: finalURL, options: [
+            "AVURLAssetHTTPHeaderFieldsKey": headers
+        ])
     }
 
     // MARK: - Request Authentication: Specific Scenarios
@@ -179,10 +226,13 @@ class MediaRequestAuthenticator {
 
         let request = tokenAuthenticatedWPComRequest(for: finalURL, authToken: authToken)
 
-        authenticationService.loadAuthCookies(into: cookieJar, username: account.username, siteID: siteID, success: {
-            provide(request)
-        }) { error in
-            fail(Error.failedToLoadAtomicAuthenticationCookies(underlyingError: error))
+        Task { @MainActor [username = account.username] in
+            do {
+                try await authenticationService.loadAuthCookies(into: cookieJar, username: username, siteID: siteID)
+                provide(request)
+            } catch {
+                fail(Error.failedToLoadAtomicAuthenticationCookies(underlyingError: error))
+            }
         }
     }
 
@@ -197,7 +247,7 @@ class MediaRequestAuthenticator {
     /// https://public-api.wordpress.com/wpcom/v2/sites/$siteID/atomic-auth-proxy/file/$wpContentPath
     ///
     /// To know whether you can remove this method, try requesting the photon URL from an
-    /// atomic private site.  If it works then you can remove this workaround logic.
+    /// atomic private site. If it works then you can remove this workaround logic.
     ///
     /// - Parameters:
     ///     - url: the url for the media.
@@ -214,30 +264,47 @@ class MediaRequestAuthenticator {
         onComplete provide: @escaping (URLRequest) -> (),
         onFailure fail: @escaping (Error) -> ()) {
 
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
-            fail(Error.cannotBreakDownURLIntoComponents(url: url))
+        guard let request = atomicProxyRequest(for: url, siteID: siteID, authToken: authToken) else {
+            if let components = URLComponents(url: url, resolvingAgainstBaseURL: true) {
+                fail(Error.cannotFindWPContentInPhotonPath(components: components))
+            } else {
+                fail(Error.cannotBreakDownURLIntoComponents(url: url))
+            }
             return
         }
 
-        guard let wpContentRange = components.path.range(of: "/wp-content") else {
-            fail(Error.cannotFindWPContentInPhotonPath(components: components))
-            return
+        provide(request)
+    }
+
+    /// Builds a token-authenticated atomic-auth-proxy request for a media file under the
+    /// site's wp-content directory. The token is attached to public-api.wordpress.com only,
+    /// never to the original host, so this is safe for URLs on hosts outside the WP.com
+    /// allowlist. Returns nil when the URL cannot be proxied (no /wp-content path segment,
+    /// or the URL cannot be decomposed).
+    private func atomicProxyRequest(for url: URL, siteID: Int, authToken: String) -> URLRequest? {
+        guard let sourceComponents = URLComponents(url: url, resolvingAgainstBaseURL: true),
+              let wpContentRange = sourceComponents.path.range(of: "/wp-content") else {
+            return nil
         }
 
-        let contentPath = String(components.path[wpContentRange.lowerBound ..< components.path.endIndex])
+        let contentPath = String(sourceComponents.path[wpContentRange.lowerBound...])
 
+        // Build the proxy URL from scratch rather than mutating the source URL's
+        // components. The source URL is server-supplied and potentially
+        // attacker-influenced; reusing its components would carry over authority
+        // fields (userinfo, port, fragment) onto the request that attaches the
+        // Bearer token. Only the wp-content path is taken from the source.
+        var components = URLComponents()
         components.scheme = secureHttpScheme
         components.host = wpComApiHost
         components.path = "/wpcom/v2/sites/\(siteID)/atomic-auth-proxy/file"
         components.queryItems = [URLQueryItem(name: "path", value: contentPath)]
 
         guard let finalURL = components.url else {
-            fail(Error.cannotCreateAtomicProxyURL(components: components))
-            return
+            return nil
         }
 
-        let request = tokenAuthenticatedWPComRequest(for: finalURL, authToken: authToken)
-        provide(request)
+        return tokenAuthenticatedWPComRequest(for: finalURL, authToken: authToken)
     }
 
     // MARK: - Adding the Auth Token
@@ -249,6 +316,11 @@ class MediaRequestAuthenticator {
     ///     - authToken: the Bearer token to add to the resulting request.
     ///
     private func tokenAuthenticatedWPComRequest(for url: URL, authToken: String) -> URLRequest {
+        guard url.isWordPressComHost else {
+            Loggers.networking.warning("Refusing to attach the WP.com token to a non-WP.com host: \(url.host ?? "no host")")
+            return URLRequest(url: url)
+        }
+
         var request = URLRequest(url: url)
         request.addValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
         return request

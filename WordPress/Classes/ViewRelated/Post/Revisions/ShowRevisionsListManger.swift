@@ -1,10 +1,11 @@
+import WordPressData
+
 protocol RevisionsView: AnyObject {
     func stopLoading(success: Bool, error: Error?)
 }
 
-
 final class ShowRevisionsListManger {
-    let context = ContextManager.sharedInstance().mainContext
+    let context = ContextManager.shared.mainContext
 
     private var isLoading = false
     private weak var revisionsView: RevisionsView?
@@ -19,7 +20,7 @@ final class ShowRevisionsListManger {
     }
 
     func getRevisions() {
-        guard let post = post else {
+        guard let post else {
             return
         }
 

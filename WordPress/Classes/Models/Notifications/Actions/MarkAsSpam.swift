@@ -1,3 +1,6 @@
+import Foundation
+import FormattableContentKit
+
 /// Encapsulates logic to mark a comment as spam
 class MarkAsSpam: DefaultNotificationActionCommand {
     static let title = NSLocalizedString("Spam", comment: "Marks comment as spam.")
@@ -13,7 +16,7 @@ class MarkAsSpam: DefaultNotificationActionCommand {
             return
         }
         let request = NotificationDeletionRequest(kind: .spamming, action: { [weak self] requestCompletion in
-            self?.actionsService?.spamCommentWithBlock(block) { (success) in
+            self?.actionsService?.spamCommentWithBlock(block) { success in
                 requestCompletion(success)
             }
         })

@@ -1,3 +1,7 @@
-#include "../Pods/Target Support Files/Pods-Apps-Jetpack/Pods-Apps-Jetpack.release.xcconfig"
+#include "Common.release.xcconfig"
+#include "Version.public.xcconfig"
 
-BUILD_SCHEME=Jetpack
+WP_PUSH_NOTIFICATION_APP_ID = com.jetpack.appstore
+WP_BUILD_CONFIGURATION = release
+WP_APP_URL_SCHEME = ${WP_JETPACK_APP_URL_SCHEME}
+WP_APP_KEYCHAIN_ACCESS_GROUP = 3TMU3BH3NK.org.wordpress.jetpack

@@ -1,5 +1,6 @@
 import UIKit
 import Gutenberg
+import WordPressShared
 
 protocol CategorySectionTableViewCellDelegate: AnyObject {
     func didSelectItemAt(_ position: Int, forCell cell: CategorySectionTableViewCell, slug: String)
@@ -26,10 +27,9 @@ protocol CategorySection {
     var thumbnailSize: CGSize { get }
 }
 
-class CategorySectionTableViewCell: UITableViewCell {
+class CategorySectionTableViewCell: UITableViewCell, NibLoadable {
 
     static let cellReuseIdentifier = "\(CategorySectionTableViewCell.self)"
-    static let nib = UINib(nibName: "\(CategorySectionTableViewCell.self)", bundle: Bundle.main)
     static let defaultThumbnailSize = CGSize(width: 160, height: 240)
     static let cellVerticalPadding: CGFloat = 70
 
@@ -52,7 +52,7 @@ class CategorySectionTableViewCell: UITableViewCell {
             categoryTitle.text = section?.title
             setCaption()
 
-            if let section = section {
+            if let section {
                 collectionViewHeight.constant = section.thumbnailSize.height
                 setNeedsUpdateConstraints()
             }
@@ -83,22 +83,48 @@ class CategorySectionTableViewCell: UITableViewCell {
         }
     }
     var showsCheckMarkWhenSelected = true
+    /// The horizontal scroll position to show. It's applied once the collection view has laid out the
+    /// current section: until then its content size can still be the previous section's (when the cell is
+    /// reused), and UIKit would clamp the offset to that.
     var horizontalScrollOffset: CGFloat = .zero {
         didSet {
-            collectionView.contentOffset.x = horizontalScrollOffset
+            pendingHorizontalScrollOffset = horizontalScrollOffset
+            setNeedsLayout()
         }
     }
+
+    private var pendingHorizontalScrollOffset: CGFloat?
 
     override func prepareForReuse() {
         delegate = nil
         super.prepareForReuse()
+        pendingHorizontalScrollOffset = nil
         collectionView.contentOffset.x = 0
         categoryTitleFont = nil
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        applyPendingHorizontalScrollOffset()
+    }
+
+    private func applyPendingHorizontalScrollOffset() {
+        guard let offset = pendingHorizontalScrollOffset else {
+            return
+        }
+        collectionView.layoutIfNeeded()
+        // The content size is zero until the collection view is tall enough for the section's thumbnails.
+        guard collectionView.contentSize.width > 0 else {
+            return
+        }
+        pendingHorizontalScrollOffset = nil
+        let maximumOffset = max(collectionView.contentSize.width - collectionView.bounds.width, 0)
+        collectionView.contentOffset.x = min(offset, maximumOffset)
+    }
+
     override func awakeFromNib() {
         super.awakeFromNib()
-        collectionView.register(CollapsableHeaderCollectionViewCell.nib, forCellWithReuseIdentifier: CollapsableHeaderCollectionViewCell.cellReuseIdentifier)
+        collectionView.register(CollapsableHeaderCollectionViewCell.defaultNib, forCellWithReuseIdentifier: CollapsableHeaderCollectionViewCell.cellReuseIdentifier)
         categoryTitle.font = categoryTitleFont ?? WPStyleGuide.serifFontForTextStyle(UIFont.TextStyle.headline, fontWeight: .semibold)
         categoryTitle.layer.masksToBounds = true
         categoryTitle.layer.cornerRadius = 4
@@ -113,7 +139,7 @@ class CategorySectionTableViewCell: UITableViewCell {
 
     func deselectItems() {
         guard let selectedItems = collectionView.indexPathsForSelectedItems else { return }
-        selectedItems.forEach { (indexPath) in
+        selectedItems.forEach { indexPath in
             collectionView.deselectItem(at: indexPath, animated: true)
         }
     }
@@ -140,6 +166,10 @@ extension CategorySectionTableViewCell: UICollectionViewDelegate {
 
     func collectionView(_ collectionView: UICollectionView, didDeselectItemAt indexPath: IndexPath) {
         delegate?.didDeselectItem(forCell: self)
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        pendingHorizontalScrollOffset = nil
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
@@ -177,7 +207,7 @@ extension CategorySectionTableViewCell: UICollectionViewDataSource {
     }
 
     private func thumbnailUrl(forThumbnail thumbnail: Thumbnail) -> String? {
-        guard let delegate = delegate else { return thumbnail.urlDesktop }
+        guard let delegate else { return thumbnail.urlDesktop }
         switch delegate.selectedPreviewDevice {
         case .desktop:
             return thumbnail.urlDesktop
@@ -198,7 +228,7 @@ extension CategorySectionTableViewCell {
 
 class AccessibleCollectionView: UICollectionView {
     override func accessibilityElementCount() -> Int {
-        guard let dataSource = dataSource else {
+        guard let dataSource else {
             return 0
         }
 

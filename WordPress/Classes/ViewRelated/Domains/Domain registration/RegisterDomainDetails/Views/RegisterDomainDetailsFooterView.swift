@@ -1,14 +1,13 @@
 import UIKit
-import WordPressAuthenticator
 
 class RegisterDomainDetailsFooterView: UIView, NibLoadable {
 
-    @IBOutlet weak var submitButton: NUXButton!
+    @IBOutlet weak var submitButton: UIButton!
 
     override func awakeFromNib() {
         super.awakeFromNib()
         clipsToBounds = false
-        submitButton.isPrimary = true
-        backgroundColor = .basicBackground
+        submitButton.configureAsPrimaryNUXButton()
+        backgroundColor = .systemBackground
     }
 }

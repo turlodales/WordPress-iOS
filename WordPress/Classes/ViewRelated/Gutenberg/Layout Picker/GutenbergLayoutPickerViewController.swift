@@ -1,6 +1,9 @@
 import UIKit
 import Gridicons
 import Gutenberg
+import WordPressData
+import WordPressShared
+import WordPressUI
 
 extension PageTemplateLayout: Thumbnail {
     var urlDesktop: String? { preview }
@@ -41,6 +44,7 @@ class GutenbergLayoutPickerViewController: FilterableCategoriesViewController {
     let completion: PageCoordinator.TemplateSelectionCompletion
     let blog: Blog
     var previewDeviceButtonItem: UIBarButtonItem?
+    private var hasRequestedLayouts = false
 
     static let thumbnailSize = CGSize(width: 160, height: 240)
 
@@ -69,13 +73,25 @@ class GutenbergLayoutPickerViewController: FilterableCategoriesViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         navigationItem.backButtonTitle = NSLocalizedString("Choose layout", comment: "Shortened version of the main title to be used in back navigation")
-        fetchLayouts()
         configureCloseButton()
         configurePreviewDeviceButton()
     }
 
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        // The layout request needs the scale of the screen that displays the thumbnails, which
+        // is only known once the view is in a window. Request once; retries go through
+        // `actionButtonPressed()`.
+        guard !hasRequestedLayouts else { return }
+        hasRequestedLayouts = true
+        fetchLayouts()
+    }
+
     private func configureCloseButton() {
-        navigationItem.leftBarButtonItem = CollapsableHeaderViewController.closeButton(target: self, action: #selector(closeButtonTapped))
+        navigationItem.leftBarButtonItem = UIBarButtonItem.makeCloseButton(
+            target: self,
+            action: #selector(closeButtonTapped)
+        )
     }
 
     private func configurePreviewDeviceButton() {
@@ -89,7 +105,7 @@ class GutenbergLayoutPickerViewController: FilterableCategoriesViewController {
         let popoverContentController = PreviewDeviceSelectionViewController()
         popoverContentController.selectedOption = selectedPreviewDevice
         popoverContentController.onDeviceChange = { [weak self] device in
-            guard let self = self else { return }
+            guard let self else { return }
             LayoutPickerAnalyticsEvent.previewModeChanged(device)
             self.selectedPreviewDevice = device
         }
@@ -115,8 +131,17 @@ class GutenbergLayoutPickerViewController: FilterableCategoriesViewController {
     }
 
     private func fetchLayouts() {
+        guard let scale = view.window?.windowScene?.screen.nativeScale else {
+            return wpAssertionFailure(
+                "GutenbergLayoutPickerViewController.fetchLayouts() requires the view to be in a window"
+            )
+        }
         isLoading = resultsController.isEmpty()
-        PageLayoutService.fetchLayouts(forBlog: blog, withThumbnailSize: GutenbergLayoutPickerViewController.thumbnailSize) { [weak self] result in
+        PageLayoutService.fetchLayouts(
+            forBlog: blog,
+            withThumbnailSize: GutenbergLayoutPickerViewController.thumbnailSize,
+            scale: scale
+        ) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success:
@@ -131,17 +156,16 @@ class GutenbergLayoutPickerViewController: FilterableCategoriesViewController {
     private func handleErrors(_ error: Error) {
         guard resultsController.isEmpty() else { return }
         isLoading = false
-        let titleText = NSLocalizedString("Unable to load this content right now.", comment: "Informing the user that a network request failed becuase the device wasn't able to establish a network connection.")
+        let titleText = NSLocalizedString("Unable to load this content right now.", comment: "Informing the user that a network request failed because the device wasn't able to establish a network connection.")
         let subtitleText = NSLocalizedString("Check your network connection and try again or create a blank page.", comment: "Default subtitle for no-results when there is no connection with a prompt to create a new page instead.")
         displayNoResultsController(title: titleText, subtitle: subtitleText, resultsDelegate: self)
     }
 
     private func makeSectionData(with controller: NSFetchedResultsController<PageTemplateCategory>?) -> [GutenbergLayoutSection] {
-        return controller?.fetchedObjects?.map({ (category) -> GutenbergLayoutSection in
+        return controller?.fetchedObjects?.map({ category -> GutenbergLayoutSection in
             return GutenbergLayoutSection(category, thumbnailSize: GutenbergLayoutPickerViewController.thumbnailSize)
         }) ?? []
     }
-
 
     // MARK: - Footer Actions
     override func defaultActionSelected(_ sender: Any) {

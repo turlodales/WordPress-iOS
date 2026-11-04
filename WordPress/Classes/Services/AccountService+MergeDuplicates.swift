@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 
 extension AccountService {
 
@@ -38,8 +39,7 @@ extension AccountService {
 
     private func mergeAccount(account: WPAccount, into destination: WPAccount, in context: NSManagedObjectContext) {
         // Move all blogs to the destination account
-        destination.addBlogs(account.blogs)
+        destination.addBlogs(account.blogs ?? [])
         context.deleteObject(account)
     }
-
 }

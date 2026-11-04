@@ -1,6 +1,5 @@
 import Foundation
-import CocoaLumberjack
-import Reachability
+import WordPressData
 import WordPressKit
 
 extension NSNotification.Name {
@@ -33,7 +32,6 @@ extension AccountSettingsRemoteInterface {
 
 extension AccountSettingsRemote: AccountSettingsRemoteInterface {}
 
-
 class AccountSettingsService {
     struct Defaults {
         static let stallTimeout = 4.0
@@ -58,14 +56,14 @@ class AccountSettingsService {
 
     var stallTimer: Timer?
 
-    private let coreDataStack: CoreDataStackSwift
+    private let coreDataStack: CoreDataStack
 
     convenience init(userID: Int, api: WordPressComRestApi) {
         let remote = AccountSettingsRemote.remoteWithApi(api)
         self.init(userID: userID, remote: remote)
     }
 
-    init(userID: Int, remote: AccountSettingsRemoteInterface, coreDataStack: CoreDataStackSwift = ContextManager.sharedInstance()) {
+    init(userID: Int, remote: AccountSettingsRemoteInterface, coreDataStack: CoreDataStack = ContextManager.shared) {
         self.userID = userID
         self.remote = remote
         self.coreDataStack = coreDataStack
@@ -170,7 +168,7 @@ class AccountSettingsService {
     func updatePassword(_ password: String, finished: ((Bool, Error?) -> ())? = nil) {
         remote.updatePassword(password, success: {
             finished?(true, nil)
-        }) { (error) -> Void in
+        }) { error -> Void in
             DDLogError("Error saving account settings change \(error)")
             NotificationCenter.default.post(name: NSNotification.Name.AccountSettingsServiceChangeSaveFailed, object: error as NSError)
 
@@ -235,7 +233,7 @@ class AccountSettingsService {
                 return nil
             }
 
-            return AccountSettings.init(managed: managedAccount)
+            return AccountSettings(managed: managedAccount)
         }
     }
 

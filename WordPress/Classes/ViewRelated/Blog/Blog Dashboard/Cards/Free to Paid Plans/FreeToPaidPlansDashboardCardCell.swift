@@ -1,4 +1,5 @@
 import UIKit
+import WordPressData
 
 final class FreeToPaidPlansDashboardCardCell: BaseDashboardDomainsCardCell {
     override var viewModel: DashboardDomainsCardViewModel {
@@ -7,11 +8,11 @@ final class FreeToPaidPlansDashboardCardCell: BaseDashboardDomainsCardCell {
 
     private lazy var cardViewModel: DashboardDomainsCardViewModel = {
         let onViewShow: () -> Void = { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
-            PlansTracker.trackFreeToPaidPlansDashboardCardShown(in: self.row)
+            PlansTracker.trackFreeToPaidPlansDashboardCardShown(in: self.row, blogProperties: self.blog?.analyticsProperties)
         }
 
         let onViewTap: () -> Void = { [weak self] in

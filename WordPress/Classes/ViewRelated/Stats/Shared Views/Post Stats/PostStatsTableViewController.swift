@@ -1,5 +1,6 @@
 import UIKit
 import WordPressFlux
+import WordPressUI
 
 @objc protocol PostStatsDelegate {
     @objc optional func displayWebViewWithURL(_ url: URL)
@@ -22,29 +23,33 @@ class PostStatsTableViewController: UITableViewController, StoryboardLoadable {
     private var tableHeaderView: SiteStatsTableHeaderView?
     private typealias Style = WPStyleGuide.Stats
     private var viewModel: PostStatsViewModel?
-    private let store = StoreContainer.shared.statsPeriod
+    private let store = StatsPeriodStore()
     private var changeReceipt: Receipt?
 
-    private lazy var tableHandler: ImmuTableViewHandler = {
-        return ImmuTableViewHandler(takeOver: self, with: self)
+    private lazy var tableHandler: ImmuTableDiffableViewHandler = {
+        return ImmuTableDiffableViewHandler(takeOver: self, with: self)
     }()
 
     // MARK: - View
 
     override func viewDidLoad() {
         super.viewDidLoad()
+
         navigationItem.title = NSLocalizedString("Post Stats", comment: "Window title for Post Stats view.")
         refreshControl?.addTarget(self, action: #selector(userInitiatedRefresh), for: .valueChanged)
+
+        tableView.separatorInset = .zero
         tableView.estimatedSectionHeaderHeight = SiteStatsTableHeaderView.estimatedHeight
-        Style.configureTable(tableView)
+        view.backgroundColor = .systemBackground
+
         ImmuTable.registerRows(tableRowTypes(), tableView: tableView)
         initViewModel()
         trackAccessEvent()
-        addWillEnterForegroundObserver()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        addWillEnterForegroundObserver()
         JetpackFeaturesRemovalCoordinator.presentOverlayIfNeeded(in: self, source: .stats)
     }
 
@@ -60,9 +65,7 @@ class PostStatsTableViewController: UITableViewController, StoryboardLoadable {
     }
 
     override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        guard let cell = Bundle.main.loadNibNamed("SiteStatsTableHeaderView", owner: nil, options: nil)?.first as? SiteStatsTableHeaderView else {
-            return nil
-        }
+        let cell = SiteStatsTableHeaderView()
 
         let lastTwoWeeks = store.getPostStats(for: postID)?.lastTwoWeeks ?? []
 
@@ -75,7 +78,6 @@ class PostStatsTableViewController: UITableViewController, StoryboardLoadable {
         tableHeaderView = cell
         return cell
     }
-
 }
 
 extension PostStatsTableViewController: StatsForegroundObservable {
@@ -94,7 +96,7 @@ private extension PostStatsTableViewController {
 
     func initViewModel() {
 
-        guard let postID = postID else {
+        guard let postID else {
             return
         }
 
@@ -107,7 +109,8 @@ private extension PostStatsTableViewController {
                                        selectedDate: selectedDate,
                                        postTitle: postTitle,
                                        postURL: postURL,
-                                       postStatsDelegate: self)
+                                       postStatsDelegate: self,
+                                       store: store)
         refreshTableView()
 
         changeReceipt = viewModel?.onChange { [weak self] in
@@ -120,6 +123,8 @@ private extension PostStatsTableViewController {
     func trackAccessEvent() {
         var properties = [AnyHashable: Any]()
 
+        properties[WPAppAnalyticsKeyTapSource] = "posts"
+
         if let blogIdentifier = SiteStatsInformation.sharedInstance.siteID {
             properties["blog_id"] = blogIdentifier
         }
@@ -128,7 +133,11 @@ private extension PostStatsTableViewController {
             properties["post_id"] = postIdentifier
         }
 
-        WPAppAnalytics.track(.statsSinglePostAccessed, withProperties: properties)
+        if FeatureFlag.newStats.enabled {
+            properties[WPAnalyticsEvent.isNewStatsKey] = "1"
+        }
+
+        WPAppAnalytics.track(.statsAccessed, withProperties: properties)
     }
 
     func tableRowTypes() -> [ImmuTableRow.Type] {
@@ -146,11 +155,11 @@ private extension PostStatsTableViewController {
     // MARK: - Table Refreshing
 
     func refreshTableView() {
-        guard let viewModel = viewModel else {
+        guard let viewModel else {
             return
         }
 
-        tableHandler.viewModel = viewModel.tableViewModel()
+        tableHandler.diffableDataSource.apply(viewModel.tableViewSnapshot(), animatingDifferences: false)
         refreshControl?.endRefreshing()
 
         if viewModel.fetchDataHasFailed() {
@@ -164,22 +173,24 @@ private extension PostStatsTableViewController {
     }
 
     func refreshData(forceUpdate: Bool = false) {
-        guard let viewModel = viewModel,
-            let postID = postID else {
+        guard let viewModel,
+            let postID else {
             return
         }
 
         viewModel.refreshPostStats(postID: postID, selectedDate: selectedDate)
         if forceUpdate {
-            tableHandler.viewModel = viewModel.tableViewModel()
+            tableHandler.diffableDataSource.apply(viewModel.tableViewSnapshot(), animatingDifferences: false)
         }
     }
 
     func applyTableUpdates() {
-        tableView.performBatchUpdates({
-        })
-    }
+        guard let viewModel else {
+            return
+        }
 
+        tableHandler.diffableDataSource.apply(viewModel.tableViewSnapshot(), animatingDifferences: false)
+    }
 }
 
 // MARK: - PostStatsDelegate Methods
@@ -188,7 +199,7 @@ extension PostStatsTableViewController: PostStatsDelegate {
 
     func displayWebViewWithURL(_ url: URL) {
         let webViewController = WebViewControllerFactory.controllerAuthenticatedWithDefaultAccount(url: url, source: "stats_post_stats")
-        let navController = UINavigationController.init(rootViewController: webViewController)
+        let navController = UINavigationController(rootViewController: webViewController)
         present(navController, animated: true)
     }
 
@@ -208,12 +219,15 @@ extension PostStatsTableViewController: PostStatsDelegate {
         detailTableViewController.configure(statSection: statSection, postID: postID)
         navigationController?.pushViewController(detailTableViewController, animated: true)
     }
-
 }
 
 // MARK: - StatsBarChartViewDelegate
 
 extension PostStatsTableViewController: StatsBarChartViewDelegate {
+    func statsBarChartTabSelected(_ tabIndex: Int) {
+        viewModel?.currentTabIndex = tabIndex
+    }
+
     func statsBarChartValueSelected(_ statsBarChartView: StatsBarChartView, entryIndex: Int, entryCount: Int) {
         tableHeaderView?.statsBarChartValueSelected(statsBarChartView, entryIndex: entryIndex, entryCount: entryCount)
     }
@@ -224,7 +238,7 @@ extension PostStatsTableViewController: StatsBarChartViewDelegate {
 extension PostStatsTableViewController: SiteStatsTableHeaderDelegate {
 
     func dateChangedTo(_ newDate: Date?) {
-        guard let newDate = newDate else {
+        guard let newDate else {
             return
         }
 

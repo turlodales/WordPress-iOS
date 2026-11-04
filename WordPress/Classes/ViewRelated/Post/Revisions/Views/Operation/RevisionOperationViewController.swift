@@ -1,3 +1,6 @@
+import UIKit
+import WordPressData
+
 class RevisionOperationViewController: UIViewController {
     var revision: Revision? {
         didSet {
@@ -15,7 +18,7 @@ class RevisionOperationViewController: UIViewController {
     }
 
     private func setupViews() {
-        view.backgroundColor = .listForeground
+        view.backgroundColor = .secondarySystemGroupedBackground
 
         addView = RevisionOperation(.add).internalView
         delView = RevisionOperation(.del).internalView

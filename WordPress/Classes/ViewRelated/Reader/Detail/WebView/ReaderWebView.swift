@@ -1,4 +1,9 @@
 import UIKit
+import ColorStudio
+import WordPressReader
+import WordPressShared
+import WordPressUI
+import WebKit
 
 /// A WKWebView that renders post content with styles applied
 ///
@@ -6,15 +11,26 @@ class ReaderWebView: WKWebView {
 
     /// HTML elements that will load only after the text has appeared
     /// From: https://www.w3schools.com/tags/att_src.asp
-    private let elements = ["audio", "embed", "iframe", "img", "input", "script", "source", "track", "video"]
+    private static let elements = ["audio", "embed", "iframe", "img", "input", "script", "source", "track", "video"]
 
-    let jsToRemoveSrcSet = "document.querySelectorAll('img, img-placeholder').forEach((el) => {el.removeAttribute('srcset')})"
+    /// Google recently started requiring an HTTP referrer, otherwise it'll just show an error.
+    ///
+    /// We'll set the referrer to https://wordpress.com/reader since that's what Google would get if the user were using WordPress.com. If needed, we
+    /// could also set this to the specific site, which might be valuable for content owners to get more accurate information (they could see that example.com
+    /// embedded the video, instead of just "some site that uses WordPress"). That's less ideal for privacy, so that's why we're starting here.
+    ///
+    /// Documentation: https://developers.google.com/youtube/terms/required-minimum-functionality#set-the-referer
+    /// See also: https://stackoverflow.com/q/79802987/496295
+    static let baseURL = URL(string: "https://wordpress.com/reader")!
+
+    let jsToRemoveSrcSet =
+        "document.querySelectorAll('img, img-placeholder').forEach((el) => {el.removeAttribute('srcset')})"
 
     var postURL: URL? = nil
 
     var isP2 = false
 
-    var usesSansSerifStyle = false
+    var displaySetting: ReaderDisplaySettings = .standard
 
     /// Make the webview transparent
     ///
@@ -23,9 +39,10 @@ class ReaderWebView: WKWebView {
 
         isOpaque = false
         backgroundColor = .clear
-        if #available(iOS 16.4, *) {
-            isInspectable = true
-        }
+        isInspectable = true
+
+        // - warning: It retains the handler. It can't be `self`.
+        configuration.userContentController.add(ReaderWebViewMessageHandler(), name: "eventHandler")
     }
 
     /// Loads a HTML content into the webview and apply styles
@@ -35,19 +52,19 @@ class ReaderWebView: WKWebView {
         // This is because only the image inside the src tag is previously saved
         let additionalJavaScript = ReachabilityUtils.isInternetReachable() ? "" : jsToRemoveSrcSet
 
-        let content = formattedContent(addPlaceholder(string), additionalJavaScript: additionalJavaScript)
+        let content = formattedContent(Self.addPlaceholder(string), additionalJavaScript: additionalJavaScript)
 
-        super.loadHTMLString(content, baseURL: Bundle.wordPressSharedBundle.bundleURL)
+        super.loadHTMLString(content, baseURL: Self.baseURL)
     }
 
     /// Given a HTML content, returns it formatted.
     /// Ie.: Including tags, CSS, JS, etc.
     ///
     func formattedContent(_ content: String, additionalJavaScript: String = "") -> String {
-        return """
+        """
         <!DOCTYPE html><html><head><meta charset='UTF-8' />
         <title>Reader Post</title>
-        <meta name='viewport' content='initial-scale=1, maximum-scale=1.0, user-scalable=no'>
+        <meta name='viewport' content='initial-scale=\(displaySetting.size.scale), maximum-scale=\(displaySetting.size.scale), user-scalable=no'>
         <link rel="stylesheet" type="text/css" href="\(ReaderCSS().address)">
         <style>
         \(cssColors())
@@ -62,33 +79,30 @@ class ReaderWebView: WKWebView {
             document.addEventListener('DOMContentLoaded', function(event) {
                 \(additionalJavaScript)
                 // Remove autoplay to avoid media autoplaying
-                document.querySelectorAll('video-placeholder, audio-placeholder').forEach((el) => {el.removeAttribute('autoplay')})
-
-                // Replaces the bundle URL with the post URL for each "blank" anchor tag (<a href="#anchor"></a>).
-                // this fixes an issue where tapping on one would return a file url with the anchor attached to it
-                let baseURL = "\(Bundle.wordPressSharedBundle.bundleURL)"
-                let postURL = "\(postURL?.absoluteString ?? "")"
-
-                if(postURL.length > 0){
-                    let anchors = document.querySelectorAll('a')
-
-                    anchors.forEach(function(elem){
-                      // Ignore any regular links that don't have hashes
-                      if(!elem.hash || elem.hash.length < 0) {
-                        return
-                      }
-
-                      let href = elem.href;
-
-                      // Skip any links that aren't the base URL
-                      if(href.substr(0, baseURL.length) != baseURL){
-                        return
-                      }
-
-                      elem.href = postURL + elem.hash;
-                    });
-                }
+                document.querySelectorAll('video-placeholder, audio-placeholder').forEach((el) => {
+                    el.removeAttribute('autoplay');
+                    el.setAttribute('controls', '');
+                })
             })
+            function debounce(fn, timeout) {
+                let timer;
+                return () => {
+                    clearTimeout(timer);
+                    timer = setTimeout(fn, timeout);
+                }
+            }
+            const postEvent = (event) => window.webkit.messageHandlers.eventHandler.postMessage(event);
+            const textHighlighted = debounce(
+                () => postEvent("articleTextHighlighted"),
+                1000
+            );
+            document.addEventListener('selectionchange', function(event) {
+                const selection = document.getSelection().toString();
+                if (selection.length > 0) {
+                    textHighlighted();
+                }
+            });
+            document.addEventListener('copy', event => postEvent("articleTextCopied"));
         </script>
         </html>
         """
@@ -97,61 +111,85 @@ class ReaderWebView: WKWebView {
     /// Tell the webview to load all media
     /// You want to use this method only after the webview has appearead (after a didFinish, for example)
     func loadMedia() {
-        evaluateJavaScript("""
-            var elements = ["\(elements.joined(separator: "\",\""))"]
+        evaluateJavaScript(
+            """
+                var elements = ["\(Self.elements.joined(separator: "\",\""))"]
 
-            elements.forEach((element) => {
-                document.querySelectorAll(`${element}-placeholder`).forEach((el) => {
-                    var regex = new RegExp(`${element}-placeholder`, "g")
-                    el.outerHTML = el.outerHTML.replace(regex, element)
+                elements.forEach((element) => {
+                    document.querySelectorAll(`${element}-placeholder`).forEach((el) => {
+                        var regex = new RegExp(`${element}-placeholder`, "g")
+                        el.outerHTML = el.outerHTML.replace(regex, element)
+                    })
                 })
-            })
 
-            // Make all images tappable
-            // Exception for images in Stories, which have their own link structure
-            // and images that already have a link
-            document.querySelectorAll('img:not(.wp-story-image)').forEach((el) => {
-                if (el.parentNode.nodeName.toLowerCase() !== 'a') {
-                    el.outerHTML = `<a href="${el.src}">${el.outerHTML}</a>`;
-                }
-            })
+                // Make all images tappable
+                // Exception for images in Stories, which have their own link structure
+                // and images that already have a link
+                document.querySelectorAll('img:not(.wp-story-image)').forEach((el) => {
+                    if (el.parentNode.nodeName.toLowerCase() !== 'a') {
+                        el.outerHTML = `<a href="${el.src}">${el.outerHTML}</a>`;
+                    }
+                })
 
-            // Only display images after they have fully loaded, to have a native feel
-            document.querySelectorAll('img').forEach((el) => {
-                var img = new Image();
-                img.addEventListener('load', () => { el.style.opacity = "1" }, false);
-                img.src = el.currentSrc;
-                el.src = img.src;
-            })
+                // Only display images after they have fully loaded, to have a native feel.
+                // On iOS 27, a lazy `sizes="auto"` image reports `complete` before it has loaded,
+                // so also require a naturalWidth.
+                document.querySelectorAll('img').forEach((el) => {
+                    var show = () => { el.style.opacity = "1" };
+                    if (el.complete && el.naturalWidth > 0) {
+                        show();
+                    } else {
+                        el.addEventListener('load', show, { once: true });
+                    }
+                })
 
-            // Load all embeds
-            const embedsToLookFor = {
-                'blockquote[class^="instagram-"]': 'https://www.instagram.com/embed.js',
-                'blockquote[class^="twitter-"], a[class^="twitter-"]': 'https://platform.twitter.com/widgets.js',
-                'fb\\\\:post, [class^=fb-]': 'https://connect.facebook.net/en_US/sdk.js#xfbml=1&version=v2.2',
-                '[class^=tumblr-]': 'https://assets.tumblr.com/post.js',
-                '.embed-reddit': 'https://embed.redditmedia.com/widgets/platform.js',
-            };
+                // Load all embeds
+                const embedsToLookFor = {
+                    'blockquote[class^="instagram-"]': 'https://www.instagram.com/embed.js',
+                    'blockquote[class^="twitter-"], a[class^="twitter-"]': 'https://platform.twitter.com/widgets.js',
+                    'fb\\\\:post, [class^=fb-]': 'https://connect.facebook.net/en_US/sdk.js#xfbml=1&version=v2.2',
+                    '[class^=tumblr-]': 'https://assets.tumblr.com/post.js',
+                    '.embed-reddit': 'https://embed.redditmedia.com/widgets/platform.js',
+                    '.embed-tiktok': 'https://www.tiktok.com/embed.js',
+                };
 
-            Object.keys(embedsToLookFor).forEach((key) => {
-              if (document.querySelectorAll(key).length > 0) {
-                var s = document.createElement( 'script' );
-                s.setAttribute( 'src', embedsToLookFor[key] );
-                document.body.appendChild( s );
-              }
-            })
+                Object.keys(embedsToLookFor).forEach((key) => {
+                  if (document.querySelectorAll(key).length > 0) {
+                    var s = document.createElement( 'script' );
+                    s.setAttribute( 'src', embedsToLookFor[key] );
+                    document.body.appendChild( s );
+                  }
+                })
 
-        """, completionHandler: nil)
+            """,
+            completionHandler: nil
+        )
     }
 
-    /// Change all occurences of elements to change it's HTML tag to "element-placeholder"
+    /// Change all occurrences of elements to change it's HTML tag to "element-placeholder"
     /// Ie.: img -> img-placeholder
     /// This will make the text to appear fast, so the user can start reading
     ///
-    private func addPlaceholder(_ htmlContent: String) -> String {
+    /// End tags are renamed too. The HTML parser ignores a stray `</iframe>` after
+    /// `<iframe-placeholder>`, so the placeholder stays open and the rest of the
+    /// post is parsed as its children. `loadMedia` then turns it into an `<iframe>`,
+    /// whose children are fallback content that never renders.
+    static func addPlaceholder(_ htmlContent: String) -> String {
         var content = htmlContent
 
-        elements.forEach { content = content.replacingMatches(of: "<\($0)", with: "<\($0)-placeholder") }
+        for element in elements {
+            // HTML tag names are case-insensitive. Renaming only one tag of a pair leaves the element open.
+            content = content.replacingMatches(
+                of: "<\(element)",
+                with: "<\(element)-placeholder",
+                options: .caseInsensitive
+            )
+            content = content.replacingMatches(
+                of: "</\(element)\\s*>",
+                with: "</\(element)-placeholder>",
+                options: .caseInsensitive
+            )
+        }
 
         return content
     }
@@ -163,7 +201,7 @@ class ReaderWebView: WKWebView {
             return ""
         }
 
-        let cssContent = try? String(contentsOf: cssURL)
+        let cssContent = try? String(contentsOf: cssURL, encoding: .utf8)
         return cssContent ?? ""
     }
 
@@ -174,27 +212,28 @@ class ReaderWebView: WKWebView {
         }
 
         return """
-        img.emoji {
-            width: 1em;
-        }
-        """
+            img.emoji {
+                width: 1em;
+            }
+            """
     }
 
     private func overrideStyles() -> String {
-        guard usesSansSerifStyle else {
-            return String()
-        }
-
         /// Some context: We are fetching the CSS file from a remote endpoint, but we store a local `reader.css` file
         /// to override some styles for mobile-specific purposes.
         ///
         /// The `reader.css` forces the text to be displayed in Noto, but this method overrides it back to the
-        /// system font. Later when the `readerImprovements` flag is removed, we should remove this method and
-        /// update the CSS values in `reader.css` instead
-        return """
+        /// user-preferred font.
+        """
             body.reader-full-post.reader-full-post__story-content {
                 font: -apple-system-body !important;
-                font-family: -apple-system, sans-serif !important;
+                font-family: \(displaySetting.font.cssString) !important;
+            }
+
+            /* link styling */
+            a {
+                font-weight: \(displaySetting.color == .system ? "inherit" : "600");
+                text-decoration: underline;
             }
         """
     }
@@ -202,36 +241,120 @@ class ReaderWebView: WKWebView {
     /// Maps app colors to CSS colors to be applied in the webview
     ///
     private func cssColors() -> String {
-        return """
-            @media (prefers-color-scheme: dark) {
-                \(mappedCSSColors(.dark))
-            }
+        if displaySetting.color.adaptsToInterfaceStyle {
+            return """
+                    @media (prefers-color-scheme: dark) {
+                        \(mappedCSSColors(.dark))
+                    }
 
-            @media (prefers-color-scheme: light) {
-                \(mappedCSSColors(.light))
-            }
-        """
+                    @media (prefers-color-scheme: light) {
+                        \(mappedCSSColors(.light))
+                    }
+                """
+        }
+
+        // for other color themes not adapting to interface, it doesn't matter what interface style we pass here
+        // because the colors are fixed.
+        return mappedCSSColors(.light)
     }
 
     private func mappedCSSColors(_ style: UIUserInterfaceStyle) -> String {
         let trait = UITraitCollection(userInterfaceStyle: style)
-        UIColor(light: .muriel(color: .gray, .shade40),
-                dark: .muriel(color: .gray, .shade20)).color(for: trait).hexString()
         return """
-            :root {
-              --color-text: #\(UIColor.text.color(for: trait).hexString() ?? "");
-              --color-neutral-0: #\(UIColor.listForegroundUnread.color(for: trait).hexString() ?? "");
-              --color-neutral-5: #\(UIColor(light: .muriel(color: .gray, .shade5),
-                            dark: .muriel(color: .gray, .shade80)).color(for: trait).hexString() ?? "");
-              --color-neutral-10: #\(UIColor(light: .muriel(color: .gray, .shade10),
-                            dark: .muriel(color: .gray, .shade30)).color(for: trait).hexString() ?? "");
-              --color-neutral-40: #\(UIColor(light: .muriel(color: .gray, .shade40),
-              dark: .muriel(color: .gray, .shade20)).color(for: trait).hexString() ?? "");
-              --color-neutral-50: #\(UIColor.textSubtle.color(for: trait).hexString() ?? "");
-              --color-neutral-70: #\(UIColor.text.color(for: trait).hexString() ?? "");
-              --main-link-color: #\(UIColor.muriel(color: .init(name: .blue)).color(for: trait).hexString() ?? "");
-              --main-link-active-color: #\(UIColor.muriel(name: .blue, .shade30).color(for: trait).hexString() ?? "");
+                :root {
+                  --color-text: #\(displaySetting.color.foreground.color(for: trait).hexStringWithAlpha);
+                  --color-neutral-0: #\(neutralColor(shade: .shade0, trait: trait).hexStringWithAlpha);
+                  --color-neutral-5: #\(neutralColor(shade: .shade5, trait: trait).hexStringWithAlpha);
+                  --color-neutral-10: #\(neutralColor(shade: .shade10, trait: trait).hexStringWithAlpha);
+                  --color-neutral-40: #\(neutralColor(shade: .shade40, trait: trait).hexStringWithAlpha);
+                  --color-neutral-50: #\(neutralColor(shade: .shade50, trait: trait).hexStringWithAlpha);
+                  --color-neutral-70: #\(neutralColor(shade: .shade70, trait: trait).hexStringWithAlpha);
+                  --main-link-color: #\(linkColor(for: trait).hexStringWithAlpha);
+                  --main-link-active-color: #\(activeLinkColor(for: trait).hexStringWithAlpha);
+                }
+            """
+    }
+
+    /// Returns the requested neutral color based on the current color theme.
+    /// Note that the previous color values were preserved for the `.system` color theme.
+    ///
+    /// - Parameters:
+    ///   - shade: `MurielColorShade` enum.
+    ///   - trait: The trait collection for the color.
+    /// - Returns: `UIColor`
+    func neutralColor(shade: ColorStudioShade, trait: UITraitCollection) -> UIColor {
+        let color: UIColor = {
+            switch shade {
+            case .shade0:
+                if displaySetting.color == .system {
+                    return .tertiarySystemGroupedBackground
+                }
+                return displaySetting.color.foreground.withAlphaComponent(0.1)
+            case .shade5:
+                if displaySetting.color == .system {
+                    return UIColor(light: UIAppColor.gray(.shade5), dark: UIAppColor.gray(.shade80))
+                }
+                return displaySetting.color.border
+            case .shade10:
+                if displaySetting.color == .system {
+                    return UIColor(light: UIAppColor.gray(.shade10), dark: UIAppColor.gray(.shade30))
+                }
+                return displaySetting.color.border
+            case .shade40:
+                if displaySetting.color == .system {
+                    return UIColor(light: UIAppColor.gray(.shade40), dark: UIAppColor.gray(.shade20))
+                }
+                return displaySetting.color.secondaryForeground
+            case .shade50:
+                return displaySetting.color.secondaryForeground
+            default:
+                return displaySetting.color.foreground
             }
-        """
+        }()
+
+        return color.color(for: trait)
+    }
+
+    func linkColor(for trait: UITraitCollection) -> UIColor {
+        let color = displaySetting.color == .system ? UIAppColor.link : displaySetting.color.foreground
+        return color.color(for: trait)
+    }
+
+    func activeLinkColor(for trait: UITraitCollection) -> UIColor {
+        let color = displaySetting.color == .system ? UIAppColor.link : displaySetting.color.secondaryForeground
+        return color.color(for: trait)
+    }
+}
+
+final class ReaderWebViewMessageHandler: NSObject, WKScriptMessageHandler {
+    enum EventMessage: String {
+        case articleTextHighlighted
+        case articleTextCopied
+
+        // Comment events are located in `richCommentTemplate.html`
+        case commentTextHighlighted
+        case commentTextCopied
+
+        var analyticEvent: WPAnalyticsEvent {
+            switch self {
+            case .articleTextHighlighted:
+                return .readerArticleTextHighlighted
+            case .articleTextCopied:
+                return .readerArticleTextCopied
+            case .commentTextHighlighted:
+                return .readerCommentTextHighlighted
+            case .commentTextCopied:
+                return .readerCommentTextCopied
+            }
+        }
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? String,
+            let event = EventMessage(rawValue: body)?.analyticEvent
+        else {
+            return
+        }
+        WPAnalytics.track(event)
     }
 }

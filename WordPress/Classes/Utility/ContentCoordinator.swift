@@ -1,3 +1,6 @@
+import UIKit
+import WordPressShared
+import WordPressData
 
 protocol ContentCoordinator {
     func displayReaderWithPostId(_ postID: NSNumber?, siteID: NSNumber?) throws
@@ -11,7 +14,6 @@ protocol ContentCoordinator {
     func displayBackupWithSiteID(_ siteID: NSNumber?) throws
     func displayScanWithSiteID(_ siteID: NSNumber?) throws
 }
-
 
 /// `ContentCoordinator` is intended to be used to easily navigate and display common elements natively
 /// like Posts, Site streams, Comments, etc...
@@ -31,28 +33,27 @@ struct DefaultContentCoordinator: ContentCoordinator {
     }
 
     func displayReaderWithPostId(_ postID: NSNumber?, siteID: NSNumber?) throws {
-        guard let postID = postID, let siteID = siteID else {
+        guard let postID, let siteID else {
             throw DisplayError.missingParameter
         }
 
         let readerViewController = ReaderDetailViewController.controllerWithPostID(postID, siteID: siteID)
-        controller?.navigationController?.pushFullscreenViewController(readerViewController, animated: true)
+        controller?.navigationController?.pushViewController(readerViewController, animated: true)
     }
 
     func displayCommentsWithPostId(_ postID: NSNumber?, siteID: NSNumber?, commentID: NSNumber?, source: ReaderCommentsSource) throws {
-        guard let postID = postID,
-              let siteID = siteID,
-              let commentsViewController = ReaderCommentsViewController(postID: postID, siteID: siteID, source: source) else {
-                  throw DisplayError.missingParameter
-              }
-
-        commentsViewController.navigateToCommentID = commentID
-        commentsViewController.allowsPushingPostDetails = true
-        controller?.navigationController?.pushViewController(commentsViewController, animated: true)
+        guard let postID, let siteID else {
+            throw DisplayError.missingParameter
+        }
+        let commentVC = ReaderCommentsViewController(postID: postID, siteID: siteID)
+        commentVC.source = source
+        commentVC.navigateToCommentID = commentID
+        commentVC.allowsPushingPostDetails = true
+        controller?.navigationController?.pushViewController(commentVC, animated: true)
     }
 
     func displayStatsWithSiteID(_ siteID: NSNumber?, url: URL? = nil) throws {
-        guard let siteID = siteID,
+        guard let siteID,
               let blog = Blog.lookup(withID: siteID, in: mainContext),
               blog.supports(.stats)
         else {
@@ -60,13 +61,12 @@ struct DefaultContentCoordinator: ContentCoordinator {
         }
 
         // Stats URLs should be of the form /stats/:time_period/:domain
-        if let url = url {
+        if let url {
             setTimePeriodForStatsURLIfPossible(url)
         }
 
-        let statsViewController = StatsViewController()
-        statsViewController.blog = blog
-        controller?.navigationController?.pushViewController(statsViewController, animated: true)
+        let statsVC = StatsHostingViewController.makeStatsViewController(for: blog)
+        controller?.navigationController?.pushViewController(statsVC, animated: true)
     }
 
     private func setTimePeriodForStatsURLIfPossible(_ url: URL) {
@@ -78,26 +78,27 @@ struct DefaultContentCoordinator: ContentCoordinator {
         let matches = matcher.routesMatching(url)
         if let match = matches.first,
            let action = match.action as? StatsRoute,
-           let timePeriod = action.timePeriod {
-            // Initializing a StatsPeriodType to ensure we have a valid period
-            let key = SiteStatsDashboardViewController.lastSelectedStatsPeriodTypeKey(forSiteID: siteID)
-            UserPersistentStoreFactory.instance().set(timePeriod.rawValue, forKey: key)
+           let tab = action.tab {
+            SiteStatsDashboardPreferences.setSelected(tabType: tab, siteID: siteID)
         }
     }
 
     func displayBackupWithSiteID(_ siteID: NSNumber?) throws {
-        guard let siteID = siteID,
-              let blog = Blog.lookup(withID: siteID, in: mainContext),
-              let backupListViewController = BackupListViewController.withJPBannerForBlog(blog)
+        guard let siteID,
+              let blog = Blog.lookup(withID: siteID, in: mainContext)
         else {
             throw DisplayError.missingParameter
         }
 
-        controller?.navigationController?.pushViewController(backupListViewController, animated: true)
+        let backupViewController = BackupsViewController(blog: blog)
+        backupViewController.navigationItem.largeTitleDisplayMode = .never
+        controller?.navigationController?.pushViewController(backupViewController, animated: true)
+
+        WPAnalytics.track(.backupListOpened)
     }
 
     func displayScanWithSiteID(_ siteID: NSNumber?) throws {
-        guard let siteID = siteID,
+        guard let siteID,
               let blog = Blog.lookup(withID: siteID, in: mainContext),
               blog.isScanAllowed()
         else {
@@ -109,14 +110,14 @@ struct DefaultContentCoordinator: ContentCoordinator {
     }
 
     func displayFollowersWithSiteID(_ siteID: NSNumber?, expirationTime: TimeInterval) throws {
-        guard let siteID = siteID,
+        guard let siteID,
               let blog = Blog.lookup(withID: siteID, in: mainContext)
         else {
             throw DisplayError.missingParameter
         }
 
         SiteStatsInformation.sharedInstance.siteTimeZone = blog.timeZone
-        SiteStatsInformation.sharedInstance.oauth2Token = blog.authToken
+        SiteStatsInformation.sharedInstance.oauth2Token = blog.account?.authToken
         SiteStatsInformation.sharedInstance.siteID = blog.dotComID
 
         let detailTableViewController = SiteStatsDetailTableViewController.loadFromStoryboard()
@@ -125,7 +126,7 @@ struct DefaultContentCoordinator: ContentCoordinator {
     }
 
     func displayStreamWithSiteID(_ siteID: NSNumber?) throws {
-        guard let siteID = siteID else {
+        guard let siteID else {
             throw DisplayError.missingParameter
         }
 
@@ -145,10 +146,9 @@ struct DefaultContentCoordinator: ContentCoordinator {
     }
 
     func displayFullscreenImage(_ image: UIImage) {
-        let imageViewController = WPImageViewController(image: image)
-        imageViewController.modalTransitionStyle = .crossDissolve
-        imageViewController.modalPresentationStyle = .fullScreen
-        controller?.present(imageViewController, animated: true)
+        let lightboxVC = LightboxViewController(.image(image))
+        lightboxVC.configureZoomTransition()
+        controller?.present(lightboxVC, animated: true)
     }
 
     func displayPlugin(withSlug pluginSlug: String, on siteSlug: String) throws {

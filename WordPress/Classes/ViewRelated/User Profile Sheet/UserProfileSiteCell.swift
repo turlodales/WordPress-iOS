@@ -1,4 +1,5 @@
-import Foundation
+import UIKit
+import WordPressData
 
 class UserProfileSiteCell: UITableViewCell, NibReusable {
 
@@ -31,8 +32,8 @@ class UserProfileSiteCell: UITableViewCell, NibReusable {
 private extension UserProfileSiteCell {
 
     func configureCell() {
-        siteNameLabel.textColor = .text
-        siteUrlLabel.textColor = .textSubtle
+        siteNameLabel.textColor = .label
+        siteUrlLabel.textColor = .secondaryLabel
     }
 
     func downloadIconWithURL(_ url: String?) {
@@ -40,12 +41,11 @@ private extension UserProfileSiteCell {
         siteIconImageView.cancelImageDownload()
         siteIconImageView.image = .siteIconPlaceholderImage
 
-        guard let url = url,
+        guard let url,
               let iconURL = URL(string: url) else {
             return
         }
 
         siteIconImageView.downloadImage(from: iconURL, placeholderImage: .siteIconPlaceholderImage)
     }
-
 }

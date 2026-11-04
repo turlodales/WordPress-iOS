@@ -1,5 +1,6 @@
-import Foundation
-
+import UIKit
+import WordPressShared
+import WordPressUI
 
 /// The purpose of this class is to simply display a regular TableViewCell, with a Checkmark as accessoryType.
 ///
@@ -32,7 +33,6 @@ import Foundation
     public convenience init() {
         self.init(style: .default, reuseIdentifier: nil)
     }
-
 
     // MARK: Private methods
 

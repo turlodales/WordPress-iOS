@@ -1,4 +1,6 @@
-import Foundation
+import UIKit
+import WebKit
+import WordPressData
 
 class BlazeCreateCampaignWebViewModel: BlazeWebViewModel {
 
@@ -70,7 +72,7 @@ class BlazeCreateCampaignWebViewModel: BlazeWebViewModel {
             view?.dismissView()
             return
         }
-        authenticatedRequest(for: initialURL, with: cookieJar) { [weak self] (request) in
+        authenticatedRequest(for: initialURL, with: cookieJar) { [weak self] request in
             guard let weakSelf = self else {
                 return
             }

@@ -1,5 +1,6 @@
 import SwiftUI
 import DesignSystem
+import WordPressShared
 
 class DomainPurchaseChoicesViewModel: ObservableObject {
     @Published var isGetDomainLoading: Bool = false
@@ -10,7 +11,6 @@ struct DomainPurchaseChoicesView: View {
         static let imageLength: CGFloat = 36
     }
 
-
     @StateObject var viewModel = DomainPurchaseChoicesViewModel()
 
     let analyticsSource: String?
@@ -20,26 +20,26 @@ struct DomainPurchaseChoicesView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Length.Padding.single) {
+            VStack(alignment: .leading, spacing: .DS.Padding.single) {
                 Text(Strings.header)
-                    .font(.largeTitle.bold())
+                    .font(.system(.largeTitle, design: .serif).weight(.medium))
                 Text(Strings.subheader)
-                    .foregroundStyle(Color.DS.Foreground.secondary)
-                    .padding(.bottom, Length.Padding.medium)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, .DS.Padding.medium)
                 getDomainCard
-                    .padding(.bottom, Length.Padding.medium)
+                    .padding(.bottom, .DS.Padding.medium)
                 chooseSiteCard
-                    .padding(.bottom, Length.Padding.single)
+                    .padding(.bottom, .DS.Padding.single)
                 Text(Strings.footnote)
-                    .foregroundStyle(Color.DS.Foreground.secondary)
+                    .foregroundStyle(.secondary)
                     .font(.subheadline)
                 Spacer()
             }
-            .padding(.top, Length.Padding.double)
+            .padding(.top, .DS.Padding.double)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Length.Padding.double)
-        .background(Color.DS.Background.primary)
+        .padding(.horizontal, .DS.Padding.double)
+        .background(.background)
         .onAppear {
             self.track(.purchaseDomainScreenShown)
         }
@@ -81,49 +81,49 @@ struct DomainPurchaseChoicesView: View {
         isProgressViewActive: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: Length.Padding.single) {
+        VStack(alignment: .leading, spacing: .DS.Padding.single) {
             Group {
                 Image(imageName)
                     .renderingMode(.template)
                     .resizable()
-                    .foregroundStyle(Color.DS.Background.brand(isJetpack: AppConfiguration.isJetpack))
+                    .foregroundStyle(AppColor.primary)
                     .frame(width: Constants.imageLength, height: Constants.imageLength)
-                    .padding(.top, Length.Padding.double)
-                VStack(alignment: .leading, spacing: Length.Padding.single) {
+                    .padding(.top, .DS.Padding.double)
+                VStack(alignment: .leading, spacing: .DS.Padding.single) {
                     Text(title)
-                        .font(.title2.bold())
+                        .font(.title2.weight(.medium))
                     Text(subtitle)
-                        .foregroundStyle(Color.DS.Foreground.secondary)
+                        .foregroundStyle(.secondary)
                     if let footer {
                         Text(footer)
-                            .foregroundStyle(Color.DS.Foreground.brand(isJetpack: AppConfiguration.isJetpack))
+                            .foregroundStyle(AppColor.primary)
                             .font(.body.bold())
                     }
                 }
-                .padding(.bottom, Length.Padding.single)
+                .padding(.bottom, .DS.Padding.single)
                 DSButton(
                     title: buttonTitle,
                     style: .init(emphasis: .primary, size: .large, isJetpack: AppConfiguration.isJetpack),
                     isLoading: isProgressViewActive ? $viewModel.isGetDomainLoading : .constant(false),
                     action: action
                 )
-                .padding(.bottom, Length.Padding.double)
+                .padding(.bottom, .DS.Padding.double)
                 .disabled(viewModel.isGetDomainLoading)
             }
-            .padding(.horizontal, Length.Padding.double)
+            .padding(.horizontal, .DS.Padding.double)
         }
-        .background(Color.DS.Background.secondary)
+        .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private var chooseSiteTexts: some View {
-        VStack(alignment: .leading, spacing: Length.Padding.single) {
+        VStack(alignment: .leading, spacing: .DS.Padding.single) {
             Text(Strings.chooseSiteTitle)
                 .font(.title2.bold())
             Text(Strings.chooseSiteSubtitle)
-                .foregroundStyle(Color.DS.Foreground.secondary)
+                .foregroundStyle(Color(.secondaryLabel))
             Text(Strings.chooseSiteFooter)
-                .foregroundStyle(Color.DS.Foreground.brand(isJetpack: AppConfiguration.isJetpack))
+                .foregroundStyle(AppColor.primary)
         }
     }
 
@@ -135,7 +135,7 @@ struct DomainPurchaseChoicesView: View {
             return [WPAppAnalyticsKeySource: source]
         }()
 
-        let properties = defaultProperties.merging(properties ?? [:]) { first, second in
+        let properties = defaultProperties.merging(properties ?? [:]) { first, _ in
             return first
         }
 

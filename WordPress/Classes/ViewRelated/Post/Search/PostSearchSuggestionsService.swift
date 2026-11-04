@@ -1,4 +1,5 @@
-import UIKit
+import WordPressData
+import WordPressShared
 
 /// Suggests search token for the given input and context. Performs all of the
 /// work in the background.
@@ -11,7 +12,7 @@ actor PostSearchSuggestionsService {
 
     init(blog: Blog, coreData: CoreDataStack = ContextManager.shared) {
         self.blogID = TaggedManagedObjectID(blog)
-        self.isEnabled = blog.isAccessibleThroughWPCom()
+        self.isEnabled = blog.isAccessibleThroughWPCom
         self.coreData = coreData
     }
 
@@ -28,16 +29,13 @@ actor PostSearchSuggestionsService {
         let tokens = await [authors, tags]
         let selectedTokenIDs = Set(selectedTokens.map(\.id))
 
-        let output = Array(tokens
+        return Array(tokens
             .flatMap { $0 }
             .filter { !selectedTokenIDs.contains($0.token.id) }
             .sorted { ($0.score, $0.token.value) > ($1.score, $1.token.value) }
             .map { $0.token }
             .prefix(3))
-
-        // Remove duplicates
-        var encounteredIDs = Set<AnyHashable>()
-        return output.filter { encounteredIDs.insert($0.id).inserted }
+            .deduplicated(by: \.id)
     }
 
     private struct RankedToken {
@@ -95,11 +93,13 @@ actor PostSearchSuggestionsService {
     }
 
     private func getAllTagTokens() async -> [PostSearchTagToken] {
+        if let tags = cachedTags {
+            return tags
+        }
         let tags = try? await coreData.performQuery { [blogID] context in
             let blog = try context.existingObject(with: blogID)
-            let tags = (blog.tags as? Set<PostTag>) ?? []
-            return tags.compactMap {
-                $0.name.map(PostSearchTagToken.init)
+            return (blog.tags ?? []).compactMap {
+                PostSearchTagToken(tag: $0.name)
             }
         }
         self.cachedTags = tags

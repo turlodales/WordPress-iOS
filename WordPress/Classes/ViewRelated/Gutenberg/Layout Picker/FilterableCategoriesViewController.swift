@@ -1,6 +1,7 @@
 import UIKit
 import Gridicons
 import Gutenberg
+import WordPressShared
 
 class FilterableCategoriesViewController: CollapsableHeaderViewController {
     private enum CategoryFilterAnalyticsKeys {
@@ -89,14 +90,17 @@ class FilterableCategoriesViewController: CollapsableHeaderViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        tableView.register(CategorySectionTableViewCell.nib, forCellReuseIdentifier: CategorySectionTableViewCell.cellReuseIdentifier)
+        tableView.register(CategorySectionTableViewCell.defaultNib, forCellReuseIdentifier: CategorySectionTableViewCell.cellReuseIdentifier)
         filterBar.filterDelegate = self
         tableView.dataSource = self
         configureCloseButton()
     }
 
     private func configureCloseButton() {
-        navigationItem.rightBarButtonItem = CollapsableHeaderViewController.closeButton(target: self, action: #selector(closeButtonTapped))
+        navigationItem.rightBarButtonItem = UIBarButtonItem.makeCloseButton(
+            target: self,
+            action: #selector(closeButtonTapped)
+        )
     }
 
     @objc func closeButtonTapped(_ sender: Any) {
@@ -109,7 +113,7 @@ class FilterableCategoriesViewController: CollapsableHeaderViewController {
     }
 
     private func calculateContentHeight() -> CGFloat {
-        guard !isLoading, visibleSections.count > 0 else {
+        guard !isLoading, !visibleSections.isEmpty else {
             return ghostThumbnailSize.height + CategorySectionTableViewCell.cellVerticalPadding
         }
 
@@ -156,7 +160,7 @@ extension FilterableCategoriesViewController: UITableViewDataSource {
 
         cell.layer.masksToBounds = false
         cell.clipsToBounds = false
-        if let selectedItem = selectedItem, containsSelectedItem(selectedItem, atIndexPath: indexPath) {
+        if let selectedItem, containsSelectedItem(selectedItem, atIndexPath: indexPath) {
             cell.selectItemAt(selectedItem.item)
         }
 
@@ -203,7 +207,7 @@ extension FilterableCategoriesViewController: CategorySectionTableViewCellDelega
     private func deselectCurrentLayout() {
         guard let previousSelection = selectedItem else { return }
 
-        tableView.indexPathsForVisibleRows?.forEach { (indexPath) in
+        tableView.indexPathsForVisibleRows?.forEach { indexPath in
             if containsSelectedItem(previousSelection, atIndexPath: indexPath) {
                 (tableView.cellForRow(at: indexPath) as? CategorySectionTableViewCell)?.deselectItems()
             }
@@ -257,7 +261,7 @@ extension FilterableCategoriesViewController: CollapsableHeaderFilterBarDelegate
 
     func didDeselectFilter(withIndex index: IndexPath, withSelectedIndexes selectedIndexes: [IndexPath]) {
         trackFiltersChangedEvent(isSelectionEvent: false, changedIndex: index, selectedIndexes: selectedIndexes)
-        guard selectedIndexes.count == 0 else {
+        guard selectedIndexes.isEmpty else {
             removeFilterRow(withIndex: index)
             return
         }
@@ -282,7 +286,7 @@ extension FilterableCategoriesViewController: CollapsableHeaderFilterBarDelegate
     }
 
     func removeFilterRow(withIndex index: IndexPath) {
-        guard let filteredSections = filteredSections else { return }
+        guard let filteredSections else { return }
 
         var row: IndexPath? = nil
         let rowSlug = categorySections[index.item].categorySlug

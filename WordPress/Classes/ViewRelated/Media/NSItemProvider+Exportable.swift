@@ -1,5 +1,6 @@
-import UIKit
+import Foundation
 import UniformTypeIdentifiers
+import WordPressData
 
 extension NSItemProvider: ExportableAsset {
     public var assetMediaType: MediaType {

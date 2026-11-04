@@ -32,7 +32,7 @@ struct AllDomainsListCardView: View {
 
     // MARK: - Init
 
-    init(viewModel: ViewModel, padding: CGFloat = Length.Padding.double) {
+    init(viewModel: ViewModel, padding: CGFloat = .DS.Padding.double) {
         self.viewModel = viewModel
         self.padding = padding
     }
@@ -45,7 +45,7 @@ struct AllDomainsListCardView: View {
     }
 
     private var textContainerVStack: some View {
-        VStack(alignment: .leading, spacing: Length.Padding.single) {
+        VStack(alignment: .leading, spacing: .DS.Padding.single) {
             domainText
             domainHeadline
             primaryDomainLabel
@@ -82,7 +82,7 @@ struct AllDomainsListCardView: View {
     }
 
     private var statusHStack: some View {
-        HStack(spacing: Length.Padding.double) {
+        HStack(spacing: .DS.Padding.double) {
             if let status = viewModel.status {
                 statusText(status: status)
                 Spacer()
@@ -92,12 +92,12 @@ struct AllDomainsListCardView: View {
     }
 
     private func statusText(status: DomainsService.AllDomainsListItem.Status) -> some View {
-        HStack(spacing: Length.Padding.single) {
+        HStack(spacing: .DS.Padding.single) {
             Circle()
                 .fill(status.type.indicatorColor)
                 .frame(
-                    width: Length.Padding.single,
-                    height: Length.Padding.single
+                    width: .DS.Padding.single,
+                    height: .DS.Padding.single
                 )
             Text(status.value)
                 .foregroundColor(status.type.textColor)
@@ -110,7 +110,7 @@ struct AllDomainsListCardView: View {
             if let date = viewModel.expiryDate {
                 Text(date)
                     .font(.subheadline)
-                    .foregroundColor(viewModel.status?.type.expireTextColor ?? Color.DS.Foreground.secondary)
+                    .foregroundColor(viewModel.status?.type.expireTextColor ?? Color(.secondaryLabel))
             } else {
                 EmptyView()
             }
@@ -130,35 +130,26 @@ private extension AllDomainsListCardView.ViewModel.StatusType {
     }
 
     var indicatorColor: Color {
-        switch self {
-        case .success, .premium:
-            return Color.DS.Foreground.success
-        case .warning:
-            return Color.DS.Foreground.warning
-        case .alert, .error:
-            return Color.DS.Foreground.error
-        case .neutral:
-            return Color.DS.Foreground.secondary
+        return switch self {
+        case .success, .premium: .green
+        case .warning: .yellow
+        case .alert, .error: .red
+        default: Color(.systemBackground)
         }
     }
 
     var textColor: Color {
-        switch self {
-        case .warning:
-            return Color.DS.Foreground.warning
-        case .alert, .error:
-            return Color.DS.Foreground.error
-        default:
-            return Color.DS.Foreground.primary
+        return switch self {
+        case .warning: Color(UIAppColor.warning)
+        case .alert, .error: Color(UIAppColor.error)
+        default: Color.primary
         }
     }
 
     var expireTextColor: Color {
-        switch self {
-        case .warning:
-            return Color.DS.Foreground.warning
-        default:
-            return Color.DS.Foreground.secondary
+        return switch self {
+            case .warning: Color(UIAppColor.warning)
+            default: Color.secondary
         }
     }
 }

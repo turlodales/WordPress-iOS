@@ -1,6 +1,6 @@
 import Foundation
-import CocoaLumberjack
 import Gridicons
+import WordPressKit
 import WordPressUI
 import WordPressShared
 
@@ -75,5 +75,4 @@ class JetpackRestoreOptionsViewController: BaseRestoreOptionsViewController {
 
         present(navigationVC, animated: true)
     }
-
 }

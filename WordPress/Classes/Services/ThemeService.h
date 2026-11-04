@@ -1,15 +1,22 @@
-#import "CoreDataService.h"
+NS_ASSUME_NONNULL_BEGIN
 
 @class Blog;
 @class Theme;
 @class WPAccount;
+@protocol CoreDataStack;
 
 typedef void(^ThemeServiceSuccessBlock)(void);
-typedef void(^ThemeServiceThemeRequestSuccessBlock)(Theme *theme);
-typedef void(^ThemeServiceThemesRequestSuccessBlock)(NSArray<Theme *> *themes, BOOL hasMore, NSInteger totalThemeCount);
-typedef void(^ThemeServiceFailureBlock)(NSError *error);
+typedef void(^ThemeServiceThemeRequestSuccessBlock)(Theme * _Nullable theme);
+typedef void(^ThemeServiceThemesRequestSuccessBlock)(NSArray<Theme *> * _Nullable themes, BOOL hasMore, NSInteger totalThemeCount);
+typedef void(^ThemeServiceFailureBlock)(NSError * _Nullable error);
 
-@interface ThemeService : CoreDataService
+@interface ThemeService : NSObject
+
+@property (nonatomic, strong, readonly) id<CoreDataStack> coreDataStack;
+
+- (nonnull instancetype)initWithCoreDataStack:(id<CoreDataStack>)coreDataStack NS_DESIGNATED_INITIALIZER;
+
+- (instancetype)init NS_UNAVAILABLE;
 
 #pragma mark - Themes availability
 
@@ -35,8 +42,8 @@ typedef void(^ThemeServiceFailureBlock)(NSError *error);
  *  @returns    The progress object.
  */
 - (NSProgress *)getActiveThemeForBlog:(Blog *)blog
-                              success:(ThemeServiceThemeRequestSuccessBlock)success
-                              failure:(ThemeServiceFailureBlock)failure;
+                              success:(nullable ThemeServiceThemeRequestSuccessBlock)success
+                              failure:(nullable ThemeServiceFailureBlock)failure;
 
 /**
  *  @brief      Gets the list of available themes for a blog.
@@ -48,6 +55,7 @@ typedef void(^ThemeServiceFailureBlock)(NSError *error);
  *
  *  @param      blogId      The blog to get the themes for.  Cannot be nil.
  *  @param      page        Results page to return.
+ *  @param      search      Search string to filter themes.
  *  @param      sync        Whether to remove unsynced results.
  *  @param      success     The success handler.  Can be nil.
  *  @param      failure     The failure handler.  Can be nil.
@@ -56,14 +64,15 @@ typedef void(^ThemeServiceFailureBlock)(NSError *error);
  */
 - (NSProgress *)getThemesForBlog:(Blog *)blog
                             page:(NSInteger)page
+                          search:(nullable NSString *)search
                             sync:(BOOL)sync
-                         success:(ThemeServiceThemesRequestSuccessBlock)success
-                         failure:(ThemeServiceFailureBlock)failure;
+                         success:(nullable ThemeServiceThemesRequestSuccessBlock)success
+                         failure:(nullable ThemeServiceFailureBlock)failure;
 
 - (NSProgress *)getCustomThemesForBlog:(Blog *)blog
                                   sync:(BOOL)sync
-                               success:(ThemeServiceThemesRequestSuccessBlock)success
-                               failure:(ThemeServiceFailureBlock)failure;
+                               success:(nullable ThemeServiceThemesRequestSuccessBlock)success
+                               failure:(nullable ThemeServiceFailureBlock)failure;
 
 #pragma mark - Remote queries: Activating themes
 
@@ -79,8 +88,8 @@ typedef void(^ThemeServiceFailureBlock)(NSError *error);
  */
 - (NSProgress *)activateTheme:(Theme *)theme
                       forBlog:(Blog *)blog
-                      success:(ThemeServiceThemeRequestSuccessBlock)success
-                      failure:(ThemeServiceFailureBlock)failure;
+                      success:(nullable ThemeServiceThemeRequestSuccessBlock)success
+                      failure:(nullable ThemeServiceFailureBlock)failure;
 
 #pragma mark - Remote queries: Installing themes
 
@@ -96,9 +105,11 @@ typedef void(^ThemeServiceFailureBlock)(NSError *error);
  */
 - (NSProgress *)installTheme:(Theme *)theme
                       forBlog:(Blog *)blog
-                      success:(ThemeServiceSuccessBlock)success
-                      failure:(ThemeServiceFailureBlock)failure;
+                      success:(nullable ThemeServiceSuccessBlock)success
+                      failure:(nullable ThemeServiceFailureBlock)failure;
 
 
 
 @end
+
+NS_ASSUME_NONNULL_END

@@ -9,12 +9,12 @@ final class SearchTextField: UITextField {
     // MARK: Properties
 
     private struct Constants {
-        static let defaultPadding   = CGFloat(16)
-        static let iconDimension    = CGFloat(18)
-        static let iconInset        = CGFloat(19)
+        static let defaultPadding = CGFloat(16)
+        static let iconDimension = CGFloat(18)
+        static let iconInset = CGFloat(19)
         static let clearButtonInset = CGFloat(-9)
-        static let searchHeight     = CGFloat(44)
-        static let textInset        = CGFloat(56)
+        static let searchHeight = CGFloat(44)
+        static let textInset = CGFloat(56)
     }
 
     // MARK: UIView
@@ -67,10 +67,10 @@ final class SearchTextField: UITextField {
     private func initialize() {
         translatesAutoresizingMaskIntoConstraints = false
 
-        backgroundColor = .listForeground
+        backgroundColor = .secondarySystemGroupedBackground
         clearButtonMode = .whileEditing
         font = WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular)
-        textColor = .text
+        textColor = .label
 
         autocapitalizationType = .none
         autocorrectionType = .no
@@ -80,12 +80,12 @@ final class SearchTextField: UITextField {
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Constants.searchHeight),
-            ])
+        ])
     }
 
     private lazy var searchIconImageView: UIImageView = {
         let iconSize = CGSize(width: Constants.iconDimension, height: Constants.iconDimension)
-        let loupeIcon = UIImage.gridicon(.search, size: iconSize).imageWithTintColor(.listIcon)
+        let loupeIcon = UIImage.gridicon(.search, size: iconSize).imageWithTintColor(.secondaryLabel)
         return UIImageView(image: loupeIcon)
     }()
 

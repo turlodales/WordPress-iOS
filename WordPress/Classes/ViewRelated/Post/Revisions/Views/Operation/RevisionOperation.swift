@@ -1,20 +1,20 @@
+import UIKit
 import Gridicons
-
+import WordPressUI
 
 class RevisionOperation: NSObject {
-    @IBOutlet private (set) var internalView: RevisionOperationView!
+    @IBOutlet private(set) var internalView: RevisionOperationView!
 
     init(_ type: RevisionOperationView.OperationType) {
         super.init()
 
-        Bundle.main.loadNibNamed(RevisionOperation.classNameWithoutNamespaces(), owner: self, options: nil)
+        Bundle.keystone.loadNibNamed(RevisionOperation.classNameWithoutNamespaces(), owner: self, options: nil)
 
         assert(internalView != nil)
 
         internalView.type = type
     }
 }
-
 
 class RevisionOperationView: UIView {
     @IBOutlet private var imageView: CircularImageView!
@@ -34,13 +34,11 @@ class RevisionOperationView: UIView {
         }
     }
 
-
     override func awakeFromNib() {
         super.awakeFromNib()
 
-        numbersLabel.textColor = .neutral(.shade40)
+        numbersLabel.textColor = UIAppColor.neutral(.shade40)
     }
-
 
     enum OperationType {
         case add
@@ -48,8 +46,8 @@ class RevisionOperationView: UIView {
 
         var color: UIColor {
             switch self {
-            case .add: return .primary
-            case .del: return .error
+            case .add: return UIAppColor.primary
+            case .del: return UIAppColor.error
             }
         }
 

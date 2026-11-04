@@ -1,6 +1,8 @@
 import UIKit
 import CoreSpotlight
 import MobileCoreServices
+import WordPressData
+import WordPressUI
 
 /// Encapsulates CoreSpotlight operations for WPiOS
 ///
@@ -8,7 +10,7 @@ import MobileCoreServices
 
     // MARK: - Singleton
 
-    @objc static let shared: SearchManager = SearchManager()
+    @objc static let shared = SearchManager()
     private override init() {}
 
     // MARK: - Indexing
@@ -34,12 +36,11 @@ import MobileCoreServices
         }
 
         CSSearchableIndex.default().indexSearchableItems(items, completionHandler: { (error: Error?) -> Void in
-            guard let error = error else {
+            guard let error else {
                 return
             }
             DDLogError("Could not index post. Error: \(error.localizedDescription)")
         })
-
     }
 
     // MARK: - Removal
@@ -65,7 +66,7 @@ import MobileCoreServices
         }
 
         CSSearchableIndex.default().deleteSearchableItems(withIdentifiers: ids, completionHandler: { (error: Error?) -> Void in
-            guard let error = error else {
+            guard let error else {
                 return
             }
             DDLogError("Could not delete CSSearchableItem item. Error: \(error.localizedDescription)")
@@ -92,7 +93,7 @@ import MobileCoreServices
         }
 
         CSSearchableIndex.default().deleteSearchableItems(withDomainIdentifiers: domains, completionHandler: { (error: Error?) -> Void in
-            guard let error = error else {
+            guard let error else {
                 return
             }
             DDLogError("Could not delete CSSearchableItem items for domains: \(domains.joined(separator: ", ")). Error: \(error.localizedDescription)")
@@ -106,7 +107,7 @@ import MobileCoreServices
     ///
     @objc func deleteAllSearchableItems() {
         CSSearchableIndex.default().deleteAllSearchableItems(completionHandler: { (error: Error?) -> Void in
-            guard let error = error else {
+            guard let error else {
                 return
             }
             DDLogError("Could not delete all CSSearchableItem items. Error: \(error.localizedDescription)")
@@ -122,7 +123,7 @@ import MobileCoreServices
     ///
     @discardableResult
     @objc func handle(activity: NSUserActivity?) -> Bool {
-        guard let activity = activity else {
+        guard let activity else {
             return false
         }
 
@@ -296,7 +297,7 @@ fileprivate extension SearchManager {
     func fetchBlog(_ blogID: NSNumber,
                    onSuccess: @escaping (_ blog: Blog) -> Void,
                    onFailure: @escaping () -> Void) {
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
 
         guard let blog = Blog.lookup(withID: blogID, in: context) else {
             onFailure()
@@ -308,7 +309,7 @@ fileprivate extension SearchManager {
     func fetchSelfHostedBlog(_ blogXMLRpcString: String,
                              onSuccess: @escaping (_ blog: Blog) -> Void,
                              onFailure: @escaping () -> Void) {
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
         guard let blog = Blog.selfHosted(in: context).first(where: { $0.xmlrpc == blogXMLRpcString }) else {
             onFailure()
             return
@@ -330,14 +331,14 @@ fileprivate extension SearchManager {
     // MARK: Reader Tab Navigation
 
     func openReaderTab() -> Bool {
-        RootViewCoordinator.sharedPresenter.showReaderTab()
+        RootViewCoordinator.sharedPresenter.showReader()
         return true
     }
 
     // MARK: Me Tab Navigation
 
     func openMeTab() -> Bool {
-        RootViewCoordinator.sharedPresenter.showMeScene()
+        RootViewCoordinator.sharedPresenter.showMeScreen()
         return true
     }
 
@@ -374,7 +375,7 @@ fileprivate extension SearchManager {
     }
 
     func navigateToScreen(for post: Post, isDotCom: Bool) {
-        WPAppAnalytics.track(.spotlightSearchOpenedPost, with: post)
+        WPAppAnalytics.track(.spotlightSearchOpenedPost, post: post)
         let postIsPublishedOrScheduled = (post.status == .publish || post.status == .scheduled)
         if postIsPublishedOrScheduled && isDotCom {
             openReader(for: post, onFailure: {
@@ -389,7 +390,7 @@ fileprivate extension SearchManager {
     }
 
     func navigateToScreen(for page: Page, isDotCom: Bool) {
-        WPAppAnalytics.track(.spotlightSearchOpenedPage, with: page)
+        WPAppAnalytics.track(.spotlightSearchOpenedPage, post: page)
         let pageIsPublishedOrScheduled = (page.status == .publish || page.status == .scheduled)
         if pageIsPublishedOrScheduled && isDotCom {
             openReader(for: page, onFailure: {
@@ -406,9 +407,9 @@ fileprivate extension SearchManager {
     func openListView(for apost: AbstractPost) {
         closePreviewIfNeeded(for: apost)
         if let post = apost as? Post {
-            RootViewCoordinator.sharedPresenter.showPosts(for: post.blog)
+            RootViewCoordinator.sharedPresenter.showBlogDetails(for: post.blog, then: .posts)
         } else if let page = apost as? Page {
-            RootViewCoordinator.sharedPresenter.showPages(for: page.blog)
+            RootViewCoordinator.sharedPresenter.showBlogDetails(for: page.blog, then: .pages)
         }
     }
 
@@ -420,7 +421,7 @@ fileprivate extension SearchManager {
                 onFailure()
                 return
         }
-        RootViewCoordinator.sharedPresenter.showReaderTab(forPost: postID, onBlog: blogID)
+        RootViewCoordinator.sharedPresenter.showReader(path: .post(postID: postID.intValue, siteID: blogID.intValue))
     }
 
     func openReader(for postID: NSNumber, siteID: NSNumber, onFailure: () -> Void) {
@@ -429,7 +430,7 @@ fileprivate extension SearchManager {
             onFailure()
             return
         }
-        RootViewCoordinator.sharedPresenter.showReaderTab(forPost: postID, onBlog: siteID)
+        RootViewCoordinator.sharedPresenter.showReader(path: .post(postID: postID.intValue, siteID: siteID.intValue))
     }
 
     // MARK: - Editor
@@ -437,7 +438,7 @@ fileprivate extension SearchManager {
     func openEditor(for post: Post) {
         closePreviewIfNeeded(for: post)
         openListView(for: post)
-        let editor = EditPostViewController.init(post: post)
+        let editor = EditPostViewController(post: post)
         editor.modalPresentationStyle = .fullScreen
         RootViewCoordinator.sharedPresenter.rootViewController.present(editor, animated: true)
     }
@@ -455,17 +456,13 @@ fileprivate extension SearchManager {
     func openPreview(for apost: AbstractPost) {
         RootViewCoordinator.sharedPresenter.showMySitesTab()
         closePreviewIfNeeded(for: apost)
+        // Open the list first: in the tab bar layout, opening a site's list closes anything presented,
+        // which would include the preview.
+        openListView(for: apost)
 
         let controller = PreviewWebKitViewController(post: apost, source: "spotlight_preview_post")
         controller.trackOpenEvent()
-        let navWrapper = LightNavigationController(rootViewController: controller)
-        let rootViewController = RootViewCoordinator.sharedPresenter.rootViewController
-        if rootViewController.traitCollection.userInterfaceIdiom == .pad {
-            navWrapper.modalPresentationStyle = .fullScreen
-        }
-        rootViewController.present(navWrapper, animated: true)
-
-        openListView(for: apost)
+        RootViewCoordinator.sharedPresenter.rootViewController.presentCoveringWindow(controller)
     }
 
     /// If there is a post preview window open and it is already displaying the provided

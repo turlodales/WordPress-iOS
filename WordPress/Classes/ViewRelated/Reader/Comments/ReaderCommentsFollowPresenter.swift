@@ -1,4 +1,6 @@
-import Foundation
+import UIKit
+import WordPressData
+import WordPressUI
 
 /// Methods used by the Reader in the Follow Conversation flow to:
 /// - subscribe to post comments
@@ -15,7 +17,7 @@ class ReaderCommentsFollowPresenter: NSObject {
 
     private let post: ReaderPost
     private weak var delegate: ReaderCommentsFollowPresenterDelegate?
-    private unowned let presentingViewController: UIViewController
+    private weak var presentingViewController: UIViewController?
     private let followCommentsService: FollowCommentsService?
 
     // MARK: - Initialization
@@ -49,7 +51,7 @@ class ReaderCommentsFollowPresenter: NSObject {
                 DispatchQueue.main.async {
                     generator.notificationOccurred(.error)
                     let noticeTitle = newIsSubscribed ? Messages.followFail : Messages.unfollowFail
-                    self?.presentingViewController.displayNotice(title: noticeTitle)
+                    self?.presentingViewController?.displayNotice(title: noticeTitle)
                     self?.informDelegateFollowComplete(success: false)
                 }
                 return
@@ -61,7 +63,7 @@ class ReaderCommentsFollowPresenter: NSObject {
 
                 guard newIsSubscribed else {
                     let noticeTitle = newIsSubscribed ? Messages.followSuccess : Messages.unfollowSuccess
-                    self?.presentingViewController.displayNotice(title: noticeTitle)
+                    self?.presentingViewController?.displayNotice(title: noticeTitle)
                     return
                 }
 
@@ -77,7 +79,7 @@ class ReaderCommentsFollowPresenter: NSObject {
             DispatchQueue.main.async {
                 generator.notificationOccurred(.error)
                 let noticeTitle = newIsSubscribed ? Messages.subscribeFail : Messages.unsubscribeFail
-                self?.presentingViewController.displayNotice(title: noticeTitle)
+                self?.presentingViewController?.displayNotice(title: noticeTitle)
                 self?.informDelegateFollowComplete(success: false)
             }
         }
@@ -109,7 +111,6 @@ class ReaderCommentsFollowPresenter: NSObject {
     func showNotificationSheet(sourceView: UIView?) {
         showBottomSheet(sourceView: sourceView)
     }
-
 }
 
 // MARK: - Private Extension
@@ -123,36 +124,42 @@ private extension ReaderCommentsFollowPresenter {
             completion?(true)
             self?.informDelegateNotificationComplete(success: true)
 
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
             guard canUndo else {
                 let title = ReaderHelpers.noticeTitle(forAction: action, success: true)
-                self.presentingViewController.displayNotice(title: title)
+                self.presentingViewController?.displayNotice(title: title)
                 return
             }
 
-            self.presentingViewController.displayActionableNotice(
+            self.presentingViewController?.displayActionableNotice(
                 title: Messages.promptTitle,
                 message: Messages.promptMessage,
                 actionTitle: Messages.undoActionTitle,
-                actionHandler: { (accepted: Bool) in
+                actionHandler: { (_: Bool) in
                 self.handleNotificationsButtonTapped(canUndo: false)
             })
         }, failure: { [weak self] error in
             DDLogError("Reader Comments: error toggling notification status: \(String(describing: error)))")
             let title = ReaderHelpers.noticeTitle(forAction: action, success: false)
-            self?.presentingViewController.displayNotice(title: title)
+            self?.presentingViewController?.displayNotice(title: title)
             completion?(false)
             self?.informDelegateNotificationComplete(success: false)
         })
     }
 
     func showBottomSheet(sourceView: UIView? = nil, sourceBarButtonItem: UIBarButtonItem? = nil) {
-        let sheetViewController = ReaderCommentsNotificationSheetViewController(isNotificationEnabled: post.receivesCommentNotifications, delegate: self)
-        let bottomSheet = BottomSheetViewController(childViewController: sheetViewController)
-        bottomSheet.show(from: presentingViewController, sourceView: sourceView, sourceBarButtonItem: sourceBarButtonItem)
+        guard let presentingViewController else {
+            return
+        }
+        let sheetVC = ReaderCommentsNotificationSheetViewController(isNotificationEnabled: post.receivesCommentNotifications, delegate: self)
+        let navigationVC = UINavigationController(rootViewController: sheetVC)
+        navigationVC.modalPresentationStyle = .popover
+        navigationVC.popoverPresentationController?.sourceItem = sourceBarButtonItem ?? sourceView
+        navigationVC.popoverPresentationController?.adaptiveSheetPresentationController.detents = [.medium()]
+        presentingViewController.present(navigationVC, animated: true)
     }
 
     func informDelegateFollowComplete(success: Bool) {
@@ -200,6 +207,10 @@ private extension ReaderCommentsFollowPresenter {
     }
 
     func sourceForTracks() -> String {
+        guard let presentingViewController else {
+            return AnalyticsSource.unknown.description()
+        }
+
         if presentingViewController is ReaderCommentsViewController {
             return AnalyticsSource.comments.description()
         }
@@ -236,7 +247,6 @@ private extension ReaderCommentsFollowPresenter {
             }
         }
     }
-
 }
 
 // MARK: - ReaderCommentsNotificationSheetDelegate Methods
@@ -250,5 +260,4 @@ extension ReaderCommentsFollowPresenter: ReaderCommentsNotificationSheetDelegate
     func didTapUnfollowConversation() {
         handleFollowConversationButtonTapped()
     }
-
 }

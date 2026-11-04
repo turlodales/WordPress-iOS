@@ -1,3 +1,7 @@
+import Foundation
+import WordPressData
+import WordPressKit
+
 struct PreviewNonceHandler {
     static func nonceURL(post: AbstractPost, previewURL: URL?) -> URL? {
         let permalink = post.permaLink.flatMap(URL.init(string:))
@@ -51,7 +55,7 @@ struct PreviewNonceHandler {
         }
 
         // If the post is published, but has changes, add the preview param.
-        if post.hasUnsavedChanges() || post.hasRemoteChanges() {
+        if !post.changes.isEmpty {
             return true
         }
 
@@ -77,5 +81,4 @@ struct PreviewNonceHandler {
         }
         return queryItems
     }
-
 }

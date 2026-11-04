@@ -1,4 +1,7 @@
 import Foundation
+import WordPressData
+import WordPressUI
+import Gravatar
 
 struct NoSitesViewModel {
 
@@ -15,7 +18,7 @@ struct NoSitesViewModel {
         self.appUIType = appUIType
         self.displayName = account?.displayName ?? "-"
         if let email = account?.email {
-            self.gravatarURL = Gravatar.gravatarUrl(for: email)
+            self.gravatarURL = AvatarURL.url(for: email)
         } else {
             self.gravatarURL = nil
         }

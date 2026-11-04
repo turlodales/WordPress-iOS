@@ -1,16 +1,15 @@
 import SwiftUI
+import WebKit
 
 struct StoreSandboxSecretScreen: View {
-    private static let storeSandboxSecretKey = "store_sandbox"
-
-    @SwiftUI.Environment(\.presentationMode) var presentationMode
+    @Environment(\.presentationMode) var presentationMode
     @State private var secret: String
-    private let cookieJar: CookieJar
+    private let cookieJar: HTTPCookieStorage
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(alignment: .leading) {
-                Text("Enter the Store Sandbox Cookie Secret:")
+                Text(verbatim: "Enter the Store Sandbox Cookie Secret:")
                 TextField("Secret", text: $secret)
                     .padding(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
                     .border(Color.black)
@@ -22,29 +21,20 @@ struct StoreSandboxSecretScreen: View {
             // This seems to be necessary due to an iOS bug where
             // accessing presentationMode.wrappedValue crashes.
             DispatchQueue.main.async {
-                if self.presentationMode.wrappedValue.isPresented == false,
-                  let cookie = HTTPCookie(properties: [
-                    .name: StoreSandboxSecretScreen.storeSandboxSecretKey,
-                    .value: secret,
-                    .domain: ".wordpress.com",
-                    .path: "/"
-                  ]) {
-                    cookieJar.setCookies([cookie]) {}
+                if self.presentationMode.wrappedValue.isPresented == false {
+                    StoreSandboxCookie.update(secret: secret, in: cookieJar)
+                    // Web views keep their own copy of the cookie in the default data store.
+                    let webCookieStore = WKWebsiteDataStore.default().httpCookieStore
+                    StoreSandboxCookie.synchronize(from: cookieJar, to: webCookieStore) {}
                 }
             }
         }
     }
 
-    init(cookieJar: CookieJar) {
-        var cookies: [HTTPCookie] = []
-
+    init(cookieJar: HTTPCookieStorage) {
         self.cookieJar = cookieJar
 
-        cookieJar.getCookies { jarCookies in
-            cookies = jarCookies
-        }
-
-        if let cookie = cookies.first(where: { $0.name == StoreSandboxSecretScreen.storeSandboxSecretKey }) {
+        if let cookie = StoreSandboxCookie.cookie(in: cookieJar) {
             _secret = State(initialValue: cookie.value)
         } else {
             _secret = State(initialValue: "")

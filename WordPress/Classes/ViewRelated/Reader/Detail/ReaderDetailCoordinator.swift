@@ -1,5 +1,14 @@
+import AsyncImageKit
 import Foundation
+import SafariServices
+import SwiftUI
+import WordPressData
+import WordPressReader
 import WordPressShared
+import WordPressUI
+import WordPressKit
+import Combine
+import WebKit
 
 class ReaderDetailCoordinator {
 
@@ -36,8 +45,19 @@ class ReaderDetailCoordinator {
         return nil
     }
 
+    /// ID representing the notification the post details is triggered from
+    /// If post details is not related to a notification, this property is `nil`
+    var notificationID: String?
+
     /// Called if the view controller's post fails to load
     var postLoadFailureBlock: (() -> Void)? = nil
+
+    private lazy var interactiveElements: [ReaderPostParser.InteractiveElement] = {
+        guard let content = post?.content else { return [] }
+        return ReaderPostParser.parse(content)
+    }()
+
+    private var likesAvatarURLs: [String]?
 
     /// An authenticator to ensure any request made to WP sites is properly authenticated
     lazy var authenticator: RequestAuthenticator? = {
@@ -63,7 +83,7 @@ class ReaderDetailCoordinator {
 
     /// Comment Service
     private let commentService: CommentService
-    private let commentsDisplayed: UInt = 1
+    private let commentsDisplayed: UInt = 2
 
     /// Post Sharing Controller
     private let sharingController: PostSharingController
@@ -98,10 +118,7 @@ class ReaderDetailCoordinator {
     }
 
     private var followCommentsService: FollowCommentsService?
-
-    /// The total number of Likes for the post.
-    /// Passed to ReaderDetailLikesListController to display in the view title.
-    private var totalLikes = 0
+    private var likesObserver: AnyCancellable?
 
     /// Initialize the Reader Detail Coordinator
     ///
@@ -109,7 +126,7 @@ class ReaderDetailCoordinator {
     init(coreDataStack: CoreDataStack = ContextManager.shared,
          readerPostService: ReaderPostService = ReaderPostService(coreDataStack: ContextManager.shared),
          topicService: ReaderTopicService = ReaderTopicService(coreDataStack: ContextManager.shared),
-         postService: PostService = PostService(managedObjectContext: ContextManager.sharedInstance().mainContext),
+         postService: PostService = PostService(managedObjectContext: ContextManager.shared.mainContext),
          commentService: CommentService = CommentService(coreDataStack: ContextManager.shared),
          sharingController: PostSharingController = PostSharingController(),
          readerLinkRouter: UniversalLinkRouter = UniversalLinkRouter(routes: UniversalLinkRouter.readerRoutes),
@@ -135,9 +152,9 @@ class ReaderDetailCoordinator {
 
         if post != nil {
             renderPostAndBumpStats()
-        } else if let siteID = siteID, let postID = postID, let isFeed = isFeed {
+        } else if let siteID, let postID, let isFeed {
             fetch(postID: postID, siteID: siteID, isFeed: isFeed)
-        } else if let postURL = postURL {
+        } else if let postURL {
             fetch(postURL)
         }
     }
@@ -152,41 +169,51 @@ class ReaderDetailCoordinator {
         }
     }
 
-    /// Fetch Likes for the current post.
-    /// Returns `ReaderDetailLikesView.maxAvatarsDisplayed` number of Likes.
-    ///
     func fetchLikes(for post: ReaderPost) {
-        guard let postID = post.postID else {
-            return
-        }
+        guard let postID = post.postID, let siteID = post.siteID else { return }
 
         // Fetch a full page of Likes but only return the `maxAvatarsDisplayed` number.
         // That way the first page will already be cached if the user displays the full Likes list.
-        postService.getLikesFor(postID: postID,
-                                siteID: post.siteID,
-                                success: { [weak self] users, totalLikes, _ in
-                                    var filteredUsers = users
-                                    var currentLikeUser: LikeUser? = nil
-                                    let totalLikesExcludingSelf = totalLikes - (post.isLiked ? 1 : 0)
+        postService.getLikesFor(postID: postID, siteID: siteID, success: { [weak self] users, _, _ in
+            guard let self else { return }
 
-                                    // Split off current user's like from the list.
-                                    // Likes from self will always be placed in the last position, regardless of the when the post was liked.
-                                    if let userID = try? WPAccount.lookupDefaultWordPressComAccount(in: ContextManager.shared.mainContext)?.userID.int64Value,
-                                       let userIndex = filteredUsers.firstIndex(where: { $0.userID == userID }) {
-                                        currentLikeUser = filteredUsers.remove(at: userIndex)
-                                    }
+            var filteredUsers = users
+            if let account = try? WPAccount.lookupDefaultWordPressComAccount(in: ContextManager.shared.mainContext),
+               let userID = account.userID?.int64Value,
+               let userIndex = filteredUsers.firstIndex(where: { $0.userID == userID }) {
+                filteredUsers.remove(at: userIndex)
+            }
 
-                                    self?.totalLikes = totalLikes
-                                    self?.view?.updateLikes(with: filteredUsers.prefix(ReaderDetailLikesView.maxAvatarsDisplayed).map { $0.avatarUrl },
-                                                            totalLikes: totalLikesExcludingSelf)
-                                    // Only pass current user's avatar when we know *for sure* that the post is liked.
-                                    // This is to work around a possible race condition that causes an unliked post to have current user's LikeUser, which
-                                    // would cause a display bug in ReaderDetailLikesView. The race condition issue will be investigated separately.
-                                    self?.view?.updateSelfLike(with: post.isLiked ? currentLikeUser?.avatarUrl : nil)
-                                }, failure: { [weak self] error in
-                                    self?.view?.updateLikes(with: [String](), totalLikes: 0)
-                                    DDLogError("Error fetching Likes for post detail: \(String(describing: error?.localizedDescription))")
-                                })
+            self.likesAvatarURLs = filteredUsers.prefix(ReaderDetailLikesView.maxAvatarsDisplayed).map(\.avatarUrl)
+            self.updateLikesView()
+            self.startObservingLikes()
+        }, failure: { error in
+            DDLogError("Error fetching Likes for post detail: \(String(describing: error?.localizedDescription))")
+        })
+    }
+
+    private func startObservingLikes() {
+        guard let post else {
+            return wpAssertionFailure("post missing")
+        }
+
+        likesObserver = Publishers.CombineLatest(
+            post.publisher(for: \.likeCount, options: [.new]).removeDuplicates(),
+            post.publisher(for: \.isLiked, options: [.new]).removeDuplicates()
+        ).sink { [weak self] _, _ in
+            self?.updateLikesView()
+        }
+    }
+
+    private func updateLikesView() {
+        guard let post, let likesAvatarURLs else { return }
+
+        let viewModel = ReaderDetailLikesViewModel(
+            likeCount: post.likeCount?.intValue ?? 0,
+            avatarURLs: likesAvatarURLs,
+            selfLikeAvatarURL: post.isLiked ? try? WPAccount.lookupDefaultWordPressComAccount(in: ContextManager.shared.mainContext)?.avatarURL : nil
+        )
+        view?.updateLikesView(with: viewModel)
     }
 
     /// Fetch Comments for the current post.
@@ -213,13 +240,13 @@ class ReaderDetailCoordinator {
     /// Share the current post
     ///
     func share(fromView anchorView: UIView) {
-        self.share(fromAnchor: .view(anchorView))
+        self.share(fromAnchor: anchorView)
     }
 
     /// Share the current post
     ///
-    func share(fromAnchor anchor: UIPopoverPresentationController.PopoverAnchor) {
-        guard let post = post, let view = viewController else {
+    func share(fromAnchor anchor: UIPopoverPresentationControllerSourceItem) {
+        guard let post, let view = viewController else {
             return
         }
 
@@ -242,24 +269,25 @@ class ReaderDetailCoordinator {
     /// Show more about a specific site in Discovery
     ///
     func showMore() {
-        guard let post = post, post.sourceAttribution != nil else {
+        guard let post, let sourceAttribution = post.sourceAttribution else {
             return
         }
 
-        if let blogID = post.sourceAttribution.blogID {
+        if let blogID = sourceAttribution.blogID {
             let controller = ReaderStreamViewController.controllerWithSiteID(blogID, isFeed: false)
+            controller.trackingContext.source = ScreenTrackingSource(ScreenID.Reader.article, component: ElementID.Reader.articleHeaderSiteName)
             viewController?.navigationController?.pushViewController(controller, animated: true)
             return
         }
 
-        var path: String?
-        if post.sourceAttribution.attributionType == SourcePostAttributionTypePost {
-            path = post.sourceAttribution.permalink
+        let path: String?
+        if sourceAttribution.attributionType == SourcePostAttribution.post {
+            path = sourceAttribution.permalink
         } else {
-            path = post.sourceAttribution.blogURL
+            path = sourceAttribution.blogURL
         }
 
-        if let path = path, let linkURL = URL(string: path) {
+        if let path, let linkURL = URL(string: path) {
             presentWebViewController(linkURL)
         }
     }
@@ -270,12 +298,41 @@ class ReaderDetailCoordinator {
     func presentImage(_ url: URL) {
         WPAnalytics.trackReader(.readerArticleImageTapped)
 
-        let imageViewController = WPImageViewController(url: url)
-        imageViewController.readerPost = post
-        imageViewController.modalTransitionStyle = .crossDissolve
-        imageViewController.modalPresentationStyle = .fullScreen
+        let host = post.map(MediaHost.init)
+        let lightboxVC = LightboxViewController(sourceURL: url, host: host)
+        lightboxVC.configureZoomTransition()
+        viewController?.present(lightboxVC, animated: true)
+    }
 
-        viewController?.present(imageViewController, animated: true)
+    private func findGallery(containing url: URL) -> (ReaderPostParser.Gallery, Int)? {
+        let urlString = url.absoluteString
+        for element in interactiveElements {
+            if case .gallery(let gallery) = element,
+               let index = gallery.images.firstIndex(where: { $0.src.absoluteString == urlString }) {
+                return (gallery, index)
+            }
+        }
+        return nil
+    }
+
+    private func presentGallery(_ gallery: ReaderPostParser.Gallery, startingAt index: Int) {
+        WPAnalytics.trackReader(.readerArticleImageTapped)
+        guard let viewController else {
+            return // Nothing to present the gallery from
+        }
+        let host = post.map(MediaHost.init)
+        // The gallery covers the whole window, so size the images for the window rather than
+        // for the post's column, which is narrower in the iPad split view.
+        let bounds = viewController.view.window?.bounds ?? viewController.view.bounds
+        let maxDimension = Int(max(bounds.width, bounds.height) * min(viewController.traitCollection.displayScale, 2))
+        let assets = gallery.images.map { image in
+            let sourceURL = image.bestURL(maxDimension: maxDimension) ?? image.originalFileURL ?? image.src
+            let previewURL = image.srcset.min(by: { $0.width < $1.width })?.url
+            return LightboxAsset(sourceURL: sourceURL, previewURL: previewURL, host: host)
+        }
+        let lightboxVC = LightboxViewController(assets: assets, selectedIndex: index)
+        lightboxVC.configureZoomTransition()
+        viewController.present(lightboxVC, animated: true)
     }
 
     /// Open the postURL in a separated view controller
@@ -305,7 +362,7 @@ class ReaderDetailCoordinator {
     /// - Parameter webView: the webView where the post will be rendered
     /// - Parameter completion: a completion block
     func storeAuthenticationCookies(in webView: WKWebView, completion: @escaping () -> Void) {
-        guard let authenticator = authenticator,
+        guard let authenticator,
             let postURL = permaLinkURL else {
             completion()
             return
@@ -329,31 +386,44 @@ class ReaderDetailCoordinator {
                                     success: { [weak self] post in
                                         self?.post = post
                                         self?.renderPostAndBumpStats()
-                                    }, failure: { [weak self] _ in
-                                        self?.postURL == nil ? self?.view?.showError() : self?.view?.showErrorWithWebAction()
+                                    }, failure: { [weak self] error in
+                                        self?.postURL == nil ? self?.showError(error: error) : self?.view?.showErrorWithWebAction(error: error)
                                         self?.reportPostLoadFailure()
                                     })
     }
-
 
     /// Requests a ReaderPost from the service and updates the View.
     ///
     /// Use this method to fetch a ReaderPost from a URL.
     /// - Parameter url: a post URL
     private func fetch(_ url: URL) {
-        readerPostService.fetchPost(at: url,
-                                    success: { [weak self] post in
-                                        self?.post = post
-                                        self?.renderPostAndBumpStats()
-                                    }, failure: { [weak self] error in
-                                        DDLogError("Error fetching post for detail: \(String(describing: error?.localizedDescription))")
-                                        self?.postURL == nil ? self?.view?.showError() : self?.view?.showErrorWithWebAction()
-                                        self?.reportPostLoadFailure()
-                                    })
+        readerPostService.resolvePostUrl(url) { [weak self] resolvedPost in
+            self?.fetch(
+                postID: NSNumber(value: resolvedPost.postId),
+                siteID: NSNumber(value: resolvedPost.siteId),
+                isFeed: false
+            )
+        } failure: { [weak self] error in
+            DDLogError("Error fetching post for detail: \(String(describing: error.localizedDescription))")
+            self?.showError(error: error)
+            self?.reportPostLoadFailure()
+        }
+    }
+
+    private func showError(error: Error?) {
+        let errorMessage: String? = {
+            guard let error = error as? NSError,
+                  error.domain == WordPressComRestApiEndpointError.errorDomain,
+                  error.code == WordPressComRestApiErrorCode.authorizationRequired.rawValue else {
+                return nil
+            }
+            return Strings.fetchDetailFromPrivateBlogErrorMessage
+        }()
+        self.view?.showError(subtitle: errorMessage)
     }
 
     private func renderPostAndBumpStats() {
-        guard let post = post else {
+        guard let post else {
             return
         }
 
@@ -365,7 +435,7 @@ class ReaderDetailCoordinator {
     }
 
     private func markPostAsSeen() {
-        guard let post = post, !post.isSeen else {
+        guard let post, !post.isSeen else {
             return
         }
 
@@ -393,55 +463,38 @@ class ReaderDetailCoordinator {
     /// Shows the current post site posts in a new screen
     ///
     private func previewSite() {
-        guard let post = post else {
+        guard let post, let siteID = post.siteID else {
             return
         }
 
-        let controller = ReaderStreamViewController.controllerWithSiteID(post.siteID, isFeed: post.isExternal)
+        let controller = ReaderStreamViewController.controllerWithSiteID(siteID, isFeed: post.isExternal)
+        controller.trackingContext.source = ScreenTrackingSource(ScreenID.Reader.article, component: ElementID.Reader.articleHeaderSiteName)
         viewController?.navigationController?.pushViewController(controller, animated: true)
 
         let properties = ReaderHelpers.statsPropertiesForPost(post, andValue: post.blogURL as AnyObject?, forKey: "URL")
         WPAppAnalytics.track(.readerSitePreviewed, withProperties: properties)
     }
 
-    /// Show a menu with options for the current post's site
-    ///
-    private func showMenu(_ anchor: UIPopoverPresentationController.PopoverAnchor) {
-        guard let post = post,
-              let context = post.managedObjectContext,
-              let viewController = viewController,
-              let followCommentsService = FollowCommentsService(post: post) else {
-            return
-        }
-
-        self.followCommentsService = followCommentsService
-
-        ReaderMenuAction(logged: ReaderHelpers.isLoggedIn()).execute(
-            post: post,
-            context: context,
-            readerTopic: readerTopic,
-            anchor: anchor,
-            vc: viewController,
-            source: ReaderPostMenuSource.details,
-            followCommentsService: followCommentsService
-        )
-
-        WPAnalytics.trackReader(.readerArticleDetailMoreTapped)
-    }
-
-    private func showTopic(_ topic: String) {
+    func showTopic(_ topic: String) {
         let controller = ReaderStreamViewController.controllerWithTagSlug(topic)
+        controller.trackingContext.source = ScreenTrackingSource(ScreenID.Reader.article, component: ElementID.Reader.tagChip)
         viewController?.navigationController?.pushViewController(controller, animated: true)
     }
 
     /// Show a list with posts containing this tag
     ///
     private func showTag() {
-        guard let post = post else {
+        guard let post else {
+            wpAssertionFailure("post is nil")
+            return
+        }
+        guard let primaryTagSlug = post.primaryTagSlug else {
+            wpAssertionFailure("post.primaryTagSlug is nil")
             return
         }
 
-        let controller = ReaderStreamViewController.controllerWithTagSlug(post.primaryTagSlug)
+        let controller = ReaderStreamViewController.controllerWithTagSlug(primaryTagSlug)
+        controller.trackingContext.source = ScreenTrackingSource(ScreenID.Reader.article, component: ElementID.Reader.tagChip)
         viewController?.navigationController?.pushViewController(controller, animated: true)
 
         let properties = ReaderHelpers.statsPropertiesForPost(post, andValue: post.primaryTagSlug as AnyObject?, forKey: "tag")
@@ -458,12 +511,15 @@ class ReaderDetailCoordinator {
     ///
     /// - Parameter url: the URL to be handled
     func handle(_ url: URL) {
-        // If the URL has an anchor (#)
-        // and the URL is equal to the current post URL
-        if let hash = URLComponents(url: url, resolvingAgainstBaseURL: true)?.fragment,
-           let postURL = permaLinkURL,
-           postURL.isHostAndPathEqual(to: url) {
+        // If the URL has an anchor (#) and the URL matches either the current
+        // post URL or the webview's baseURL, scroll within the document.
+        // In-document anchors (e.g. footnotes) resolve against the baseURL,
+        // so we need to check both.
+        let isInDocumentAnchor = permaLinkURL?.isHostAndPathEqual(to: url) == true || ReaderWebView.baseURL.isHostAndPathEqual(to: url)
+        if let hash = URLComponents(url: url, resolvingAgainstBaseURL: true)?.fragment, isInDocumentAnchor {
             view?.scroll(to: hash)
+        } else if let (gallery, index) = findGallery(containing: url) {
+            presentGallery(gallery, startingAt: index)
         } else if url.pathExtension.contains("gif") ||
                     url.pathExtension.contains("jpg") ||
                     url.pathExtension.contains("jpeg") ||
@@ -473,8 +529,6 @@ class ReaderDetailCoordinator {
             presentWebViewController(url)
         } else if readerLinkRouter.canHandle(url: url) {
             readerLinkRouter.handle(url: url, shouldTrack: false, source: .inApp(presenter: viewController))
-        } else if url.isWordPressDotComPost {
-            presentReaderDetail(url)
         } else if url.isLinkProtocol {
             readerLinkRouter.handle(url: url, shouldTrack: false, source: .inApp(presenter: viewController))
         } else {
@@ -484,35 +538,13 @@ class ReaderDetailCoordinator {
         }
     }
 
-
     /// Called after the webView fully loads
     func webViewDidLoad() {
         scrollToHashIfNeeded()
     }
 
-    /// Show the featured image fullscreen
-    ///
-    private func showFeaturedImage(_ sender: CachedAnimatedImageView) {
-        guard let post = post else {
-            return
-        }
-
-        var controller: WPImageViewController
-        if post.featuredImageURL.isGif, let data = sender.animatedGifData {
-            controller = WPImageViewController(gifData: data)
-        } else if let featuredImage = sender.image {
-            controller = WPImageViewController(image: featuredImage)
-        } else {
-            return
-        }
-
-        controller.modalTransitionStyle = .crossDissolve
-        controller.modalPresentationStyle = .fullScreen
-        viewController?.present(controller, animated: true)
-    }
-
-    private func followSite(completion: @escaping () -> Void) {
-        guard let post = post else {
+    private func toggleFollowSite(completion: @escaping () -> Void) {
+        guard let post else {
             return
         }
 
@@ -530,36 +562,12 @@ class ReaderDetailCoordinator {
                                      })
     }
 
-    /// Given a URL presents it in a new Reader detail screen
-    ///
-    private func presentReaderDetail(_ url: URL) {
-
-        // In cross post Notifications, if the user tapped the link to the original post in the Notification body,
-        // use the original post's info to display reader detail.
-        // The API endpoint used by controllerWithPostID returns subscription flags for the post.
-        // The API endpoint used by controllerWithPostURL does not return this information.
-        // These flags are needed to display the `Follow conversation by email` option.
-        // So if we can call controllerWithPostID, do so. Otherwise, fallback to controllerWithPostURL.
-        // Ref: https://github.com/wordpress-mobile/WordPress-iOS/issues/17158
-
-        let readerDetail: ReaderDetailViewController = {
-            if let post = post,
-               selectedUrlIsCrossPost(url) {
-                return ReaderDetailViewController.controllerWithPostID(post.crossPostMeta.postID, siteID: post.crossPostMeta.siteID)
-            }
-
-            return ReaderDetailViewController.controllerWithPostURL(url)
-        }()
-
-        viewController?.navigationController?.pushViewController(readerDetail, animated: true)
-    }
-
     private func selectedUrlIsCrossPost(_ url: URL) -> Bool {
         // Trim trailing slashes to facilitate URL comparison.
         let characterSet = CharacterSet(charactersIn: "/")
 
-        guard let post = post,
-              post.isCross(),
+        guard let post,
+              post.isCrossPost,
               let crossPostMeta = post.crossPostMeta,
               let crossPostURL = URL(string: crossPostMeta.postURL.trimmingCharacters(in: characterSet)),
               let selectedURL = URL(string: url.absoluteString.trimmingCharacters(in: characterSet)) else {
@@ -583,7 +591,7 @@ class ReaderDetailCoordinator {
         configuration.authenticateWithDefaultAccount()
         configuration.addsWPComReferrer = true
         let controller = WebViewControllerFactory.controller(configuration: configuration, source: "reader_detail")
-        let navController = LightNavigationController(rootViewController: controller)
+        let navController = UINavigationController(rootViewController: controller)
         viewController?.present(navController, animated: true)
     }
 
@@ -606,17 +614,18 @@ class ReaderDetailCoordinator {
     }
 
     private func showLikesList() {
-        guard let post = post else {
+        guard let post else {
             return
         }
-
-        let controller = ReaderDetailLikesListController(post: post, totalLikes: totalLikes)
+        guard let controller = LikesListHostViewController(post: post) else {
+            return
+        }
         viewController?.navigationController?.pushViewController(controller, animated: true)
     }
 
     /// Index the post in Spotlight
     private func indexReaderPostInSpotlight() {
-        guard let post = post else {
+        guard let post else {
             return
         }
 
@@ -635,11 +644,9 @@ class ReaderDetailCoordinator {
         let isOfflineView = ReachabilityUtils.isInternetReachable() ? "no" : "yes"
         let detailType = readerPost.topic?.type == ReaderSiteTopic.TopicType ? DetailAnalyticsConstants.TypePreviewSite : DetailAnalyticsConstants.TypeNormal
 
-
         var properties = ReaderHelpers.statsPropertiesForPost(readerPost, andValue: nil, forKey: nil)
         properties[DetailAnalyticsConstants.TypeKey] = detailType
         properties[DetailAnalyticsConstants.OfflineKey] = isOfflineView
-
 
         // Track related post tapped
         if let simplePost = remoteSimplePost {
@@ -653,12 +660,20 @@ class ReaderDetailCoordinator {
             }
         }
 
+        // Additional properties for Reading Preferences
+        if ReaderDisplaySettings.customizationEnabled {
+            let setting = ReaderDisplaySettingStore().setting
+            properties[DetailAnalyticsConstants.ReadingPreferences.isDefaultKey] = setting.isDefaultSetting
+            properties[DetailAnalyticsConstants.ReadingPreferences.colorSchemeKey] = setting.color.valueForTracks
+            properties[DetailAnalyticsConstants.ReadingPreferences.fontTypeKey] = setting.font.valueForTracks
+            properties[DetailAnalyticsConstants.ReadingPreferences.fontSizeKey] = setting.size.valueForTracks
+        }
+
         // Track open
         WPAppAnalytics.track(.readerArticleOpened, withProperties: properties)
 
-        if let railcar = readerPost.railcarDictionary() {
-            WPAppAnalytics.trackTrainTracksInteraction(.readerArticleOpened, withProperties: railcar)
-        }
+        // Track as significant event for App Rating calculations
+        AppRatingUtility.shared.incrementSignificantEvent()
     }
 
     /// Bump post page view
@@ -677,102 +692,98 @@ class ReaderDetailCoordinator {
         static let TypePreviewSite = "preview_site"
         static let OfflineKey = "offline_view"
         static let PixelStatReferrer = "https://wordpress.com/"
+
+        struct ReadingPreferences {
+            static let isDefaultKey = "reading_preferences_is_default"
+            static let colorSchemeKey = "reading_preferences_color_scheme"
+            static let fontTypeKey = "reading_preferences_font"
+            static let fontSizeKey = "reading_preferences_font_size"
+        }
     }
 }
 
-// MARK: - ReaderDetailHeaderViewDelegate
-extension ReaderDetailCoordinator: ReaderDetailHeaderViewDelegate {
-    func didTapBlogName() {
-        previewSite()
+// MARK: - ReaderPostHeaderViewDelegate
+extension ReaderDetailCoordinator: ReaderPostHeaderViewDelegate {
+    func readerPostHeaderView(_ view: ReaderPostHeaderView, didTap element: ReaderPostHeaderView.Element) {
+        switch element {
+        case .siteName:
+            previewSite()
+        case .subscribe:
+            view.isShowingSubscribeLoadingIndicator = true
+            toggleFollowSite { [weak self] in
+                view.isShowingSubscribeLoadingIndicator = false
+                self?.view?.updateHeader()
+            }
+        case .author:
+            showAuthorProfile()
+        case .featuredImage:
+            showFeaturedImage(view.featuredImageView)
+        }
     }
 
-    func didTapMenuButton(_ sender: UIBarButtonItem) {
-        showMenu(.barButtonItem(sender))
-    }
-
-    func didTapMenuButton(_ sender: UIView) {
-        showMenu(.view(sender))
-    }
-
-    func didTapTagButton() {
-        showTag()
-    }
-
-    func didTapHeaderAvatar() {
-        previewSite()
-    }
-
-    func didTapFollowButton(completion: @escaping () -> Void) {
-        followSite(completion: completion)
-    }
-
-    func didSelectTopic(_ topic: String) {
-        showTopic(topic)
-    }
-
-    func didTapLikes() {
-        showLikesList()
-    }
-
-    func didTapComments() {
-        guard let post, let viewController else {
+    private func showFeaturedImage(_ sender: AsyncImageView) {
+        guard let post, let imageURL = post.featuredImage.flatMap(URL.init) else {
             return
         }
-        ReaderCommentAction().execute(post: post, origin: viewController, source: .postDetails)
+        WPAnalytics.trackReader(.readerArticleImageTapped)
+        let lightboxVC = LightboxViewController(sourceURL: imageURL, host: MediaHost(post))
+        MainActor.assumeIsolated {
+            lightboxVC.thumbnail = sender.image
+        }
+        lightboxVC.configureZoomTransition(sourceView: sender)
+        viewController?.present(lightboxVC, animated: true)
+    }
+
+    private func showAuthorProfile() {
+        guard let post else { return }
+        let viewModel = ReaderUserProfileViewModel(post: post)
+        let profileVC = UIHostingController(rootView: ReaderUserProfileView(viewModel: viewModel))
+        let navigationVC = UINavigationController(rootViewController: profileVC)
+        profileVC.navigationItem.leftBarButtonItem = UIBarButtonItem(systemItem: .close, primaryAction: .init { [weak profileVC] _ in
+            profileVC?.presentingViewController?.dismiss(animated: true)
+        })
+        navigationVC.sheetPresentationController?.detents = [.medium()]
+        viewController?.present(navigationVC, animated: true)
     }
 }
 
-// MARK: - ReaderDetailFeaturedImageViewDelegate
-extension ReaderDetailCoordinator: ReaderDetailFeaturedImageViewDelegate {
-    func didTapFeaturedImage(_ sender: CachedAnimatedImageView) {
-        showFeaturedImage(sender)
-    }
-}
-
-// MARK: - ReaderDetailLikesViewDelegate
 extension ReaderDetailCoordinator: ReaderDetailLikesViewDelegate {
     func didTapLikesView() {
         showLikesList()
     }
 }
 
-// MARK: - ReaderDetailToolbarDelegate
-extension ReaderDetailCoordinator: ReaderDetailToolbarDelegate {
-    func didTapLikeButton(isLiked: Bool) {
-        guard let userAvatarURL = try? WPAccount.lookupDefaultWordPressComAccount(in: ContextManager.shared.mainContext)?.avatarURL else {
-            return
-        }
+extension ReaderDetailCoordinator: ReaderDetailToolbarDelegate {}
 
-        self.view?.updateSelfLike(with: isLiked ? userAvatarURL : nil)
+// MARK: - Private Definitions
+
+private extension ReaderDetailCoordinator {
+
+    struct Strings {
+        static let fetchDetailFromPrivateBlogErrorMessage = NSLocalizedString(
+            "readerDetailCoordinator.readerDetail.privateBlogErrorMessage",
+            value: "You don't have permission to view this private blog.",
+            comment: "Error message that informs reader detail from a private blog cannot be fetched."
+        )
     }
 }
 
-// MARK: - State Restoration
-
-extension ReaderDetailCoordinator {
-    static func viewController(withRestorationIdentifierPath identifierComponents: [String],
-                                      coder: NSCoder) -> UIViewController? {
-        guard let path = coder.decodeObject(forKey: restorablePostObjectURLKey) as? String else {
-            return nil
+private extension URL {
+    /// Handle the common link protocols.
+    /// - tel: open a prompt to call the phone number
+    /// - sms: compose new message in iMessage app
+    /// - mailto: compose new email in Mail app
+    ///
+    var isLinkProtocol: Bool {
+        guard let urlScheme = scheme else {
+            return false
         }
 
-        let context = ContextManager.sharedInstance().mainContext
-        guard let url = URL(string: path),
-            let objectID = context.persistentStoreCoordinator?.managedObjectID(forURIRepresentation: url) else {
-            return nil
+        let linkProtocols = ["tel", "sms", "mailto"]
+        if linkProtocols.contains(urlScheme) && UIApplication.shared.canOpenURL(self) {
+            return true
         }
 
-        guard let post = (try? context.existingObject(with: objectID)) as? ReaderPost else {
-            return nil
-        }
-
-        return ReaderDetailViewController.controllerWithPost(post)
-    }
-
-
-    func encodeRestorableState(with coder: NSCoder) {
-        if let post = post {
-            coder.encode(post.objectID.uriRepresentation().absoluteString, forKey: type(of: self).restorablePostObjectURLKey)
-        }
+        return false
     }
 }

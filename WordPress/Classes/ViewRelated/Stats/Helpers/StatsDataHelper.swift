@@ -1,4 +1,6 @@
 import Foundation
+import WordPressKit
+import WordPressShared
 
 /// Helper class for getting/modifying Stats data for display purposes.
 ///
@@ -87,7 +89,7 @@ import Foundation
 
     class func childRowsForItems(_ children: [StatsTagAndCategory]) -> [StatsTotalRowData] {
         return children.map {
-            StatsTotalRowData.init(name: $0.name,
+            StatsTotalRowData(name: $0.name,
                                    data: "",
                                    icon: StatsDataHelper.tagsAndCategoriesIconForKind($0.kind),
                                    showDisclosure: true,
@@ -141,21 +143,16 @@ fileprivate extension Date {
     }
 }
 
-private extension StatsDataHelper {
-
-    typealias Style = WPStyleGuide.Stats
-
+extension StatsDataHelper {
     static var calendar: Calendar = {
         var cal = Calendar(identifier: .iso8601)
         cal.timeZone = .autoupdatingCurrent
         return cal
     }()
+}
 
-    static var calendarForSite: Calendar = {
-        var cal = StatsDataHelper.calendar
-        cal.timeZone = SiteStatsInformation.sharedInstance.siteTimeZone ?? .autoupdatingCurrent
-        return cal
-    }()
+private extension StatsDataHelper {
+    typealias Style = WPStyleGuide.Stats
 
     static var monthFormatter: DateFormatter = {
         let df = DateFormatter()
@@ -170,7 +167,6 @@ private extension StatsDataHelper {
 
         return StatsDataHelper.monthFormatter.string(from: month)
     }
-
 }
 
 extension Date {
@@ -185,7 +181,7 @@ extension Date {
         // This is basically a Swift rewrite of https://github.com/wordpress-mobile/WordPressCom-Stats-iOS/blob/develop/WordPressCom-Stats-iOS/Services/StatsDateUtilities.m#L97
         // It could definitely use some love!
 
-        let calendar = StatsDataHelper.calendarForSite
+        let calendar = StatsDataHelper.calendar
         let now = Date()
 
         let components = calendar.dateComponents([.minute, .hour, .day], from: self, to: now)
@@ -251,6 +247,9 @@ extension StatsPeriodUnit {
 
     var dateFormatTemplate: String {
         switch self {
+        case .hour:
+            wpAssertionFailure("StatsPeriodHelper.hour period is unsupported in the legacy stats")
+            return "MMM d, yyyy"
         case .day:
             return "MMM d, yyyy"
         case .week:
@@ -264,6 +263,8 @@ extension StatsPeriodUnit {
 
     var calendarComponent: Calendar.Component {
         switch self {
+        case .hour:
+            return .hour
         case .day:
             return .day
         case .week:
@@ -277,6 +278,7 @@ extension StatsPeriodUnit {
 
     var description: String {
         switch self {
+        case .hour: return "hour"
         case .day: return "day"
         case .week: return "week"
         case .month: return "month"
@@ -287,7 +289,6 @@ extension StatsPeriodUnit {
     static var analyticsPeriodKey: String {
         return "period"
     }
-
 }
 
 extension TimeZone {

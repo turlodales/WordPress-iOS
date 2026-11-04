@@ -1,0 +1,45 @@
+#if DEBUG
+import Foundation
+
+/// Canned service for SwiftUI previews. Every fetch resolves to
+/// `CommentDetail.preview`; `fetchedStatus` and `numberOfReplies` shape the
+/// detail screen's toolbar and trash confirmation.
+@MainActor
+final class PreviewCommentsService: CommentsServiceProtocol {
+    private let fetchedStatus: CommentListItem.Status
+    private let replyCount: Int
+
+    init(fetchedStatus: CommentListItem.Status = .pending, numberOfReplies: Int = 0) {
+        self.fetchedStatus = fetchedStatus
+        self.replyCount = numberOfReplies
+    }
+
+    func listComments(filter: CommentsListFilter, nextPage: CommentsPageToken?) async throws -> CommentsPage {
+        CommentsPage(items: [], nextPage: nil)
+    }
+
+    func fetchComment(id: Int64, allowsEditContext: Bool) async throws -> CommentDetail {
+        .preview(id: id, status: fetchedStatus)
+    }
+
+    func fetchStatus(id: Int64) async throws -> CommentListItem.Status { fetchedStatus }
+    func setStatus(id: Int64, _ status: CommentListItem.Status) async throws -> CommentDetail { .preview() }
+    func restore(id: Int64, from bin: CommentListItem.Status) async throws -> CommentDetail { .preview() }
+    func trash(id: Int64) async throws {}
+    func delete(id: Int64) async throws {}
+    func numberOfReplies(for id: Int64) async throws -> Int { replyCount }
+    func createReply(postID: Int64, parentID: Int64, content: String) async throws -> CommentDetail { .preview() }
+    func updateContent(id: Int64, content: String) async throws -> CommentDetail { .preview() }
+}
+
+struct PreviewCapabilities: CommentsCapabilitiesProtocol {
+    func canModerateComments() async throws -> Bool { true }
+}
+
+@MainActor
+final class PreviewCommentDraftStore: CommentDraftStoring {
+    func loadDraft(commentID: Int64) -> String? { nil }
+    func saveDraft(_ text: String, commentID: Int64) {}
+    func deleteDraft(commentID: Int64) {}
+}
+#endif

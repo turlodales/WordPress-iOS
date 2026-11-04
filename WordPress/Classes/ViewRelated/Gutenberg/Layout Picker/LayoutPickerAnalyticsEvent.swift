@@ -1,4 +1,6 @@
 import Foundation
+import WordPressData
+import WordPressShared
 
 class LayoutPickerAnalyticsEvent {
     typealias PreviewDevice = PreviewDeviceSelectionViewController.PreviewDevice
@@ -45,13 +47,13 @@ class LayoutPickerAnalyticsEvent {
 
         for property: Any? in properties {
             if let template = property as? PageTemplateLayout {
-                result.merge([templateTrackingKey: template.slug]) { (_, new) in new }
+                result.merge([templateTrackingKey: template.slug]) { _, new in new }
             }
             if let previewMode = property as? PreviewDevice {
-                result.merge([previewModeTrackingKey: previewMode.rawValue]) { (_, new) in new }
+                result.merge([previewModeTrackingKey: previewMode.rawValue]) { _, new in new }
             }
             if let error = property as? Error {
-                result.merge([errorTrackingKey: error]) { (_, new) in new }
+                result.merge([errorTrackingKey: error]) { _, new in new }
             }
         }
 

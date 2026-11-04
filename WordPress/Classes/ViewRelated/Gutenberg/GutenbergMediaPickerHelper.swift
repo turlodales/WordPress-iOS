@@ -3,26 +3,45 @@ import CoreServices
 import UIKit
 import Photos
 import PhotosUI
+import WordPressData
 import WordPressShared
 import Gutenberg
 import UniformTypeIdentifiers
 
 public typealias GutenbergMediaPickerHelperCallback = ([Any]?) -> Void
 
+struct GutenbergMediaType: OptionSet {
+    let rawValue: Int
+
+    static let image = GutenbergMediaType(rawValue: 1)
+    static let video = GutenbergMediaType(rawValue: 1 << 1)
+    static let audio = GutenbergMediaType(rawValue: 1 << 2)
+    static let other = GutenbergMediaType(rawValue: 1 << 3)
+    static let all = GutenbergMediaType(rawValue: 0xFF)
+}
+
 final class GutenbergMediaPickerHelper: NSObject {
-    private let post: AbstractPost
+    private let blog: Blog
     private unowned let context: UIViewController
 
     /// Media Library Data Source
 
     var didPickMediaCallback: GutenbergMediaPickerHelperCallback?
 
-    init(context: UIViewController, post: AbstractPost) {
+    init(context: UIViewController, blog: Blog) {
         self.context = context
-        self.post = post
+        self.blog = blog
     }
 
-    func presetDevicePhotosPicker(filter: WPMediaType, allowMultipleSelection: Bool, completion: @escaping GutenbergMediaPickerHelperCallback) {
+    convenience init(context: UIViewController, post: AbstractPost) {
+        self.init(context: context, blog: post.blog)
+    }
+
+    func presetDevicePhotosPicker(
+        filter: GutenbergMediaType,
+        allowMultipleSelection: Bool,
+        completion: @escaping GutenbergMediaPickerHelperCallback
+    ) {
         didPickMediaCallback = completion
 
         var configuration = PHPickerConfiguration()
@@ -38,15 +57,58 @@ final class GutenbergMediaPickerHelper: NSObject {
         context.present(picker, animated: true)
     }
 
-    func presentSiteMediaPicker(filter: WPMediaType, allowMultipleSelection: Bool, completion: @escaping GutenbergMediaPickerHelperCallback) {
+    func presentSiteMediaPicker(
+        filter: GutenbergMediaType,
+        allowMultipleSelection: Bool,
+        initialSelection: [Int] = [],
+        completion: @escaping GutenbergMediaPickerHelperCallback
+    ) {
         didPickMediaCallback = completion
-        MediaPickerMenu(viewController: context, filter: .init(filter), isMultipleSelectionEnabled: allowMultipleSelection)
-            .showSiteMediaPicker(blog: post.blog, delegate: self)
+        let initialMediaSelection = mapMediaIdsToMedia(initialSelection)
+        MediaPickerMenu(
+            viewController: context,
+            filter: .init(filter),
+            isMultipleSelectionEnabled: allowMultipleSelection,
+            initialSelection: initialMediaSelection
+        )
+        .showSiteMediaPicker(blog: blog, delegate: self)
     }
 
-    func presentCameraCaptureFullScreen(animated: Bool,
-                                        filter: WPMediaType,
-                                        callback: @escaping GutenbergMediaPickerHelperCallback) {
+    private func mapMediaIdsToMedia(_ mediaIds: [Int]) -> [Media] {
+        assert(Thread.isMainThread, "mapMediaIdsToMedia should only be called on the main thread")
+        let context = ContextManager.shared.mainContext
+        let request = NSFetchRequest<NSManagedObject>(entityName: "Media")
+        request.predicate = NSPredicate(
+            format: "blog == %@ AND mediaID IN %@",
+            blog,
+            mediaIds.map { NSNumber(value: $0) }
+        )
+
+        do {
+            let fetchedMedia = try context.fetch(request) as? [Media] ?? []
+
+            // Create a dictionary for quick lookup
+            let mediaDict = Dictionary(
+                uniqueKeysWithValues: fetchedMedia.compactMap { media -> (Int, Media)? in
+                    if let mediaID = media.mediaID?.intValue {
+                        return (mediaID, media)
+                    }
+                    return nil
+                }
+            )
+
+            // Map the original mediaIds to Media objects, preserving order
+            return mediaIds.compactMap { mediaDict[$0] }
+        } catch {
+            return []
+        }
+    }
+
+    func presentCameraCaptureFullScreen(
+        animated: Bool,
+        filter: GutenbergMediaType,
+        callback: @escaping GutenbergMediaPickerHelperCallback
+    ) {
         didPickMediaCallback = callback
         MediaPickerMenu(viewController: context, filter: .init(filter))
             .showCamera(delegate: self)
@@ -54,7 +116,10 @@ final class GutenbergMediaPickerHelper: NSObject {
 }
 
 extension GutenbergMediaPickerHelper: ImagePickerControllerDelegate {
-    func imagePicker(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+    func imagePicker(
+        _ picker: UIImagePickerController,
+        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+    ) {
         context.dismiss(animated: true) {
             guard let mediaType = info[.mediaType] as? String else {
                 return
@@ -62,22 +127,26 @@ extension GutenbergMediaPickerHelper: ImagePickerControllerDelegate {
             switch mediaType {
             case UTType.image.identifier:
                 if let image = info[.originalImage] as? UIImage {
-                    MediaHelper.advertiseImageOptimization() { [self] in
-                        self.didPickMediaCallback?([image])
-                        self.didPickMediaCallback = nil
-                    }
+                    self.didPickMediaCallback?([image])
+                    self.didPickMediaCallback = nil
                 }
 
             case UTType.movie.identifier:
                 guard let videoURL = info[.mediaURL] as? URL else {
                     return
                 }
-                guard self.post.blog.canUploadVideo(from: videoURL) else {
-                    self.presentVideoLimitExceededAfterCapture(on: self.context)
-                    return
-                }
-                self.didPickMediaCallback?([videoURL])
+                let didPickMediaCallback = self.didPickMediaCallback
                 self.didPickMediaCallback = nil
+                // `context` is unowned and can be deallocated while the duration loads.
+                Task { @MainActor [weak context = self.context] in
+                    guard await self.blog.canUploadVideo(from: videoURL) else {
+                        if let context {
+                            self.presentVideoLimitExceededAfterCapture(on: context)
+                        }
+                        return
+                    }
+                    didPickMediaCallback?([videoURL])
+                }
             default:
                 break
             }
@@ -88,7 +157,10 @@ extension GutenbergMediaPickerHelper: ImagePickerControllerDelegate {
 extension GutenbergMediaPickerHelper: VideoLimitsAlertPresenter {}
 
 extension GutenbergMediaPickerHelper: SiteMediaPickerViewControllerDelegate {
-    func siteMediaPickerViewController(_ viewController: SiteMediaPickerViewController, didFinishWithSelection selection: [Media]) {
+    func siteMediaPickerViewController(
+        _ viewController: SiteMediaPickerViewController,
+        didFinishWithSelection selection: [Media]
+    ) {
         context.dismiss(animated: true)
         didPickMediaCallback?(selection)
         didPickMediaCallback = nil
@@ -99,20 +171,11 @@ extension GutenbergMediaPickerHelper: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         context.dismiss(animated: true)
 
-        guard results.count > 0 else {
+        guard !results.isEmpty else {
             return
         }
 
-        let mediaFilter = picker.configuration.filter
-        if mediaFilter == PHPickerFilter(.all) || mediaFilter == PHPickerFilter(.image) {
-            MediaHelper.advertiseImageOptimization() { [self] in
-                didPickMediaCallback?(results.map(\.itemProvider))
-                didPickMediaCallback = nil
-            }
-        }
-        else {
-            didPickMediaCallback?(results.map(\.itemProvider))
-            didPickMediaCallback = nil
-        }
+        didPickMediaCallback?(results.map(\.itemProvider))
+        didPickMediaCallback = nil
     }
 }

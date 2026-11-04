@@ -1,5 +1,4 @@
 import UIKit
-import CocoaLumberjack
 import WordPressShared
 import WordPressUI
 
@@ -27,5 +26,4 @@ class JetpackRestoreStatusFailedViewController: BaseRestoreStatusFailedViewContr
     override func viewDidLoad() {
         super.viewDidLoad()
     }
-
 }

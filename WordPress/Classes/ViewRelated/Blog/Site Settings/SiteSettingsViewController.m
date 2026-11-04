@@ -1,24 +1,23 @@
 #import "SiteSettingsViewController.h"
 
-#import "Blog.h"
 #import "BlogService.h"
-#import "CoreDataStack.h"
-#import "NSURL+IDN.h"
-#import "PostCategory.h"
 #import "PostCategoryService.h"
 #import "SettingsSelectionViewController.h"
 #import "SettingsMultiTextViewController.h"
 #import "SettingTableViewCell.h"
 #import "SettingsTextViewController.h"
-#import "SVProgressHUD+Dismiss.h"
 #import "WordPress-Swift.h"
-#import "WPWebViewController.h"
-#import <wpxmlrpc/WPXMLRPC.h>
 #import "AccountService.h"
+@import WordPressData;
 @import WordPressKit;
+@import WordPressShared;
+@import WordPressSharedObjC;
+@import WordPressSharedUI;
+@import NSURL_IDN;
 
 NS_ENUM(NSInteger, SiteSettingsAccount) {
     SiteSettingsAccountUsername = 0,
+    // TODO: Hide this row when authenticating using application password.
     SiteSettingsAccountPassword,
     SiteSettingsAccountCount,
 };
@@ -28,14 +27,10 @@ NS_ENUM(NSInteger, SiteSettingsHomepage) {
     SiteSettingsHomepageCount,
 };
 
-NS_ENUM(NSInteger, SiteSettingsEditor) {
-    SiteSettingsEditorSelector = 0,
-    SiteSettingsEditorCount,
-};
-
 NS_ENUM(NSInteger, SiteSettingsWriting) {
     SiteSettingsWritingDefaultCategory = 0,
     SiteSettingsWritingTags,
+    SiteSettingsWritingCustomTaxonomies,
     SiteSettingsWritingDefaultPostFormat,
     SiteSettingsWritingRelatedPosts,
     SiteSettingsWritingDateAndTimeFormat,
@@ -52,21 +47,20 @@ NS_ENUM(NSInteger, SiteSettingsAdvanced) {
 
 NS_ENUM(NSInteger, SiteSettingsJetpack) {
     SiteSettingsJetpackSecurity = 0,
-    SiteSettingsJetpackConnection,
-    SiteSettingsJetpackCount,
 };
 
-static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/empty-site";
-
-@interface SiteSettingsViewController () <UITableViewDelegate, UITextFieldDelegate, JetpackConnectionDelegate, PostCategoriesViewControllerDelegate>
+@interface SiteSettingsViewController () <UITableViewDelegate, UITextFieldDelegate, PostCategoriesViewControllerDelegate>
 
 #pragma mark - Account Section
 @property (nonatomic, strong) SettingTableViewCell *usernameTextCell;
 @property (nonatomic, strong) SettingTableViewCell *passwordTextCell;
 #pragma mark - Writing Section
 @property (nonatomic, strong) SwitchTableViewCell  *editorSelectorCell;
+@property (nonatomic, strong) SwitchTableViewCell  *themeStylesSelectorCell;
+@property (nonatomic, strong) SwitchTableViewCell  *thirdPartyBlocksSelectorCell;
 @property (nonatomic, strong) SettingTableViewCell *defaultCategoryCell;
 @property (nonatomic, strong) SettingTableViewCell *tagsCell;
+@property (nonatomic, strong) SettingTableViewCell *customTaxonomiesCell;
 @property (nonatomic, strong) SettingTableViewCell *defaultPostFormatCell;
 @property (nonatomic, strong) SettingTableViewCell *relatedPostsCell;
 @property (nonatomic, strong) SettingTableViewCell *dateAndTimeFormatCell;
@@ -80,7 +74,6 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 @property (nonatomic, strong) SwitchTableViewCell *ampSettingCell;
 #pragma mark - Jetpack Settings Section
 @property (nonatomic, strong) SettingTableViewCell *jetpackSecurityCell;
-@property (nonatomic, strong) SettingTableViewCell *jetpackConnectionCell;
 #pragma mark - Device Section
 @property (nonatomic, strong) SwitchTableViewCell *geotaggingCell;
 #pragma mark - Advanced Section
@@ -94,6 +87,10 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 
 @property (nonatomic, strong) NSArray<NSNumber *> *tableSections;
 @property (nonatomic, strong) NSArray<NSNumber *> *writingSectionRows;
+/// Caches the resolved third-party blocks capability for one reload pass. Resolving it reads the
+/// keychain, and the sections, cells, and footers each ask for it while the table is being built.
+/// Cleared by `reloadSections` so the next pass picks up newly probed capabilities.
+@property (nonatomic, strong) NSNumber *cachedThirdPartyBlocksCapability;
 @end
 
 @implementation SiteSettingsViewController
@@ -101,11 +98,11 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 - (instancetype)initWithBlog:(Blog *)blog
 {
     NSParameterAssert([blog isKindOfClass:[Blog class]]);
-    
+
     self = [super initWithStyle:UITableViewStyleInsetGrouped];
     if (self) {
         _blog = blog;
-        _username = blog.usernameForSite;
+        _username = blog.effectiveUsername;
         _password = blog.password;
         [WPStyleGuide configureAutomaticHeightRowsFor:self.tableView];
     }
@@ -114,14 +111,14 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 
 - (void)viewDidLoad
 {
-    DDLogMethod();
+    WPLogInfo(@"SiteSettingsViewController viewDidLoad");
     [super viewDidLoad];
+
+    self.tableView.cellLayoutMarginsFollowReadableWidth = YES;
     [self.tableView registerClass:[SettingTableViewCell class] forCellReuseIdentifier:SettingsTableViewCellReuseIdentifier];
-    [self.tableView registerNib:MediaQuotaCell.nib forCellReuseIdentifier:MediaQuotaCell.defaultReuseIdentifier];
+    [self.tableView registerClass:MediaQuotaCell.class forCellReuseIdentifier:MediaQuotaCell.defaultReuseIdentifier];
 
     self.navigationItem.title = NSLocalizedString(@"Settings", @"Title for screen that allows configuration of your blog/site settings.");
-    
-    self.extendedLayoutIncludesOpaqueBars = YES;
 
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(handleDataModelChange:)
@@ -129,11 +126,11 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
                                                object:self.blog.managedObjectContext];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(handleAccountChange:)
-                                                 name:WPAccountDefaultWordPressComAccountChangedNotification
+                                                 name:NSNotification.wpAccountDefaultWordPressComAccountChangedNotificationName
                                                object:nil];
 
     [WPStyleGuide configureColorsForView:self.view andTableView:self.tableView];
-    
+
     self.refreshControl = [[UIRefreshControl alloc] init];
     [self.refreshControl addTarget:self action:@selector(refreshTriggered:) forControlEvents:UIControlEventValueChanged];
 
@@ -142,7 +139,6 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     }
 
     [self refreshData];
-    [self observeTimeZoneStore];
 
     self.tableView.accessibilityIdentifier = @"siteSettingsTable";
 }
@@ -151,6 +147,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 {
     [super viewDidAppear:animated];
 
+    self.cachedThirdPartyBlocksCapability = nil; // re-resolve against newly probed capabilities.
     [self.tableView reloadData];
 }
 
@@ -161,7 +158,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     }
 
     NSMutableArray *sections = [NSMutableArray arrayWithObjects:@(SiteSettingsSectionGeneral), nil];
-    
+
     if (self.bloggingSettingsRowCount > 0) {
         [sections addObject:@(SiteSettingsSectionBlogging)];
     }
@@ -174,12 +171,23 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
         [sections addObject:@(SiteSettingsSectionAccount)];
     }
 
-    // Only add the editor section if the site is not a Simple WP.com site
+    // Only show "Use block editor" toggle for non-Simple WP.com sites
     if (![GutenbergSettings isSimpleWPComSite:self.blog]) {
-        [sections addObject:@(SiteSettingsSectionEditor)];
+        [sections addObject:@(SiteSettingsSectionBlockEditor)];
     }
 
-    if ([self.blog supports:BlogFeatureWPComRESTAPI] && self.blog.isAdmin) {
+    // Only show theme styles toggle when GutenbergKit is enabled
+    if ([RemoteFeature enabled:RemoteFeatureFlagNewGutenberg]) {
+        [sections addObject:@(SiteSettingsSectionThemeStyles)];
+
+        // Third-party blocks are gated behind their own remote flag, and the row is hidden
+        // outright for sites that aren't offered the feature.
+        if ([GutenbergSettings isThirdPartyBlocksVisibleForCapability:[self thirdPartyBlocksCapabilityValue]]) {
+            [sections addObject:@(SiteSettingsSectionThirdPartyBlocks)];
+        }
+    }
+
+    if ([self.blog supports:BlogFeatureWpComRESTAPI] && self.blog.isAdmin) {
         [sections addObject:@(SiteSettingsSectionWriting)];
         [sections addObject:@(SiteSettingsSectionDiscussion)];
         if (self.blog.isQuotaAvailable) {
@@ -192,7 +200,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
             [sections addObject:@(SiteSettingsSectionJetpackSettings)];
         }
     }
-    
+
     if ([self.blog supports:BlogFeatureSiteManagement]) {
         [sections addObject:@(SiteSettingsSectionAdvanced)];
     }
@@ -210,17 +218,18 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     NSMutableArray *rows = [NSMutableArray arrayWithObjects:
                             @(SiteSettingsWritingDefaultCategory),
                             @(SiteSettingsWritingTags),
+                            @(SiteSettingsWritingCustomTaxonomies),
                             @(SiteSettingsWritingDefaultPostFormat), nil];
-    
+
     BOOL jetpackFeaturesEnabled = [JetpackFeaturesRemovalCoordinator jetpackFeaturesEnabled];
-    
+
     if (jetpackFeaturesEnabled) {
         [rows addObject:@(SiteSettingsWritingRelatedPosts)];
     }
-    
+
     [rows addObject:@(SiteSettingsWritingDateAndTimeFormat)];
     [rows addObject:@(SiteSettingsPostPerPage)];
-    
+
     if (jetpackFeaturesEnabled && [self.blog supports:BlogFeatureJetpackImageSettings]) {
         [rows addObject:@(SiteSettingsSpeedUpYourSite)];
     }
@@ -254,9 +263,17 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
         {
             return SiteSettingsAccountCount;
         }
-        case SiteSettingsSectionEditor:
+        case SiteSettingsSectionBlockEditor:
         {
-            return SiteSettingsEditorCount;
+            return 1;
+        }
+        case SiteSettingsSectionThemeStyles:
+        {
+            return 1;
+        }
+        case SiteSettingsSectionThirdPartyBlocks:
+        {
+            return 1;
         }
         case SiteSettingsSectionWriting:
         {
@@ -276,9 +293,6 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
         }
         case SiteSettingsSectionJetpackSettings:
         {
-            if ([Feature enabled:FeatureFlagJetpackDisconnect]) {
-                return SiteSettingsJetpackCount;
-            }
             return 1;
         }
         case SiteSettingsSectionAdvanced:
@@ -316,8 +330,8 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 {
     switch (row) {
         case SiteSettingsAccountUsername:
-            if (self.blog.usernameForSite) {
-                [self.usernameTextCell setTextValue:self.blog.usernameForSite];
+            if (self.blog.effectiveUsername) {
+                [self.usernameTextCell setTextValue:self.blog.effectiveUsername];
             } else {
                 [self.usernameTextCell setTextValue:NSLocalizedString(@"Enter username", @"(placeholder) Help enter WordPress username")];
             }
@@ -350,6 +364,42 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     return _editorSelectorCell;
 }
 
+- (SwitchTableViewCell *)themeStylesSelectorCell
+{
+    if (!_themeStylesSelectorCell) {
+        _themeStylesSelectorCell = [SwitchTableViewCell new];
+        _themeStylesSelectorCell.name = NSLocalizedString(@"Use theme styles", @"Option to enable theme styles in the block editor");
+        _themeStylesSelectorCell.flipSwitch.accessibilityIdentifier = @"useThemeStylesSwitch";
+        __weak Blog *blog = self.blog;
+        _themeStylesSelectorCell.onChange = ^(BOOL value){
+            [GutenbergSettings setThemeStylesEnabled:value forBlog:blog];
+        };
+
+        // Default to disabled, only make the control interactive if theme styles are supported
+        _themeStylesSelectorCell.isEnabled = false;
+        [self.themeStylesSelectorCell setOn:false];
+    }
+    return _themeStylesSelectorCell;
+}
+
+- (SwitchTableViewCell *)thirdPartyBlocksSelectorCell
+{
+    if (!_thirdPartyBlocksSelectorCell) {
+        _thirdPartyBlocksSelectorCell = [SwitchTableViewCell new];
+        _thirdPartyBlocksSelectorCell.name = NSLocalizedString(@"Use third-party blocks (beta)", @"Option to load blocks provided by plugins installed on the site");
+        _thirdPartyBlocksSelectorCell.flipSwitch.accessibilityIdentifier = @"useThirdPartyBlocksSwitch";
+        __weak Blog *blog = self.blog;
+        _thirdPartyBlocksSelectorCell.onChange = ^(BOOL value){
+            [GutenbergSettings setThirdPartyBlocksEnabled:value forBlog:blog];
+        };
+
+        // Default to disabled, only make the control interactive if the site supports the feature
+        _thirdPartyBlocksSelectorCell.isEnabled = false;
+        [self.thirdPartyBlocksSelectorCell setOn:false];
+    }
+    return _thirdPartyBlocksSelectorCell;
+}
+
 - (SettingTableViewCell *)defaultCategoryCell
 {
     if (_defaultCategoryCell){
@@ -370,6 +420,17 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
                                                               editable: self.blog.isAdmin
                                                        reuseIdentifier:nil];
     return _tagsCell;
+}
+
+- (SettingTableViewCell *)customTaxonomiesCell
+{
+    if (_customTaxonomiesCell){
+        return _customTaxonomiesCell;
+    }
+    _customTaxonomiesCell = [[SettingTableViewCell alloc] initWithLabel:NSLocalizedString(@"Taxonomies", @"Label for viewing the custom taxonomies")
+                                                               editable:self.blog.isAdmin
+                                                        reuseIdentifier:nil];
+    return _customTaxonomiesCell;
 }
 
 - (SettingTableViewCell *)defaultPostFormatCell
@@ -437,7 +498,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 
     _mediaQuotaCell.title = NSLocalizedString(@"Space used", @"Label for showing the available disk space quota available for media");
     _mediaQuotaCell.selectionStyle = UITableViewCellSelectionStyleNone;
-    
+
     return _mediaQuotaCell;
 }
 
@@ -447,7 +508,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     if (_discussionSettingsCell) {
         return _discussionSettingsCell;
     }
-    
+
     _discussionSettingsCell = [[SettingTableViewCell alloc] initWithLabel:NSLocalizedString(@"Discussion", @"Label for selecting the Blog Discussion Settings section")
                                                                  editable:YES
                                                           reuseIdentifier:nil];
@@ -466,7 +527,9 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     __weak __typeof__(self) weakSelf = self;
     _ampSettingCell.onChange = ^(BOOL value){
         weakSelf.blog.settings.ampEnabled = value;
-        [weakSelf saveSettings];
+        BlogSettingsChanges *changes = [BlogSettingsChanges new];
+        changes.ampEnabled = @(value);
+        [weakSelf saveSettingsWithChanges:changes];
         [WPAnalytics trackSettingsChange:@"site_settings" fieldName:@"amp_enabled" value:@(value)];
     };
 
@@ -484,20 +547,26 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     return _jetpackSecurityCell;
 }
 
-- (SettingTableViewCell *)jetpackConnectionCell
-{
-    if (_jetpackConnectionCell) {
-        return _jetpackConnectionCell;
-    }
-    _jetpackConnectionCell = [[SettingTableViewCell alloc] initWithLabel:NSLocalizedString(@"Manage Connection", @"Label for managing the Blog Jetpack Connection section")
-                                                                editable:YES
-                                                         reuseIdentifier:nil];
-    return _jetpackConnectionCell;
-}
-
 - (void)configureEditorSelectorCell
 {
     [self.editorSelectorCell setOn:self.blog.isGutenbergEnabled];
+}
+
+- (void)configureThemeStylesSelectorCell
+{
+    BOOL isSupported = [GutenbergSettings isThemeStylesSupportedForBlog:self.blog];
+    self.themeStylesSelectorCell.isEnabled = isSupported;
+    [self.themeStylesSelectorCell setOn:isSupported && [GutenbergSettings isThemeStylesEnabledForBlog:self.blog]];
+}
+
+- (void)configureThirdPartyBlocksSelectorCell
+{
+    // Use the property, not the ivar: the cell is created lazily, so on the first pass the ivar
+    // is still nil and assigning to it is silently dropped — leaving the row with the disabled
+    // state its factory applies.
+    BOOL isSupported = [GutenbergSettings isThirdPartyBlocksSupportedForCapability:[self thirdPartyBlocksCapabilityValue]];
+    self.thirdPartyBlocksSelectorCell.isEnabled = isSupported;
+    [self.thirdPartyBlocksSelectorCell setOn:isSupported && [GutenbergSettings isThirdPartyBlocksEnabledForBlog:self.blog]];
 }
 
 - (void)configureDefaultCategoryCell
@@ -518,16 +587,6 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     [self.postsPerPageCell setTextValue:self.blog.settings.postsPerPage.stringValue];
 }
 
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForEditorSettingsAtRow:(NSInteger)row
-{
-    switch (row) {
-        case (SiteSettingsEditorSelector):
-            [self configureEditorSelectorCell];
-            return self.editorSelectorCell;
-    }
-    return nil;
-}
-
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForWritingSettingsAtRow:(NSInteger)row
 {
     NSInteger writingRow = [self.writingSectionRows[row] integerValue];
@@ -535,9 +594,12 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
         case (SiteSettingsWritingDefaultCategory):
             [self configureDefaultCategoryCell];
             return self.defaultCategoryCell;
-            
+
         case (SiteSettingsWritingTags):
             return self.tagsCell;
+
+        case (SiteSettingsWritingCustomTaxonomies):
+            return self.customTaxonomiesCell;
 
         case (SiteSettingsWritingDefaultPostFormat):
             [self configureDefaultPostFormatCell];
@@ -576,9 +638,6 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     switch (row) {
         case (SiteSettingsJetpackSecurity):
             return self.jetpackSecurityCell;
-
-        case (SiteSettingsJetpackConnection):
-            return self.jetpackConnectionCell;
     }
     return nil;
 }
@@ -588,7 +647,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     if (_startOverCell) {
         return _startOverCell;
     }
-    
+
     _startOverCell = [[SettingTableViewCell alloc] initWithLabel:NSLocalizedString(@"Start Over", @"Label for selecting the Start Over Settings item")
                                                         editable:YES
                                                  reuseIdentifier:nil];
@@ -600,7 +659,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     if (_exportContentCell) {
         return _exportContentCell;
     }
-    
+
     _exportContentCell = [[WPTableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     [WPStyleGuide configureTableViewActionCell:_exportContentCell];
     _exportContentCell.textLabel.text = NSLocalizedString(@"Export Content", @"Label for selecting the Export Content Settings item");
@@ -613,7 +672,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     if (_deleteSiteCell) {
         return _deleteSiteCell;
     }
-    
+
     _deleteSiteCell = [[WPTableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     [WPStyleGuide configureTableViewActionCell:_deleteSiteCell];
     _deleteSiteCell.textLabel.text = NSLocalizedString(@"Delete Site", @"Label for selecting the Delete Site Settings item");
@@ -647,15 +706,24 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 
         case SiteSettingsSectionBlogging:
             return [self tableView:tableView cellForBloggingSettingsInRow:indexPath.row];
-            
+
         case SiteSettingsSectionHomepage:
             return self.homepageSettingsCell;
 
         case SiteSettingsSectionAccount:
             return [self tableView:tableView cellForAccountSettingsInRow:indexPath.row];
 
-        case SiteSettingsSectionEditor:
-            return [self tableView:tableView cellForEditorSettingsAtRow:indexPath.row];
+        case SiteSettingsSectionBlockEditor:
+            [self configureEditorSelectorCell];
+            return self.editorSelectorCell;
+
+        case SiteSettingsSectionThemeStyles:
+            [self configureThemeStylesSelectorCell];
+            return self.themeStylesSelectorCell;
+
+        case SiteSettingsSectionThirdPartyBlocks:
+            [self configureThirdPartyBlocksSelectorCell];
+            return self.thirdPartyBlocksSelectorCell;
 
         case SiteSettingsSectionWriting:
             return [self tableView:tableView cellForWritingSettingsAtRow:indexPath.row];
@@ -705,7 +773,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
         case SiteSettingsSectionGeneral:
             headingTitle = NSLocalizedString(@"General", @"Title for the general section in site settings screen");
             break;
-        
+
         case SiteSettingsSectionBlogging:
             headingTitle = NSLocalizedString(@"Blogging", @"Title for the blogging section in site settings screen");
             break;
@@ -718,8 +786,24 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
             headingTitle = NSLocalizedString(@"Account", @"Title for the account section in site settings screen");
             break;
 
-        case SiteSettingsSectionEditor:
-            headingTitle = NSLocalizedString(@"Editor", @"Title for the editor settings section");
+        case SiteSettingsSectionBlockEditor:
+            headingTitle = NSLocalizedString(@"Editor", @"Title for the editor section in site settings screen");
+            break;
+
+        case SiteSettingsSectionThemeStyles:
+            // Only show "Editor" header if this is the first editor section
+            // (i.e., if block editor section is not present)
+            if (![self.tableSections containsObject:@(SiteSettingsSectionBlockEditor)]) {
+                headingTitle = NSLocalizedString(@"Editor", @"Title for the editor section in site settings screen");
+            }
+            break;
+
+        case SiteSettingsSectionThirdPartyBlocks:
+            // Only show "Editor" header if no earlier editor section already carries it
+            if (![self.tableSections containsObject:@(SiteSettingsSectionBlockEditor)]
+                && ![self.tableSections containsObject:@(SiteSettingsSectionThemeStyles)]) {
+                headingTitle = NSLocalizedString(@"Editor", @"Title for the editor section in site settings screen");
+            }
             break;
 
         case SiteSettingsSectionWriting:
@@ -750,8 +834,16 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     NSInteger settingsSection = [self.tableSections[section] integerValue];
     UIView *footerView = nil;
     switch (settingsSection) {
-        case SiteSettingsSectionEditor:
-            footerView = [self getEditorSettingsSectionFooterView];
+        case SiteSettingsSectionBlockEditor:
+            footerView = [self getBlockEditorSectionFooterView];
+            break;
+
+        case SiteSettingsSectionThemeStyles:
+            footerView = [self getThemeStylesSectionFooterView];
+            break;
+
+        case SiteSettingsSectionThirdPartyBlocks:
+            footerView = [self getThirdPartyBlocksSectionFooterView];
             break;
 
         case SiteSettingsSectionTraffic:
@@ -764,16 +856,18 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 - (void)showLanguageSelectorForBlog:(Blog *)blog
 {
     NSParameterAssert(blog);
-    
+
     __weak __typeof__(self) weakSelf = self;
-    
+
     LanguageViewController *languageViewController = [[LanguageViewController alloc] initWithBlog:blog];
     languageViewController.onChange = ^(NSNumber *newLanguageID){
         weakSelf.blog.settings.languageID = newLanguageID;
-        [weakSelf saveSettings];
+        BlogSettingsChanges *changes = [BlogSettingsChanges new];
+        changes.languageID = newLanguageID;
+        [weakSelf saveSettingsWithChanges:changes];
         [WPAnalytics trackSettingsChange:@"site_settings" fieldName:@"language" value:newLanguageID];
     };
-    
+
     [self.navigationController pushViewController:languageViewController animated:YES];
 }
 
@@ -798,7 +892,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 
 - (void)showDefaultCategorySelector
 {
-    NSNumber *defaultCategoryID = self.blog.settings.defaultCategoryID ?: @(PostCategoryUncategorized);
+    NSNumber *defaultCategoryID = self.blog.settings.defaultCategoryID ?: PostCategory.uncategorized;
     PostCategory *postCategory = [PostCategory lookupWithBlogObjectID:self.blog.objectID
                                                            categoryID:defaultCategoryID
                                                             inContext:[[ContextManager sharedInstance] mainContext]];
@@ -811,12 +905,6 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
                                                                                                       selectionMode:CategoriesSelectionModeBlogDefault];
     postCategoriesViewController.delegate = self;
     [self.navigationController pushViewController:postCategoriesViewController animated:YES];
-}
-
-- (void)showTagList
-{
-    SiteTagsViewController *tagsAdmin = [[SiteTagsViewController alloc] initWithBlog:self.blog];
-    [self.navigationController pushViewController:tagsAdmin animated:YES];
 }
 
 - (void)showPostFormatSelector
@@ -849,12 +937,14 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
                 if ([weakSelf savingWritingDefaultsIsAvailable]) {
                     [WPAnalytics trackSettingsChange:@"site_settings" fieldName:@"default_post_format"];
 
-                    [weakSelf saveSettings];
+                    BlogSettingsChanges *changes = [BlogSettingsChanges new];
+                    changes.defaultPostFormat = status;
+                    [weakSelf saveSettingsWithChanges:changes];
                 }
             }
         }
     };
-    
+
     [self.navigationController pushViewController:vc animated:YES];
 }
 
@@ -865,9 +955,13 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
         case SiteSettingsWritingDefaultCategory:
             [self showDefaultCategorySelector];
             break;
-            
+
         case SiteSettingsWritingTags:
             [self showTagList];
+            break;
+
+        case SiteSettingsWritingCustomTaxonomies:
+            [self showCustomTaxonomies];
             break;
 
         case SiteSettingsWritingDefaultPostFormat:
@@ -898,27 +992,6 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
         case SiteSettingsJetpackSecurity:
             [self showJetpackSettingsForBlog:self.blog];
             break;
-
-        case SiteSettingsJetpackConnection:
-            [self showJetpackConnectionForBlog:self.blog];
-            break;
-    }
-}
-
-- (void)showStartOverForBlog:(Blog *)blog
-{
-    NSParameterAssert([blog supportsSiteManagementServices]);
-
-    [WPAppAnalytics track:WPAnalyticsStatSiteSettingsStartOverAccessed withBlog:self.blog];
-    if ([SupportConfigurationObjC isStartOverSupportEnabled] && self.blog.hasPaidPlan) {
-        StartOverViewController *viewController = [[StartOverViewController alloc] initWithBlog:blog];
-        [self.navigationController pushViewController:viewController animated:YES];
-    } else {
-        NSURL *targetURL = [NSURL URLWithString:EmptySiteSupportURL];
-
-        UIViewController *webViewController = [WebViewControllerFactory controllerWithUrl:targetURL source:@"site_settings_start_over"];
-        UINavigationController *navController = [[UINavigationController alloc] initWithRootViewController:webViewController];
-        [self presentViewController:navController animated:YES completion:nil];
     }
 }
 
@@ -946,7 +1019,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
         case SiteSettingsSectionGeneral:
             [self tableView:tableView didSelectInGeneralSettingsAt:indexPath];
             break;
-            
+
         case SiteSettingsSectionBlogging:
             [self tableView:tableView didSelectInBloggingSettingsAt:indexPath];
             break;
@@ -972,7 +1045,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 
         case SiteSettingsSectionAdvanced:
             [self tableView:tableView didSelectInAdvancedSectionRow:indexPath.row];
-            
+
             // UIKit doesn't automatically manage cell selection when a modal presentation is triggered,
             // which is the case for Start Over when there's no paid plan, so we deselect the cell manually.
             if (indexPath.row == SiteSettingsAdvancedStartOver) {
@@ -989,6 +1062,21 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     [self refreshData];
 }
 
+- (NSInteger)thirdPartyBlocksCapabilityValue
+{
+    if (!self.cachedThirdPartyBlocksCapability) {
+        self.cachedThirdPartyBlocksCapability = @([GutenbergSettings thirdPartyBlocksCapabilityForBlog:self.blog]);
+    }
+    return self.cachedThirdPartyBlocksCapability.integerValue;
+}
+
+- (void)reloadSections
+{
+    self.tableSections = nil; // force the tableSections to be repopulated.
+    self.cachedThirdPartyBlocksCapability = nil; // re-resolve against newly probed capabilities.
+    [self.tableView reloadData];
+}
+
 - (void)refreshData
 {
     __weak __typeof__(self) weakSelf = self;
@@ -997,11 +1085,13 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     [service syncSettingsForBlog:self.blog success:^{
         [weakSelf.refreshControl endRefreshing];
         self.tableSections = nil; // force the tableSections to be repopulated.
+        self.cachedThirdPartyBlocksCapability = nil; // re-resolve against newly probed capabilities.
         [weakSelf.tableView reloadData];
     } failure:^(NSError * __unused error) {
         [weakSelf.refreshControl endRefreshing];
     }];
-    
+
+    [self swiftRefreshSettings];
 }
 
 #pragma mark - Authentication methods
@@ -1009,21 +1099,21 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 - (NSString *)getURLToValidate
 {
     NSString *urlToValidate = self.blog.url;
-    
+
     if (![urlToValidate hasPrefix:@"http"]) {
         urlToValidate = [NSString stringWithFormat:@"http://%@", urlToValidate];
     }
-    
+
     NSError *error = nil;
-    
+
     NSRegularExpression *wplogin = [NSRegularExpression regularExpressionWithPattern:@"/wp-login.php$" options:NSRegularExpressionCaseInsensitive error:&error];
     NSRegularExpression *wpadmin = [NSRegularExpression regularExpressionWithPattern:@"/wp-admin/?$" options:NSRegularExpressionCaseInsensitive error:&error];
     NSRegularExpression *trailingslash = [NSRegularExpression regularExpressionWithPattern:@"/?$" options:NSRegularExpressionCaseInsensitive error:&error];
-    
+
     urlToValidate = [wplogin stringByReplacingMatchesInString:urlToValidate options:0 range:NSMakeRange(0, [urlToValidate length]) withTemplate:@""];
     urlToValidate = [wpadmin stringByReplacingMatchesInString:urlToValidate options:0 range:NSMakeRange(0, [urlToValidate length]) withTemplate:@""];
     urlToValidate = [trailingslash stringByReplacingMatchesInString:urlToValidate options:0 range:NSMakeRange(0, [urlToValidate length]) withTemplate:@""];
-    
+
     return urlToValidate;
 }
 
@@ -1032,7 +1122,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     [SVProgressHUD setDefaultMaskType:SVProgressHUDMaskTypeBlack];
     [SVProgressHUD showWithStatus:NSLocalizedString(@"Authenticating", @"")];
 
-    NSURL *xmlRpcURL = [NSURL URLWithString:self.blog.xmlrpc];
+    NSURL *xmlRpcURL = self.blog.xmlrpcURL;
     WordPressOrgXMLRPCApi *api = [[WordPressOrgXMLRPCApi alloc] initWithEndpoint:xmlRpcURL userAgent:[WPUserAgent wordPressUserAgent]];
     __weak __typeof__(self) weakSelf = self;
     [api checkCredentials:self.username password:self.password success:^(id __unused responseObject, NSHTTPURLResponse *__unused httpResponse) {
@@ -1058,7 +1148,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 
 - (void)loginValidationFailedWithError:(NSError *)error
 {
-    self.password = self.blog.password;    
+    self.password = self.blog.password;
     if (error) {
         NSString *message;
         if (error.code == 403) {
@@ -1072,36 +1162,57 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 
 - (NSString *)getTagsCountPresentableString:(NSInteger)tagCount
 {
-    NSString *format = NSLocalizedString(@"%@ Tags", @"The number of tags in the writting settings. Plural. %@ is a placeholder for the number");
-    
+    NSString *format = NSLocalizedString(@"%@ Tags", @"The number of tags in the writing settings. Plural. %@ is a placeholder for the number");
+
     if (tagCount == 1) {
-        format = NSLocalizedString(@"%@ Tag", @"The number of tags in the writting settings. Singular. %@ is a placeholder for the number");
+        format = NSLocalizedString(@"%@ Tag", @"The number of tags in the writing settings. Singular. %@ is a placeholder for the number");
     }
-    
+
     NSString *numberOfTags = [NSString stringWithFormat: format, @(tagCount)];
     return numberOfTags;
 }
 
 #pragma mark - Saving methods
 
-- (void)saveSettings
+- (void)saveSettingsWithChanges:(BlogSettingsChanges *)changes
 {
-    if (!self.blog.settings.hasChanges) {
+    if (changes.isEmpty) {
         return;
     }
-    
+
+    [self showActivityIndicator];
     BlogService *blogService = [[BlogService alloc] initWithCoreDataStack:[ContextManager sharedInstance]];
-    [blogService updateSettingsForBlog:self.blog success:^{
+    [blogService updateSettingsForBlog:self.blog changes:changes success:^{
+        [self hideActivityIndicator];
         [NSNotificationCenter.defaultCenter postNotificationName:WPBlogSettingsUpdatedNotification object:nil];
     } failure:^(NSError *error) {
+        [self hideActivityIndicator];
         [SVProgressHUD showDismissibleErrorWithStatus:NSLocalizedString(@"Settings update failed", @"Message to show when setting save failed")];
-        DDLogError(@"Error while trying to update BlogSettings: %@", error);
+        WPLogError(@"Error while trying to update BlogSettings: %@", error);
     }];
+}
+
+- (void)showActivityIndicator
+{
+    if ([self isModal]) {
+        self.navigationItem.leftBarButtonItem = UIBarButtonItem.activityIndicator;
+    } else {
+        self.navigationItem.rightBarButtonItem = UIBarButtonItem.activityIndicator;
+    }
+}
+
+- (void)hideActivityIndicator
+{
+    if ([self isModal]) {
+        self.navigationItem.leftBarButtonItem = nil;
+    } else {
+        self.navigationItem.rightBarButtonItem = nil;
+    }
 }
 
 - (BOOL)savingWritingDefaultsIsAvailable
 {
-    return [self.blog supports:BlogFeatureWPComRESTAPI] && self.blog.isAdmin;
+    return [self.blog supports:BlogFeatureWpComRESTAPI] && self.blog.isAdmin;
 }
 
 - (IBAction)dismiss
@@ -1114,7 +1225,7 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 - (void)showDiscussionSettingsForBlog:(Blog *)blog
 {
     NSParameterAssert(blog);
-    
+
     DiscussionSettingsViewController *settings = [[DiscussionSettingsViewController alloc] initWithBlog:blog];
     [self.navigationController pushViewController:settings animated:YES];
 }
@@ -1130,25 +1241,6 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
     [self.navigationController pushViewController:settings animated:YES];
 }
 
-- (void)showJetpackConnectionForBlog:(Blog *)blog
-{
-
-    NSParameterAssert(blog);
-
-    JetpackConnectionViewController *jetpackConnectionVC = [[JetpackConnectionViewController alloc] initWithBlog:blog];
-    jetpackConnectionVC.delegate = self;
-    [self.navigationController pushViewController:jetpackConnectionVC animated:YES];
-}
-
-#pragma mark - JetpackConnectionViewControllerDelegate
-
-- (void)jetpackDisconnectedForBlog:(Blog *)blog
-{
-    if (blog == self.blog) {
-        [self.navigationController popToRootViewControllerAnimated:YES];
-    }
-}
-
 #pragma mark - PostCategoriesViewControllerDelegate
 
 - (void)postCategoriesViewController:(PostCategoriesViewController *)controller
@@ -1160,7 +1252,9 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
         [WPAnalytics trackSettingsChange:@"site_settings"
                                fieldName:@"default_category"];
 
-        [self saveSettings];
+        BlogSettingsChanges *changes = [BlogSettingsChanges new];
+        changes.defaultCategoryID = category.categoryID;
+        [self saveSettingsWithChanges:changes];
     }
 }
 
@@ -1180,3 +1274,4 @@ static NSString *const EmptySiteSupportURL = @"https://en.support.wordpress.com/
 }
 
 @end
+

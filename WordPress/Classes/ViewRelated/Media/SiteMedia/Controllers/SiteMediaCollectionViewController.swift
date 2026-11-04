@@ -1,5 +1,7 @@
 import UIKit
 import PhotosUI
+import WordPressData
+import WordPressUI
 
 protocol SiteMediaCollectionViewControllerDelegate: AnyObject {
     func siteMediaViewController(_ viewController: SiteMediaCollectionViewController, didUpdateSelection selection: [Media])
@@ -52,6 +54,7 @@ final class SiteMediaCollectionViewController: UIViewController, NSFetchedResult
 
     static let spacing: CGFloat = 2
     static let spacingAspectRatio: CGFloat = 8
+    private static let cellReuseID = "SiteMediaCollectionCell"
 
     var selectedMedia: [Media] {
         guard let selection = selection.array as? [Media] else {
@@ -72,6 +75,14 @@ final class SiteMediaCollectionViewController: UIViewController, NSFetchedResult
         fatalError("init(coder:) has not been implemented")
     }
 
+    private func setInitialSelection(_ media: [Media]) {
+        updateSelection {
+            for item in media {
+                selection.add(item)
+            }
+        }
+    }
+
     func embed(in parentViewController: UIViewController) {
         parentViewController.addChild(self)
         parentViewController.view.addSubview(view)
@@ -80,6 +91,10 @@ final class SiteMediaCollectionViewController: UIViewController, NSFetchedResult
         didMove(toParent: parentViewController)
 
         parentViewController.navigationItem.searchController = searchController
+
+        if #available(iOS 26, *) {
+            parentViewController.navigationItem.preferredSearchBarPlacement = .integrated
+        }
     }
 
     override func viewDidLoad() {
@@ -106,7 +121,7 @@ final class SiteMediaCollectionViewController: UIViewController, NSFetchedResult
     }
 
     private func configureCollectionView() {
-        collectionView.register(cell: SiteMediaCollectionCell.self)
+        collectionView.register(SiteMediaCollectionCell.self, forCellWithReuseIdentifier: Self.cellReuseID)
 
         view.addSubview(collectionView)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -158,14 +173,19 @@ final class SiteMediaCollectionViewController: UIViewController, NSFetchedResult
     func setEditing(
         _ isEditing: Bool,
         allowsMultipleSelection: Bool = true,
-        isSelectionOrdered: Bool = false
+        isSelectionOrdered: Bool = false,
+        initialSelection: [Media]? = nil
     ) {
         guard self.isEditing != isEditing else { return }
         self.isEditing = isEditing
         self.allowsMultipleSelection = allowsMultipleSelection
         self.isSelectionOrdered = isSelectionOrdered
 
-        deselectAll()
+        if let selectedMedia = initialSelection, allowsMultipleSelection {
+            setInitialSelection(selectedMedia)
+        } else {
+            deselectAll()
+        }
     }
 
     private func updateSelection(_ perform: () -> Void) {
@@ -344,7 +364,7 @@ final class SiteMediaCollectionViewController: UIViewController, NSFetchedResult
     private func makePredicate(searchTerm: String) -> NSPredicate {
         var predicates = [NSPredicate(format: "blog == %@", blog)]
         if let filter {
-            let mediaTypes = filter.map(Media.string(from:))
+            let mediaTypes = filter.map(\.stringValue)
             predicates.append(NSPredicate(format: "mediaTypeString IN %@", mediaTypes))
         }
         if !isShowingPendingUploads {
@@ -438,7 +458,7 @@ final class SiteMediaCollectionViewController: UIViewController, NSFetchedResult
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeue(cell: SiteMediaCollectionCell.self, for: indexPath)!
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: Self.cellReuseID, for: indexPath) as! SiteMediaCollectionCell
         let media = fetchController.object(at: indexPath)
         let viewModel = getViewModel(for: media)
         cell.configure(viewModel: viewModel)
@@ -457,7 +477,7 @@ final class SiteMediaCollectionViewController: UIViewController, NSFetchedResult
             case .failed, .pushing, .processing:
                 showRetryOptions(for: media)
             case .sync:
-                WPAppAnalytics.track(.mediaLibraryPreviewedItem, with: blog)
+                WPAppAnalytics.track(.mediaLibraryPreviewedItem, blog: blog)
 
                 let viewController = SiteMediaPageViewController(media: media, delegate: self)
                 self.navigationController?.pushViewController(viewController, animated: true)
@@ -482,18 +502,7 @@ final class SiteMediaCollectionViewController: UIViewController, NSFetchedResult
     }
 
     private func makePreviewViewController(for media: Media) -> UIViewController? {
-        let viewModel = getViewModel(for: media)
-        guard let image = viewModel.getCachedThubmnail() else {
-            return nil
-        }
-        let imageView = UIImageView(image: image)
-        imageView.accessibilityIgnoresInvertColors = true
-
-        let viewController = UIViewController()
-        viewController.view.addSubview(imageView)
-        viewController.view.pinSubviewToAllEdges(imageView)
-        viewController.preferredContentSize = image.size
-        return viewController
+        SiteMediaPreviewViewController(media: media)
     }
 
     // MARK: - UICollectionViewDataSourcePrefetching
@@ -542,7 +551,7 @@ final class SiteMediaCollectionViewController: UIViewController, NSFetchedResult
     // MARK: - Menus
 
     private func showRetryOptions(for media: Media) {
-        let style: UIAlertController.Style = UIDevice.isPad() ? .alert : .actionSheet
+        let style: UIAlertController.Style = traitCollection.userInterfaceIdiom == .pad ? .alert : .actionSheet
         let alertController = UIAlertController(title: nil, message: nil, preferredStyle: style)
         alertController.addDestructiveActionWithTitle(Strings.retryMenuDelete) { _ in
             self.coordinator.delete(media: [media])

@@ -1,5 +1,8 @@
 import Foundation
 import WordPressFlux
+import WordPressKit
+import WordPressShared
+import WordPressSharedUI
 
 /// StatsRevampStore is created to support use cases in Stats that can combine
 /// different periods and endpoints.
@@ -103,11 +106,11 @@ extension StatsRevampStore {
 
 private extension StatsRevampStore {
     func aggregateStatus(for statuses: [StoreFetchingStatus], data: Any?) -> StoreFetchingStatus {
-        if statuses.first(where: { $0 == .loading }) != nil {
+        if statuses.contains(where: { $0 == .loading }) {
             return .loading
-        } else if statuses.first(where: { $0 == .success }) != nil || data != nil {
+        } else if statuses.contains(where: { $0 == .success }) || data != nil {
             return .success
-        } else if statuses.first(where: { $0 == .error }) != nil {
+        } else if statuses.contains(where: { $0 == .error }) {
             return .error
         } else {
             return .idle
@@ -184,10 +187,10 @@ private extension StatsRevampStore {
             return
         }
         func getValue<T: StatsTimeIntervalData>(_ record: StatsPediodCache.Record, period: StatsPeriodUnit) -> T? {
-            cache.getValue(record: record, date: date, period: period, siteID: siteID)
+            cache.getValue(record: record, date: date, period: period, unit: period, siteID: siteID)
         }
         transaction { state in
-            state.summary = getValue(.summary, period: .day)
+            state.summary = getValue(.timeIntervalsSummary, period: .day)
             state.topReferrers = getValue(.topReferrers, period: .week)
             state.topCountries = getValue(.topCountries, period: .week)
             DDLogInfo("Stats Revamp Store: Finished setting data to Period store from cache")
@@ -250,10 +253,10 @@ private extension StatsRevampStore {
             return
         }
         func getValue<T: StatsTimeIntervalData>(_ record: StatsPediodCache.Record, period: StatsPeriodUnit) -> T? {
-            cache.getValue(record: record, date: date, period: period, siteID: siteID)
+            cache.getValue(record: record, date: date, period: period, unit: period, siteID: siteID)
         }
         transaction { state in
-            state.summary = getValue(.summary, period: .day)
+            state.summary = getValue(.timeIntervalsSummary, period: .day)
             state.topPostsAndPages = getValue(.topPostsAndPages, period: .week)
             DDLogInfo("Stats Revamp Store: Finished setting data to Period store from cache.")
         }
@@ -366,7 +369,7 @@ private extension StatsRevampStore {
             }
         }
 
-        persistData(state.summary, record: .summary)
+        persistData(state.summary, record: .timeIntervalsSummary)
     }
 }
 

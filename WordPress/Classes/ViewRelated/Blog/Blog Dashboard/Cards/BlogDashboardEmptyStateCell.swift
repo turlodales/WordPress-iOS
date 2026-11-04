@@ -1,4 +1,6 @@
 import UIKit
+import WordPressData
+import WordPressShared
 
 final class BlogDashboardEmptyStateCell: DashboardCollectionViewCell {
     // MARK: - Initializers

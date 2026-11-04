@@ -1,4 +1,6 @@
 import UIKit
+import WordPressData
+import WordPressShared
 
 struct SiteMediaDocumentInfoViewModel {
     let image: UIImage
@@ -6,8 +8,8 @@ struct SiteMediaDocumentInfoViewModel {
 }
 
 final class SiteMediaDocumentInfoView: UIView {
-    let iconView = UIImageView()
-    let titleLabel = UILabel()
+    private let iconView = UIImageView()
+    private let titleLabel = UILabel()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -30,6 +32,11 @@ final class SiteMediaDocumentInfoView: UIView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func configureLargeStyle() {
+        titleLabel.font = WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular)
+        titleLabel.numberOfLines = 3
     }
 
     func configure(_ viewModel: SiteMediaDocumentInfoViewModel) {

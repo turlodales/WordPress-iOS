@@ -1,4 +1,6 @@
 import Foundation
+import WordPressShared
+import WordPressData
 
 protocol DashboardPostsSyncManagerListener: AnyObject {
     func postsSynced(success: Bool,
@@ -63,7 +65,7 @@ class DashboardPostsSyncManager {
             syncAuthors(blog: blog, success: { [weak self] in
                 postType.stopSyncingStatuses(toBeSynced, for: blog)
                 self?.syncPosts(blog: blog, postType: postType, statuses: toBeSynced)
-            }, failure: { [weak self] error in
+            }, failure: { [weak self] _ in
                 postType.stopSyncingStatuses(toBeSynced, for: blog)
                 self?.notifyListenersOfPostsSync(success: false, blog: blog, postType: postType, for: toBeSynced)
             })

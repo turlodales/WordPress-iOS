@@ -1,5 +1,8 @@
 import UIKit
 import SwiftUI
+import WordPressData
+import WordPressShared
+import WordPressUI
 
 final class BlogDashboardPersonalizeCardCell: DashboardCollectionViewCell {
     private var blog: Blog?
@@ -29,38 +32,41 @@ final class BlogDashboardPersonalizeCardCell: DashboardCollectionViewCell {
         let imageView = UIImageView(image: UIImage(named: "personalize")?.withRenderingMode(.alwaysTemplate))
         imageView.tintColor = .label
 
-        let spacer = UIView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 8).isActive = true
-
-        let contents = UIStackView(arrangedSubviews: [titleLabel, spacer, imageView])
-        contents.alignment = .center
+        let contents = UIStackView(alignment: .center, spacing: 8, [titleLabel, imageView])
         contents.isUserInteractionEnabled = false
 
         personalizeButton.accessibilityLabel = Strings.buttonTitle
-        personalizeButton.setBackgroundImage(.renderBackgroundImage(fill: .tertiarySystemFill), for: .normal)
+        refreshButtonBackgroundImage()
         personalizeButton.addTarget(self, action: #selector(buttonTapped), for: .touchUpInside)
 
         let container = UIView()
-        container.layer.cornerRadius = 10
+        container.layer.cornerRadius = DesignConstants.radius(.large)
         container.addSubview(personalizeButton)
         container.addSubview(contents)
-
-        personalizeButton.translatesAutoresizingMaskIntoConstraints = false
-        container.pinSubviewToAllEdges(personalizeButton)
-
-        contents.translatesAutoresizingMaskIntoConstraints = false
-        container.pinSubviewToAllEdges(contents, insets: .init(allEdges: 16))
+        personalizeButton.pinEdges()
+        contents.pinEdges(insets: UIEdgeInsets(.all, 16))
 
         contentView.addSubview(container)
-        container.translatesAutoresizingMaskIntoConstraints = false
-        contentView.pinSubviewToAllEdges(container)
+        container.pinEdges(.horizontal, relation: .lessThanOrEqual)
+        container.pinEdges(.vertical)
+        container.pinCenter()
+
+        registerForTraitChanges(
+            UITraitCollection.systemTraitsAffectingColorAppearance + [UITraitDisplayScale.self]
+        ) { (self: Self, _: UITraitCollection) in
+            self.refreshButtonBackgroundImage()
+        }
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        personalizeButton.setBackgroundImage(.renderBackgroundImage(fill: .tertiarySystemFill), for: .normal)
+    private func refreshButtonBackgroundImage() {
+        personalizeButton.setBackgroundImage(
+            .renderBackgroundImage(
+                fill: .tertiarySystemFill,
+                cornerRadius: DesignConstants.radius(.large),
+                traitCollection: traitCollection
+            ),
+            for: .normal
+        )
     }
 
     // MARK: - BlogDashboardCardConfigurable
@@ -73,22 +79,20 @@ final class BlogDashboardPersonalizeCardCell: DashboardCollectionViewCell {
     // MARK: - Actions
 
     @objc private func buttonTapped() {
-        guard let blog = blog, let siteID = blog.dotComID?.intValue else {
+        guard let blog, let siteID = blog.dotComID?.intValue else {
             return DDLogError("Failed to show dashboard personalization screen: siteID is missing")
         }
         WPAnalytics.track(.dashboardCardItemTapped, properties: ["type": DashboardCard.personalize.rawValue], blog: blog)
         let viewController = UIHostingController(rootView: NavigationView {
             BlogDashboardPersonalizationView(viewModel: .init(blog: blog, service: .init(siteID: siteID)))
         }.navigationViewStyle(.stack)) // .stack is required for iPad
-        if UIDevice.isPad() {
-            viewController.modalPresentationStyle = .formSheet
-        }
+        viewController.modalPresentationStyle = .formSheet
         presentingViewController?.present(viewController, animated: true)
     }
 }
 
 private extension BlogDashboardPersonalizeCardCell {
     struct Strings {
-        static let buttonTitle = NSLocalizedString("dasboard.personalizeHomeButtonTitle", value: "Personalize your home tab", comment: "Personialize home tab button title")
+        static let buttonTitle = NSLocalizedString("dasboard.personalizeHomeButton", value: "Personalize your home screen", comment: "Personialize home screen button title")
     }
 }

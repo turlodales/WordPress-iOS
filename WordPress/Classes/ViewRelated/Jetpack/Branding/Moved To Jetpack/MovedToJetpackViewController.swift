@@ -1,7 +1,8 @@
 import UIKit
 import Lottie
+import WordPressUI
 
-final class MovedToJetpackViewController: UIViewController {
+public final class MovedToJetpackViewController: UIViewController {
 
     // MARK: - Subviews
 
@@ -66,8 +67,8 @@ final class MovedToJetpackViewController: UIViewController {
         return view
     }()
 
-    private lazy var animationView: AnimationView = {
-        let animationView = AnimationView()
+    private lazy var animationView: LottieAnimationView = {
+        let animationView = LottieAnimationView()
         animationView.translatesAutoresizingMaskIntoConstraints = false
         animationView.animation = animation
         return animationView
@@ -81,7 +82,7 @@ final class MovedToJetpackViewController: UIViewController {
         label.adjustsFontForContentSizeCategory = true
         label.adjustsFontSizeToFitWidth = true
         label.numberOfLines = 0
-        label.textColor = .text
+        label.textColor = .label
         return label
     }()
 
@@ -93,7 +94,7 @@ final class MovedToJetpackViewController: UIViewController {
         label.adjustsFontForContentSizeCategory = true
         label.adjustsFontSizeToFitWidth = true
         label.numberOfLines = 0
-        label.textColor = .text
+        label.textColor = .label
         return label
     }()
 
@@ -105,7 +106,7 @@ final class MovedToJetpackViewController: UIViewController {
         label.adjustsFontForContentSizeCategory = true
         label.adjustsFontSizeToFitWidth = true
         label.numberOfLines = 0
-        label.textColor = .textSubtle
+        label.textColor = .secondaryLabel
         return label
     }()
 
@@ -114,8 +115,8 @@ final class MovedToJetpackViewController: UIViewController {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setTitle(viewModel.jetpackButtonTitle, for: .normal)
         button.isPrimary = true
-        button.primaryNormalBackgroundColor = .jetpackGreen
-        button.primaryHighlightBackgroundColor = .muriel(color: .jetpackGreen, .shade80)
+        button.primaryNormalBackgroundColor = UIAppColor.jetpackGreen
+        button.primaryHighlightBackgroundColor = UIAppColor.jetpackGreen(.shade80)
         button.addTarget(self, action: #selector(jetpackButtonTapped), for: .touchUpInside)
         return button
     }()
@@ -124,7 +125,7 @@ final class MovedToJetpackViewController: UIViewController {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setAttributedTitle(learnMoreAttributedString(), for: .normal)
-        button.tintColor = .jetpackGreen
+        button.tintColor = UIAppColor.jetpackGreen
         button.titleLabel?.font = WPStyleGuide.fontForTextStyle(.headline, fontWeight: .regular)
         button.addTarget(self, action: #selector(learnMoreButtonTapped), for: .touchUpInside)
         return button
@@ -137,61 +138,61 @@ final class MovedToJetpackViewController: UIViewController {
     private let tracker: MovedToJetpackEventsTracker
 
     /// Sets the animation based on the language orientation
-    private var animation: Animation? {
+    private var animation: LottieAnimation? {
         traitCollection.layoutDirection == .leftToRight ?
-        Animation.named(viewModel.animationLtr) :
-        Animation.named(viewModel.animationRtl)
+        LottieAnimation.named(viewModel.animationLtr) :
+        LottieAnimation.named(viewModel.animationRtl)
     }
 
     // MARK: - Initializers
 
-    @objc init(source: MovedToJetpackSource) {
+    @objc public init(source: MovedToJetpackSource) {
         self.source = source
         self.viewModel = MovedToJetpackViewModel(source: source)
         self.tracker = MovedToJetpackEventsTracker(source: source)
         super.init(nibName: nil, bundle: nil)
     }
 
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         // This VC is designed to be initialized programmatically.
         fatalError("init(coder:) has not been implemented")
     }
 
     // MARK: - Lifecycle
 
-    override func viewDidLoad() {
+    public override func viewDidLoad() {
         super.viewDidLoad()
         navigationController?.delegate = self
         setupView()
         animationView.play()
     }
 
-    override func viewDidAppear(_ animated: Bool) {
+    public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         tracker.trackScreenDisplayed()
     }
 
-    override func viewDidDisappear(_ animated: Bool) {
+    public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         animationView.currentProgress = 1.0
     }
 
     // MARK: - Navigation overrides
 
-    override public var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+    public override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         return .portrait
     }
 
     // MARK: - View setup
 
     private func setupView() {
-        view.backgroundColor = .basicBackground
+        view.backgroundColor = .systemBackground
         view.addSubview(scrollView)
-        view.pinSubviewToAllEdges(scrollView)
+        view.pinSubviewToSafeArea(scrollView)
 
         NSLayoutConstraint.activate([
             containerView.widthAnchor.constraint(equalTo: view.widthAnchor),
-            containerView.heightAnchor.constraint(greaterThanOrEqualTo: view.heightAnchor, constant: 0),
+            containerView.heightAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.heightAnchor, constant: 0),
             jetpackButton.heightAnchor.constraint(equalToConstant: Metrics.buttonHeight),
             jetpackButton.leadingAnchor.constraint(equalTo: stackView.leadingAnchor),
             jetpackButton.centerXAnchor.constraint(equalTo: stackView.centerXAnchor),
@@ -201,7 +202,9 @@ final class MovedToJetpackViewController: UIViewController {
     }
 
     private func learnMoreAttributedString() -> NSAttributedString {
-        let externalAttachment = NSTextAttachment(image: UIImage.gridicon(.external, size: Metrics.externalIconSize).withTintColor(.jetpackGreen))
+        let image = UIImage.gridicon(.external, size: Metrics.externalIconSize)
+            .withTintColor(UIAppColor.jetpackGreen)
+        let externalAttachment = NSTextAttachment(image: image)
         externalAttachment.bounds = Metrics.externalIconBounds
         let attachmentString = NSAttributedString(attachment: externalAttachment)
         let learnMoreText = NSMutableAttributedString(string: "\(viewModel.learnMoreButtonTitle) \u{FEFF}")
@@ -236,11 +239,11 @@ final class MovedToJetpackViewController: UIViewController {
 
 extension MovedToJetpackViewController: UINavigationControllerDelegate {
 
-    func navigationControllerSupportedInterfaceOrientations(_ navigationController: UINavigationController) -> UIInterfaceOrientationMask {
+    public func navigationControllerSupportedInterfaceOrientations(_ navigationController: UINavigationController) -> UIInterfaceOrientationMask {
         return supportedInterfaceOrientations
     }
 
-    func navigationControllerPreferredInterfaceOrientationForPresentation(_ navigationController: UINavigationController) -> UIInterfaceOrientation {
+    public func navigationControllerPreferredInterfaceOrientationForPresentation(_ navigationController: UINavigationController) -> UIInterfaceOrientation {
         return .portrait
     }
 }

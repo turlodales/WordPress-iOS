@@ -4,7 +4,7 @@ final class ReferrerDetailsTableViewController: UITableViewController {
     private var data: StatsTotalRowData
     private lazy var tableHandler = ImmuTableViewHandler(takeOver: self)
     private lazy var viewModel = ReferrerDetailsViewModel(data: data, delegate: self, referrersDelegate: self)
-    private let periodStore = StoreContainer.shared.statsPeriod
+    private let periodStore = StatsPeriodStore()
 
     init(data: StatsTotalRowData) {
         self.data = data
@@ -58,7 +58,7 @@ extension ReferrerDetailsTableViewController: ReferrerDetailsViewModelDelegate {
 
     func toggleSpamState(for referrerDomain: String, currentValue: Bool) {
         setLoadingState(true)
-        periodStore.toggleSpamState(for: referrerDomain, currentValue: currentValue)
+        periodStore.actionDispatcher.dispatch(PeriodAction.toggleSpam(referrerDomain: referrerDomain, currentValue: currentValue))
     }
 }
 
@@ -96,7 +96,6 @@ extension ReferrerDetailsTableViewController: SiteStatsReferrerDelegate {
 // MARK: - Private Methods
 private extension ReferrerDetailsTableViewController {
     func setupViews() {
-        tableView.backgroundColor = WPStyleGuide.Stats.tableBackgroundColor
         tableView.tableFooterView = UIView()
         title = viewModel.title
         ImmuTable.registerRows(rows, tableView: tableView)

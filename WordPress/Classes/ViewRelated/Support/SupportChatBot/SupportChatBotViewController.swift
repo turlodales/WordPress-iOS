@@ -1,4 +1,4 @@
-import WebKit
+@preconcurrency import WebKit
 import WordPressFlux
 import SVProgressHUD
 import WordPressShared
@@ -71,7 +71,7 @@ final class SupportChatBotViewController: UIViewController {
     }
 
     /// Creating DocsBotAI JavaScript code so we could tweak configuration from within Swift code
-    /// https://docsbot.ai/docs/embeddable-chat-widget
+    /// https://docsbot.ai/documentation/developer/embeddable-chat-widget
     private func createDocsBotInitCode() -> String {
         """
         (function() {
@@ -90,7 +90,7 @@ final class SupportChatBotViewController: UIViewController {
                 options: {
                     color: "#9dd977",
                     supportLink: "#",
-                    questions: \(encodedQuestions()),
+                    questions: [],
                     labels: {
                         inputPlaceholder: "\(Strings.inputPlaceholder)",
                         firstMessage: "\(Strings.firstMessage)",
@@ -123,7 +123,7 @@ private extension SupportChatBotViewController {
     func setupNavigationBar() {
         if isModal() {
             navigationItem.leftBarButtonItem = UIBarButtonItem(title: Strings.closeButton,
-                                                               style: WPStyleGuide.barButtonStyleForBordered(),
+                                                               style: .plain,
                                                                target: self,
                                                                action: #selector(closeTapped))
         }
@@ -136,8 +136,8 @@ private extension SupportChatBotViewController {
 
 extension SupportChatBotViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        webView.evaluateJavaScript(createDocsBotInitCode(), completionHandler: { (result, error) in
-            if let error = error {
+        webView.evaluateJavaScript(createDocsBotInitCode(), completionHandler: { _, error in
+            if let error {
                 DDLogError("Failed to initialize docs bot code: \(error)")
             }
         })
@@ -157,7 +157,6 @@ extension SupportChatBotViewController: WKNavigationDelegate {
             decisionHandler(.allow)
         }
     }
-
 }
 
 // MARK: - Support Callback
@@ -212,7 +211,6 @@ extension SupportChatBotViewController {
         static let thinking = NSLocalizedString("support.chatBot.botThinkingIndicator",
                                                 value: "Thinking...",
                                                 comment: "Indicator that the chat bot is processing user's input.")
-
     }
 
     private enum Constants {

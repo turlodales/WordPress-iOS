@@ -1,4 +1,5 @@
-import Foundation
+import UIKit
+import WordPressKit
 
 /// Site Creation: Allows selection of the home page which translates to the initial theme as well.
 final class SiteDesignStep: WizardStep {
@@ -8,7 +9,7 @@ final class SiteDesignStep: WizardStep {
     private let isLastStep: Bool
 
     private(set) lazy var content: UIViewController = {
-        return SiteDesignContentCollectionViewController(creator: creator, createsSite: isLastStep) { [weak self] (design) in
+        return SiteDesignContentCollectionViewController(creator: creator, createsSite: isLastStep) { [weak self] design in
             self?.didSelect(design)
         }
     }()

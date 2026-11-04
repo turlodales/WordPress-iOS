@@ -1,4 +1,8 @@
+import UIKit
+import BuildSettingsKit
 import WordPressFlux
+import WordPressKit
+import WordPressShared
 
 class WhatIsNewScenePresenter: ScenePresenter {
 
@@ -9,6 +13,8 @@ class WhatIsNewScenePresenter: ScenePresenter {
     private var startPresenting: (() -> Void)?
 
     private let store: AnnouncementsStore
+
+    static var title: String { WhatIsNewStrings.title }
 
     private func shouldPresentWhatIsNew(on viewController: UIViewController) -> Bool {
         if UIDevice.isPad() && versionsDisabledForIpad.contains(self.store.appVersionName) {
@@ -32,7 +38,7 @@ class WhatIsNewScenePresenter: ScenePresenter {
     init(store: AnnouncementsStore) {
         self.store = store
         subscription = store.onChange { [weak self] in
-            guard let self = self, !self.store.announcements.isEmpty else {
+            guard let self, !self.store.announcements.isEmpty else {
                 return
             }
             self.startPresenting?()
@@ -46,8 +52,8 @@ class WhatIsNewScenePresenter: ScenePresenter {
         }
 
         startPresenting = { [weak viewController, weak self] in
-            guard let self = self,
-                let viewController = viewController,
+            guard let self,
+                let viewController,
                 viewController.isViewOnScreen(),
                 self.shouldPresentWhatIsNew(on: viewController) else {
                     return
@@ -119,7 +125,6 @@ private extension WhatIsNewScenePresenter {
         return FeatureAnnouncementsDataSource(features: features, detailsUrl: detailsUrl, announcementCellType: AnnouncementCell.self)
     }
 
-
     /// Creates a WhatIsNewView using custom layout for dashboard announcement
     /// Treats feature titles and subtitles of value "." as empty strings.
     private func makeCustomWhatIsNewView() -> WhatIsNewView {
@@ -139,11 +144,21 @@ private extension WhatIsNewScenePresenter {
     }
 
     private func shouldUseDashboardCustomView() -> Bool {
-        return self.store.appVersionName == "23.3"
+        return true
     }
 
     enum WhatIsNewStrings {
-        static let title = AppConstants.Settings.whatIsNewTitle
+        static var title: String {
+            switch BuildSettings.current.brand {
+            case .wordpress:
+                NSLocalizedString("What's New in WordPress", comment: "Opens the What's New / Feature Announcement modal")
+            case .jetpack:
+                NSLocalizedString("What's New in Jetpack", comment: "Opens the What's New / Feature Announcement modal")
+            case .reader:
+                NSLocalizedString("What's New in Reader", comment: "Opens the What's New / Feature Announcement modal")
+            }
+        }
+
         static let versionPrefix = NSLocalizedString("Version ", comment: "Description for the version label in the What's new page.")
         static let continueButtonTitle = NSLocalizedString("Continue", comment: "Title for the continue button in the What's New page.")
         static let gotItButtonTitle = NSLocalizedString("Got it", comment: "Title for the continue button in the dashboard's custom What's New page.")
@@ -153,7 +168,6 @@ private extension WhatIsNewScenePresenter {
         static let disclaimerTitle = NSLocalizedString("NEW!", comment: "Title for disclaimer in the dashboard's custom What's New page.")
     }
 }
-
 
 private extension UserDefaults {
 }

@@ -1,36 +1,36 @@
 import Foundation
+import WordPressData
+import WordPressShared
 
-// WPiOS-only events
-@objc enum WPAnalyticsEvent: Int {
+@objc public enum WPAnalyticsEvent: Int {
+    case screenShown
 
     case createSheetShown
     case createSheetActionTapped
-    case createAnnouncementModalShown
 
     // Media Editor
     case mediaEditorShown
     case mediaEditorUsed
     case editorCreatedPage
 
-    // Tenor
-    case tenorAccessed
-    case tenorSearched
-    case tenorUploaded
-    case mediaLibraryAddedPhotoViaTenor
-    case editorAddedPhotoViaTenor
-
     // Media
     case siteMediaShareTapped
+    case mediaStorageDetailsViewed
+    case mediaStorageDetailsActionTapped
+    case mediaStorageDetailsPurchaseCompleted
+    case mediaImportItemUnavailable
 
     // Settings and Prepublishing Nudges
     case editorPostPublishTap
     case editorPostPublishDismissed
     case editorPostScheduledChanged
+    case editorPostPendingReviewChanged
     case editorPostTitleChanged
     case editorPostVisibilityChanged
     case editorPostTagsChanged
     case editorPostAuthorChanged
     case editorPostPublishNowTapped
+    case editorPostSaveDraftTapped
     case editorPostCategoryChanged
     case editorPostStatusChanged
     case editorPostFormatChanged
@@ -40,6 +40,14 @@ import Foundation
     case editorPostSlugChanged
     case editorPostExcerptChanged
     case editorPostSiteChanged
+    case editorPostParentPageChanged
+    case editorPostCustomTaxonomyChanged
+    case editorPostNewsletterEmailToggled
+
+    // Resolve post version conflict
+    case resolveConflictScreenShown
+    case resolveConflictSaveTapped
+    case resolveConflictCancelTapped
 
     // App Settings
     case appSettingsAppearanceChanged
@@ -52,6 +60,8 @@ import Foundation
     case gutenbergEditorHelpShown
     case gutenbergEditorBlockInserted
     case gutenbergEditorBlockMoved
+    case gutenbergKitEditorCriticalError
+    case gutenbergKitEditorLoadFailed
 
     // Notifications Permissions
     case pushNotificationsPrimerSeen
@@ -64,6 +74,7 @@ import Foundation
     // Reader
     case selectInterestsShown
     case selectInterestsPicked
+    case selectInterestsSkipped
     case readerDiscoverShown
     case readerFollowingShown
     case readerSavedListShown
@@ -75,6 +86,7 @@ import Foundation
     case readerPostCardTapped
     case readerPullToRefresh
     case readerDiscoverTopicTapped
+    case readerAnnouncementDismissed
     case postCardMoreTapped
     case followedBlogNotificationsReaderMenuOff
     case followedBlogNotificationsReaderMenuOn
@@ -89,6 +101,7 @@ import Foundation
     case readerPostReported
     case readerPostAuthorReported
     case readerArticleDetailMoreTapped
+    case readerArticleLeaveCommentTapped
     case readerSharedItem
     case readerSuggestedSiteVisited
     case readerSuggestedSiteToggleFollow
@@ -102,6 +115,15 @@ import Foundation
     case readerArticleImageTapped
     case readerFollowConversationTooltipTapped
     case readerFollowConversationAnchorTapped
+    case readerArticleTextHighlighted
+    case readerArticleTextCopied
+    case readerCommentTextHighlighted
+    case readerCommentTextCopied
+    case readerPostContextMenuButtonTapped
+    case readerAddSiteToFavoritesTapped
+    case readerSavedPostsSettingsShown
+    case readerSavedPostsExported
+    case readerSavedPostsImported
 
     // Stats - Empty Stats nudges
     case statsPublicizeNudgeShown
@@ -134,13 +156,6 @@ import Foundation
     // What's New - Feature announcements
     case featureAnnouncementShown
     case featureAnnouncementButtonTapped
-
-    // Stories
-    case storyIntroShown
-    case storyIntroDismissed
-    case storyIntroCreateStoryButtonTapped
-    case storyAddedMedia
-    case storyBlockAddMediaTapped
 
     // Jetpack
     case jetpackSettingsViewed
@@ -258,6 +273,9 @@ import Foundation
     case purchaseDomainCompleted
     case myDomainsSearchDomainTapped
 
+    // Sidebar
+    case sidebarAllSitesTapped
+
     // My Site
     case mySitePullToRefresh
 
@@ -280,28 +298,42 @@ import Foundation
     case siteSwitcherAddSiteTapped
     case siteSwitcherSearchPerformed
     case siteSwitcherToggleBlogVisible
+    case siteSwitcherSiteTapped
+
+    // Site List
+    case siteListViewTapped
+    case siteListShareTapped
+    case siteListCopyLinktapped
 
     // Post List
+    case cptPostListOpened
+    case cptPostListLoadFinished
+    case postListItemSelected
     case postListShareAction
+    case postListBlazeAction
     case postListCommentsAction
     case postListSetAsPostsPageAction
     case postListSetHomePageAction
     case postListSetAsRegularPageAction
     case postListSettingsAction
+    case postListDeleteAction
+    case postListRetryAction
 
     // Page List
     case pageListEditHomepageTapped
     case pageListEditHomepageInfoTapped
 
-    // Reader: Filter Sheet
-    case readerFilterSheetDisplayed
-    case readerFilterSheetDismissed
-    case readerFilterSheetItemSelected
-    case readerFilterSheetCleared
+    // Posts (Techincal)
+    case postRepositoryPostCreated
+    case postRepositoryPostUpdated
+    case postRepositoryPatchStarted
+    case postRepositoryConflictEncountered
+    case postRepositoryPostsFetchFailed
 
-    // Reader: Manage
-    case readerManageViewDisplayed
-    case readerManageViewDismissed
+    // Reader: Discover
+    case readerDiscoverChannelSelected
+    case readerDiscoverTabShown
+    case readerDiscoverEditInterestsTapped
 
     // App Settings
     case settingsDidChange
@@ -316,9 +348,8 @@ import Foundation
     case appSettingsImageQualityChanged
     case appSettingsClearMediaCacheTapped
     case appSettingsClearSpotlightIndexTapped
-    case appSettingsClearSiriSuggestionsTapped
     case appSettingsOpenDeviceSettingsTapped
-    case appSettingsOptimizeImagesPopupTapped
+    case experimentalFeatureToggled
 
     // Notifications
     case notificationsPreviousTapped
@@ -326,6 +357,8 @@ import Foundation
     case notificationsMarkAllReadTapped
     case notificationMarkAsReadTapped
     case notificationMarkAsUnreadTapped
+    case notificationMenuTapped
+    case notificationsInlineActionTapped
 
     // Sharing Buttons
     case sharingButtonsEditSharingButtonsToggled
@@ -448,12 +481,6 @@ import Foundation
     case promptsOtherAnswersTapped
     case promptsSettingsShowPromptsTapped
 
-    // Bloganuary Nudges
-    case bloganuaryNudgeCardLearnMoreTapped
-    case bloganuaryNudgeModalShown
-    case bloganuaryNudgeModalDismissed
-    case bloganuaryNudgeModalActionTapped
-
     // Jetpack branding
     case jetpackPoweredBadgeTapped
     case jetpackPoweredBannerTapped
@@ -527,6 +554,17 @@ import Foundation
     case supportChatbotTicketFailure
     case supportChatbotEnded
 
+    case supportChatbot
+
+    // Support Tickets
+    case supportTickets
+
+    // Application Logs
+    case applicationLog
+
+    // Application Diagnostics
+    case diagnostics
+
     // Jetpack plugin connection to user's WP.com account
     case jetpackPluginConnectUserAccountStarted
     case jetpackPluginConnectUserAccountFailed
@@ -550,23 +588,137 @@ import Foundation
     case freeToPaidPlansDashboardCardMenuTapped
     case freeToPaidPlansDashboardCardHidden
 
-    // SoTW 2023 Nudge
-    case sotw2023NudgePostEventCardShown
-    case sotw2023NudgePostEventCardCTATapped
-    case sotw2023NudgePostEventCardHideTapped
+    // Voice to Content (aka "Post from Audio")
+    case voiceToContentSheetShown
+    case voiceToContentButtonStartRecordingTapped
+    case voiceToContentButtonDoneTapped
+    case voiceToContentButtonUpgradeTapped
+    case voiceToContentButtonCloseTapped
+    case voiceToContentRecordingLimitReached
 
     // Widgets
     case widgetsLoadedOnApplicationOpened
 
+    // Assertions & Errors
+    case assertionFailure
+    case postCoordinatorErrorEncountered
+
+    // Site monitoring
+    case siteMonitoringTabShown
+    case siteMonitoringEntryDetailsShown
+
+    // Reading preferences
+    case readingPreferencesOpened
+    case readingPreferencesItemTapped
+    case readingPreferencesSaved
+    case readingPreferencesClosed
+
+    // Stats Subscribers
+    case statsSubscribersViewMoreTapped
+    case statsEmailsViewMoreTapped
+    case statsSubscribersChartTapped
+
+    // New Stats
+    case statsNewStatsEnabled
+    case statsNewStatsDisabled
+
+    // In-App Updates
+    case inAppUpdateShown
+    case inAppUpdateDismissed
+    case inAppUpdateAccepted
+
+    // Login Autodiscovery
+    case applicationPasswordLogin
+
+    // Application Password Migration
+    case applicationPasswordMigrationPrompted
+    case applicationPasswordCreated
+    case applicationPasswordReauthPrompted
+
+    case wpcomWebSignIn
+
+    // MARK: - Jetpack Stats
+
+    // Screen View Events
+    case jetpackStatsMainScreenShown
+    case jetpackStatsTrafficTabShown
+    case jetpackStatsRealtimeTabShown
+    case jetpackStatsSubscribersTabShown
+    case jetpackStatsAdsTabShown
+    case jetpackStatsPostDetailsScreenShown
+    case jetpackStatsAuthorStatsScreenShown
+    case jetpackStatsArchiveStatsScreenShown
+    case jetpackStatsExternalLinkStatsScreenShown
+    case jetpackStatsReferrerStatsScreenShown
+
+    // Date Range Events
+    case jetpackStatsDateRangePresetSelected
+    case jetpackStatsCustomDateRangeSelected
+    case jetpackStatsDateNavigationButtonTapped
+    case jetpackStatsComparisonPeriodChanged
+
+    // Card Events
+    case jetpackStatsCardShown
+    case jetpackStatsCardAdded
+    case jetpackStatsCardRemoved
+    case jetpackStatsCardEditMenuOpened
+    case jetpackStatsCardMoved
+
+    // Chart Events
+    case jetpackStatsChartTypeChanged
+    case jetpackStatsChartMetricSelected
+    case jetpackStatsChartBarSelected
+    case jetpackStatsChartGranularityChanged
+    case jetpackStatsRawDataViewed
+
+    // Today
+    case jetpackStatsTodayCardTapped
+
+    // List Events
+    case jetpackStatsTopListItemTapped
+    case jetpackStatsLocationLevelChanged
+    case jetpackStatsDeviceBreakdownChanged
+    case jetpackStatsUtmParamGroupingChanged
+
+    // Navigation Events
+    case jetpackStatsUtmMetricStatsScreenShown
+    case jetpackStatsTabSelected
+
+    // Error Events
+    case jetpackStatsErrorEncountered
+
+    // Feature Gate Events
+    case jetpackStatsFeatureGateExplorePlansTapped
+
+    // Jetpack Connection Flow
+    case jetpackConnectStarted
+    case jetpackConnectLogin
+    case jetpackConnectInstall
+    case jetpackConnectSiteConnection
+    case jetpackConnectUserConnection
+    case jetpackConnectFinalize
+    case jetpackConnectCompleted
+    case jetpackConnectStepRetried
+
+    // Intelligence
+    case intelligenceExcerptGeneratorOpened
+    case intelligenceExcerptSelected
+    case intelligenceExcerptOptionsGenerated
+    case intelligenceUnavailableViewShown
+    case intelligenceSuggestedTagsGenerated
+    case intelligenceSuggestedTagSelected
+    case intelligenceGenerationFailed
+    case intelligenceSummarizeReaderPostTapped
+
     /// A String that represents the event
     var value: String {
         switch self {
+        case .screenShown:
+            return "screen_shown"
         case .createSheetShown:
             return "create_sheet_shown"
         case .createSheetActionTapped:
             return "create_sheet_action_tapped"
-        case .createAnnouncementModalShown:
-            return "create_announcement_modal_shown"
         // Media Editor
         case .mediaEditorShown:
             return "media_editor_shown"
@@ -574,20 +726,17 @@ import Foundation
             return "media_editor_used"
         case .editorCreatedPage:
             return "editor_page_created"
-        // Tenor
-        case .tenorAccessed:
-            return "tenor_accessed"
-        case .tenorSearched:
-            return "tenor_searched"
-        case .tenorUploaded:
-            return "tenor_uploaded"
-        case .mediaLibraryAddedPhotoViaTenor:
-            return "media_library_photo_added"
-        case .editorAddedPhotoViaTenor:
-            return "editor_photo_added"
-            // Media
+        // Media
         case .siteMediaShareTapped:
             return "site_media_shared_tapped"
+        case .mediaStorageDetailsViewed:
+            return "media_storage_details_viewed"
+        case .mediaStorageDetailsActionTapped:
+            return "media_storage_details_action_tapped"
+        case .mediaStorageDetailsPurchaseCompleted:
+            return "media_storage_details_purchase_completed"
+        case .mediaImportItemUnavailable:
+            return "media_import_item_unavailable"
         // Editor
         case .editorPostPublishTap:
             return "editor_post_publish_tapped"
@@ -595,6 +744,8 @@ import Foundation
             return "editor_post_publish_dismissed"
         case .editorPostScheduledChanged:
             return "editor_post_scheduled_changed"
+        case .editorPostPendingReviewChanged:
+            return "editor_post_pending_review_changed"
         case .editorPostTitleChanged:
             return "editor_post_title_changed"
         case .editorPostVisibilityChanged:
@@ -603,6 +754,8 @@ import Foundation
             return "editor_post_tags_changed"
         case .editorPostPublishNowTapped:
             return "editor_post_publish_now_tapped"
+        case .editorPostSaveDraftTapped:
+            return "editor_post_save_draft_tapped"
         case .editorPostCategoryChanged:
             return "editor_post_category_changed"
         case .editorPostStatusChanged:
@@ -623,6 +776,18 @@ import Foundation
             return "editor_post_excerpt_changed"
         case .editorPostSiteChanged:
             return "editor_post_site_changed"
+        case .editorPostParentPageChanged:
+            return "editor_post_parent_page_changed"
+        case .editorPostCustomTaxonomyChanged:
+            return "editor_post_custom_taxonomy_changed"
+        case .editorPostNewsletterEmailToggled:
+            return "editor_post_newsletter_email_toggled"
+        case .resolveConflictScreenShown:
+            return "resolve_conflict_screen_shown"
+        case .resolveConflictSaveTapped:
+            return "resolve_conflict_save_tapped"
+        case .resolveConflictCancelTapped:
+            return "resolve_conflict_cancel_tapped"
         case .appSettingsAppearanceChanged:
             return "app_settings_appearance_changed"
         case .gutenbergUnsupportedBlockWebViewShown:
@@ -639,6 +804,10 @@ import Foundation
             return "editor_block_inserted"
         case .gutenbergEditorBlockMoved:
             return "editor_block_moved"
+        case .gutenbergKitEditorCriticalError:
+            return "gutenberg_kit_editor_critical_error"
+        case .gutenbergKitEditorLoadFailed:
+            return "gutenberg_kit_editor_load_failed"
         // Notifications permissions
         case .pushNotificationsPrimerSeen:
             return "notifications_primer_seen"
@@ -657,6 +826,8 @@ import Foundation
             return "select_interests_shown"
         case .selectInterestsPicked:
             return "select_interests_picked"
+        case .selectInterestsSkipped:
+            return "select_interests_skipped"
         case .readerDiscoverShown:
             return "reader_discover_shown"
         case .readerFollowingShown:
@@ -679,6 +850,8 @@ import Foundation
             return "reader_pull_to_refresh"
         case .readerDiscoverTopicTapped:
             return "reader_discover_topic_tapped"
+        case .readerAnnouncementDismissed:
+            return "reader_announcement_card_dismissed"
         case .postCardMoreTapped:
             return "post_card_more_tapped"
         case .followedBlogNotificationsReaderMenuOff:
@@ -707,6 +880,8 @@ import Foundation
             return "reader_post_author_reported"
         case .readerArticleDetailMoreTapped:
             return "reader_article_detail_more_tapped"
+        case .readerArticleLeaveCommentTapped:
+            return "reader_article_leave_comment_tapped"
         case .readerSharedItem:
             return "reader_shared_item"
         case .readerSuggestedSiteVisited:
@@ -733,6 +908,24 @@ import Foundation
             return "reader_follow_conversation_tooltip_tapped"
         case .readerFollowConversationAnchorTapped:
             return "reader_follow_conversation_anchor_tapped"
+        case .readerArticleTextHighlighted:
+            return "reader_article_text_highlighted"
+        case .readerArticleTextCopied:
+            return "reader_article_text_copied"
+        case .readerCommentTextHighlighted:
+            return "reader_comment_text_highlighted"
+        case .readerCommentTextCopied:
+            return "reader_comment_text_copied"
+        case .readerPostContextMenuButtonTapped:
+            return "reader_post_context_menu_button_tapped"
+        case .readerAddSiteToFavoritesTapped:
+            return "reader_add_site_to_favorites_tapped"
+        case .readerSavedPostsSettingsShown:
+            return "reader_saved_posts_settings_shown"
+        case .readerSavedPostsExported:
+            return "reader_saved_posts_exported"
+        case .readerSavedPostsImported:
+            return "reader_saved_posts_imported"
 
         // Stats - Empty Stats nudges
         case .statsPublicizeNudgeShown:
@@ -791,18 +984,6 @@ import Foundation
             return "feature_announcement_shown"
         case .featureAnnouncementButtonTapped:
             return "feature_announcement_button_tapped"
-
-        // Stories
-        case .storyIntroShown:
-            return "story_intro_shown"
-        case .storyIntroDismissed:
-            return "story_intro_dismissed"
-        case .storyIntroCreateStoryButtonTapped:
-            return "story_intro_create_story_button_tapped"
-        case .storyAddedMedia:
-            return "story_added_media"
-        case .storyBlockAddMediaTapped:
-            return "story_block_add_media_tapped"
 
         // Jetpack
         case .jetpackSettingsViewed:
@@ -1014,6 +1195,10 @@ import Foundation
         case .myDomainsSearchDomainTapped:
             return "domain_management_my_domains_search_domain_tapped"
 
+        // Sidebar
+        case .sidebarAllSitesTapped:
+            return "sidebar_all_sites_tapped"
+
         // My Site
         case .mySitePullToRefresh:
             return "my_site_pull_to_refresh"
@@ -1051,9 +1236,27 @@ import Foundation
             return "site_switcher_search_performed"
         case .siteSwitcherToggleBlogVisible:
             return "site_switcher_toggle_blog_visible"
+        case .siteSwitcherSiteTapped:
+            return "site_switcher_site_tapped"
+
+        // Site List
+        case .siteListViewTapped:
+            return "site_list_view_tapped"
+        case .siteListShareTapped:
+            return "site_list_share_tapped"
+        case .siteListCopyLinktapped:
+            return "site_list_copy_link_tapped"
 
         // Post List
+        case .cptPostListOpened:
+            return "cpt_post_list_opened"
+        case .cptPostListLoadFinished:
+            return "cpt_post_list_load_finished"
+        case .postListItemSelected:
+            return "post_list_item_selected"
         case .postListShareAction:
+            return "post_list_button_pressed"
+        case .postListBlazeAction:
             return "post_list_button_pressed"
         case .postListCommentsAction:
             return "post_list_button_pressed"
@@ -1065,6 +1268,10 @@ import Foundation
             return "post_list_button_pressed"
         case .postListSettingsAction:
             return "post_list_button_pressed"
+        case .postListDeleteAction:
+            return "post_list_button_pressed"
+        case .postListRetryAction:
+            return "post_list_button_pressed"
 
         // Page List
         case .pageListEditHomepageTapped:
@@ -1072,21 +1279,25 @@ import Foundation
         case .pageListEditHomepageInfoTapped:
             return "page_list_edit_homepage_info_pressed"
 
-        // Reader: Filter Sheet
-        case .readerFilterSheetDisplayed:
-            return "reader_filter_sheet_displayed"
-        case .readerFilterSheetDismissed:
-            return "reader_filter_sheet_dismissed"
-        case .readerFilterSheetItemSelected:
-            return "reader_filter_sheet_item_selected"
-        case .readerFilterSheetCleared:
-            return "reader_filter_sheet_cleared"
+        // Posts (Technical)
+        case .postRepositoryPostCreated:
+            return "post_repository_post_created"
+        case .postRepositoryPostUpdated:
+            return "post_repository_post_updated"
+        case .postRepositoryPatchStarted:
+            return "post_repository_patch_started"
+        case .postRepositoryConflictEncountered:
+            return "post_repository_conflict_encountered"
+        case .postRepositoryPostsFetchFailed:
+            return "post_repository_posts_fetch_failed"
 
-        // Reader: Manage View
-        case .readerManageViewDisplayed:
-            return "reader_manage_view_displayed"
-        case .readerManageViewDismissed:
-            return "reader_manage_view_dismissed"
+        // Reader: Discover
+        case .readerDiscoverChannelSelected:
+            return "reader_discover_channel_selected"
+        case .readerDiscoverTabShown:
+            return "reader_discover_tab_shown"
+        case .readerDiscoverEditInterestsTapped:
+            return "reader_discover_edit_interests_tapped"
 
         // App Settings
         case .settingsDidChange:
@@ -1095,8 +1306,6 @@ import Foundation
             return "app_settings_clear_media_cache_tapped"
         case .appSettingsClearSpotlightIndexTapped:
             return "app_settings_clear_spotlight_index_tapped"
-        case .appSettingsClearSiriSuggestionsTapped:
-            return "app_settings_clear_siri_suggestions_tapped"
         case .appSettingsOpenDeviceSettingsTapped:
             return "app_settings_open_device_settings_tapped"
         case .appSettingsOptimizeImagesChanged:
@@ -1105,8 +1314,8 @@ import Foundation
             return "app_settings_max_image_size_changed"
         case .appSettingsImageQualityChanged:
             return "app_settings_image_quality_changed"
-        case .appSettingsOptimizeImagesPopupTapped:
-            return "app_settings_optimize_images_popup_tapped"
+        case .experimentalFeatureToggled:
+            return "experimental_feature_toggled"
 
         // Account Close
         case .accountCloseTapped:
@@ -1125,6 +1334,10 @@ import Foundation
             return "notification_mark_as_read_tapped"
         case .notificationMarkAsUnreadTapped:
             return "notification_mark_as_unread_tapped"
+        case .notificationMenuTapped:
+            return "notification_menu_tapped"
+        case .notificationsInlineActionTapped:
+            return "notifications_inline_action_tapped"
 
         // Sharing
         case .sharingButtonsEditSharingButtonsToggled:
@@ -1330,16 +1543,6 @@ import Foundation
         case .promptsSettingsShowPromptsTapped:
             return "blogging_prompts_settings_show_prompts_tapped"
 
-        // Bloganuary Nudges
-        case .bloganuaryNudgeCardLearnMoreTapped:
-            return "bloganuary_nudge_my_site_card_learn_more_tapped"
-        case .bloganuaryNudgeModalShown:
-            return "bloganuary_nudge_learn_more_modal_shown"
-        case .bloganuaryNudgeModalDismissed:
-            return "bloganuary_nudge_learn_more_modal_dismissed"
-        case .bloganuaryNudgeModalActionTapped:
-            return "bloganuary_nudge_learn_more_modal_action_tapped"
-
         // Jetpack branding
         case .jetpackPoweredBadgeTapped:
             return "jetpack_powered_badge_tapped"
@@ -1459,6 +1662,12 @@ import Foundation
             return "support_migration_faq_tapped"
         case .supportMigrationFAQCardViewed:
             return "support_migration_faq_viewed"
+        case .supportTickets:
+            return "jetpack_mobile_support_tickets"
+        case .applicationLog:
+            return "jetpack_mobile_application_log"
+        case .diagnostics:
+            return "jetpack_mobile_diagnostics"
 
         // Chatbot Support
         case .supportChatbotStarted:
@@ -1471,7 +1680,8 @@ import Foundation
             return "support_chatbot_ticket_failure"
         case .supportChatbotEnded:
             return "support_chatbot_ended"
-
+        case .supportChatbot:
+            return "jetpack_mobile_support_chatbot"
 
         // Jetpack plugin connection to user's WP.com account
         case .jetpackPluginConnectUserAccountStarted:
@@ -1510,18 +1720,202 @@ import Foundation
         case .freeToPaidPlansDashboardCardMenuTapped:
             return "free_to_paid_plan_dashboard_card_menu_tapped"
 
-        // SoTW 2023 Nudge
-        case .sotw2023NudgePostEventCardShown:
-            return "sotw_2023_nudge_post_event_card_shown"
-        case .sotw2023NudgePostEventCardCTATapped:
-            return "sotw_2023_nudge_post_event_card_cta_tapped"
-        case .sotw2023NudgePostEventCardHideTapped:
-            return "sotw_2023_nudge_post_event_card_hide_tapped"
+        // Voice to Content (aka "Post from Audio")
+        case .voiceToContentSheetShown:
+            return "voice_to_content_sheet_shown"
+        case .voiceToContentButtonStartRecordingTapped:
+            return "voice_to_content_button_start_recording_tapped"
+        case .voiceToContentButtonDoneTapped:
+            return "voice_to_content_button_done_tapped"
+        case .voiceToContentButtonUpgradeTapped:
+            return "voice_to_content_button_upgrade_tapped"
+        case .voiceToContentButtonCloseTapped:
+            return "voice_to_content_button_close_tapped"
+        case .voiceToContentRecordingLimitReached:
+            return "voice_to_content_recording_limit_reached"
 
         // Widgets
         case .widgetsLoadedOnApplicationOpened:
             return "widgets_loaded_on_application_opened"
 
+        // Assertions & Errors
+        case .assertionFailure:
+            return "assertion_failure"
+        case .postCoordinatorErrorEncountered:
+            return "post_coordinator_error_encountered"
+
+        // Site Monitoring
+        case .siteMonitoringTabShown:
+            return "site_monitoring_tab_shown"
+        case .siteMonitoringEntryDetailsShown:
+            return "site_monitoring_entry_details_shown"
+
+        // Reading Preferences
+        case .readingPreferencesOpened:
+            return "reader_reading_preferences_opened"
+        case .readingPreferencesItemTapped:
+            return "reader_reading_preferences_item_tapped"
+        case .readingPreferencesSaved:
+            return "reader_reading_preferences_saved"
+        case .readingPreferencesClosed:
+            return "reader_reading_preferences_closed"
+
+        // Stats Subscribers
+        case .statsSubscribersViewMoreTapped:
+            return "stats_subscribers_view_more_tapped"
+        case .statsEmailsViewMoreTapped:
+            return "stats_emails_view_more_tapped"
+        case .statsSubscribersChartTapped:
+            return "stats_subscribers_chart_tapped"
+
+        // New Stats
+        case .statsNewStatsEnabled:
+            return "stats_new_stats_enabled"
+        case .statsNewStatsDisabled:
+            return "stats_new_stats_disabled"
+
+        // In-App Updates
+        case .inAppUpdateShown:
+            return "in_app_update_shown"
+        case .inAppUpdateDismissed:
+            return "in_app_update_dismissed"
+        case .inAppUpdateAccepted:
+            return "in_app_update_accepted"
+
+        // Login Autodiscovery
+        case .applicationPasswordLogin:
+            return "application_password_login"
+        case .applicationPasswordMigrationPrompted:
+            return "application_password_migration_prompted"
+        case .applicationPasswordCreated:
+            return "application_password_created"
+        case .applicationPasswordReauthPrompted:
+            return "application_password_reauth_prompted"
+
+        case .wpcomWebSignIn:
+            return "wpcom_web_sign_in"
+
+        // MARK: - Jetpack Stats
+
+        // Screen View Events
+        case .jetpackStatsMainScreenShown:
+            return "jetpack_stats_main_screen_shown"
+        case .jetpackStatsTrafficTabShown:
+            return "jetpack_stats_traffic_tab_shown"
+        case .jetpackStatsRealtimeTabShown:
+            return "jetpack_stats_realtime_tab_shown"
+        case .jetpackStatsSubscribersTabShown:
+            return "jetpack_stats_subscribers_tab_shown"
+        case .jetpackStatsAdsTabShown:
+            return "jetpack_stats_ads_tab_shown"
+        case .jetpackStatsPostDetailsScreenShown:
+            return "jetpack_stats_post_details_screen_shown"
+        case .jetpackStatsAuthorStatsScreenShown:
+            return "jetpack_stats_author_stats_screen_shown"
+        case .jetpackStatsArchiveStatsScreenShown:
+            return "jetpack_stats_archive_stats_screen_shown"
+        case .jetpackStatsExternalLinkStatsScreenShown:
+            return "jetpack_stats_external_link_stats_screen_shown"
+        case .jetpackStatsReferrerStatsScreenShown:
+            return "jetpack_stats_referrer_stats_screen_shown"
+
+        // Date Range Events
+        case .jetpackStatsDateRangePresetSelected:
+            return "jetpack_stats_date_range_preset_selected"
+        case .jetpackStatsCustomDateRangeSelected:
+            return "jetpack_stats_custom_date_range_selected"
+        case .jetpackStatsDateNavigationButtonTapped:
+            return "jetpack_stats_date_navigation_button_tapped"
+        case .jetpackStatsComparisonPeriodChanged:
+            return "jetpack_stats_comparison_period_changed"
+
+        // Card Events
+        case .jetpackStatsCardShown:
+            return "jetpack_stats_card_shown"
+        case .jetpackStatsCardAdded:
+            return "jetpack_stats_card_added"
+        case .jetpackStatsCardRemoved:
+            return "jetpack_stats_card_removed"
+        case .jetpackStatsCardEditMenuOpened:
+            return "jetpack_stats_card_edit_menu_opened"
+        case .jetpackStatsCardMoved:
+            return "jetpack_stats_card_moved"
+
+        // Chart Events
+        case .jetpackStatsChartTypeChanged:
+            return "jetpack_stats_chart_type_changed"
+        case .jetpackStatsChartMetricSelected:
+            return "jetpack_stats_chart_metric_selected"
+        case .jetpackStatsChartBarSelected:
+            return "jetpack_stats_chart_bar_selected"
+        case .jetpackStatsChartGranularityChanged:
+            return "jetpack_stats_chart_granularity_changed"
+        case .jetpackStatsRawDataViewed:
+            return "jetpack_stats_raw_data_viewed"
+
+        // Today
+        case .jetpackStatsTodayCardTapped:
+            return "jetpack_stats_today_card_tapped"
+
+        // List Events
+        case .jetpackStatsTopListItemTapped:
+            return "jetpack_stats_top_list_item_tapped"
+        case .jetpackStatsLocationLevelChanged:
+            return "jetpack_stats_location_level_changed"
+        case .jetpackStatsDeviceBreakdownChanged:
+            return "jetpack_stats_device_breakdown_changed"
+        case .jetpackStatsUtmParamGroupingChanged:
+            return "jetpack_stats_utm_param_grouping_changed"
+
+        // Navigation Events
+        case .jetpackStatsUtmMetricStatsScreenShown:
+            return "jetpack_stats_utm_metric_stats_screen_shown"
+        case .jetpackStatsTabSelected:
+            return "jetpack_stats_tab_selected"
+
+        // Error Events
+        case .jetpackStatsErrorEncountered:
+            return "jetpack_stats_error_encountered"
+
+        // Feature Gate Events
+        case .jetpackStatsFeatureGateExplorePlansTapped:
+            return "jetpack_stats_feature_gate_explore_plans_tapped"
+
+        // Jetpack Connection Flow
+        case .jetpackConnectStarted:
+            return "jetpack_rest_connect_started"
+        case .jetpackConnectLogin:
+            return "jetpack_rest_connect_login"
+        case .jetpackConnectInstall:
+            return "jetpack_rest_connect_install"
+        case .jetpackConnectSiteConnection:
+            return "jetpack_rest_connect_site_connection"
+        case .jetpackConnectUserConnection:
+            return "jetpack_rest_connect_user_connection"
+        case .jetpackConnectFinalize:
+            return "jetpack_rest_connect_finalize"
+        case .jetpackConnectCompleted:
+            return "jetpack_rest_connect_completed"
+        case .jetpackConnectStepRetried:
+            return "jetpack_rest_connect_step_retried"
+
+        // Intelligence
+        case .intelligenceExcerptGeneratorOpened:
+            return "intelligence_excerpt_generator_opened"
+        case .intelligenceExcerptSelected:
+            return "intelligence_excerpt_selected"
+        case .intelligenceExcerptOptionsGenerated:
+            return "intelligence_excerpt_options_generated"
+        case .intelligenceUnavailableViewShown:
+            return "intelligence_unavailable_view_shown"
+        case .intelligenceSuggestedTagsGenerated:
+            return "intelligence_suggested_tags_generated"
+        case .intelligenceSuggestedTagSelected:
+            return "intelligence_suggested_tag_selected"
+        case .intelligenceGenerationFailed:
+            return "intelligence_generation_failed"
+        case .intelligenceSummarizeReaderPostTapped:
+            return "intelligence_summarize_reader_post_tapped"
         } // END OF SWITCH
     }
 
@@ -1536,12 +1930,10 @@ import Foundation
     */
     var defaultProperties: [AnyHashable: Any]? {
         switch self {
-        case .mediaLibraryAddedPhotoViaTenor:
-            return ["via": "tenor"]
-        case .editorAddedPhotoViaTenor:
-            return ["via": "tenor"]
         case .postListShareAction:
             return ["button": "share"]
+        case .postListBlazeAction:
+            return ["button": "blaze"]
         case .postListCommentsAction:
             return ["button": "comments"]
         case .postListSetAsPostsPageAction:
@@ -1552,6 +1944,10 @@ import Foundation
             return ["button": "set_regular_page"]
         case .postListSettingsAction:
             return ["button": "settings"]
+        case .postListDeleteAction:
+            return ["button": "delete"]
+        case .postListRetryAction:
+            return ["button": "retry"]
         default:
             return nil
         }
@@ -1560,7 +1956,7 @@ import Foundation
 
 extension WPAnalytics {
 
-    @objc static var subscriptionCount: Int = 0
+    @objc public static var subscriptionCount: Int = 0
 
     private static let WPAppAnalyticsKeySubscriptionCount: String = "subscription_count"
 
@@ -1580,22 +1976,50 @@ extension WPAnalytics {
     /// - Parameter properties: a `Hash` that represents the properties
     ///
     static func track(_ event: WPAnalyticsEvent, properties: [AnyHashable: Any]) {
+        // Try to catch issues during development where an invalid JSON object is used as event properties.
+        #if DEBUG
+        precondition(JSONSerialization.isValidJSONObject(properties))
+        #endif
+
         var mergedProperties: [AnyHashable: Any] = event.defaultProperties ?? [:]
-        mergedProperties.merge(properties) { (_, new) in new }
+        mergedProperties.merge(properties) { _, new in new }
 
         WPAnalytics.trackString(event.value, withProperties: mergedProperties)
     }
 
-    /// This will call each registered tracker and fire the given event.
+    /// This will call each registered tracker and fire the given event, attaching the site.
     /// - Parameters:
     ///   - event: a `String` that represents the event name
     ///   - properties: a `Hash` that represents the properties
-    ///   - blog: a `Blog` asssociated with the event
-    static func track(_ event: WPAnalyticsEvent, properties: [AnyHashable: Any], blog: Blog) {
+    ///   - blogProperties: a value-type snapshot of the site associated with the event
+    static func track(
+        _ event: WPAnalyticsEvent,
+        properties: [AnyHashable: Any] = [:],
+        blogProperties: BlogAnalyticsProperties
+    ) {
         var props = properties
-        props[WPAppAnalyticsKeyBlogID] = blog.dotComID
-        props[WPAppAnalyticsKeySiteType] = blog.isWPForTeams() ? WPAppAnalyticsValueSiteTypeP2 : WPAppAnalyticsValueSiteTypeBlog
+        if let dotComID = blogProperties.dotComID {
+            props[WPAppAnalyticsKeyBlogID] = dotComID
+        }
+        props[WPAppAnalyticsKeySiteType] =
+            blogProperties.isWPForTeams ? WPAppAnalyticsValueSiteTypeP2 : WPAppAnalyticsValueSiteTypeBlog
         WPAnalytics.track(event, properties: props)
+    }
+
+    /// This will call each registered tracker and fire the given event, attaching the site.
+    ///
+    /// Only a `Sendable` ``BlogAnalyticsProperties`` snapshot crosses into the analytics
+    /// layer; the Core Data read happens once, in the model's `analyticsProperties`.
+    /// - Parameters:
+    ///   - event: a `String` that represents the event name
+    ///   - properties: a `Hash` that represents the properties
+    ///   - blog: the site associated with the event
+    static func track(
+        _ event: WPAnalyticsEvent,
+        properties: [AnyHashable: Any] = [:],
+        blog: some BlogAnalyticsRepresentable
+    ) {
+        track(event, properties: properties, blogProperties: blog.analyticsProperties)
     }
 
     /// Track a Reader event
@@ -1627,7 +2051,7 @@ extension WPAnalytics {
     /// This will call each registered tracker and fire the given event
     /// - Parameter event: a `String` that represents the event name
     ///
-    @objc static func trackEvent(_ event: WPAnalyticsEvent) {
+    @objc public static func trackEvent(_ event: WPAnalyticsEvent) {
         WPAnalytics.trackString(event.value)
     }
 
@@ -1637,7 +2061,7 @@ extension WPAnalytics {
     /// - Parameter event: a `WPAnalyticsEvent` that represents the event name
     /// - Parameter properties: a `Hash` that represents the properties
     ///
-    @objc static func trackEvent(_ event: WPAnalyticsEvent, properties: [AnyHashable: Any]) {
+    @objc public static func trackEvent(_ event: WPAnalyticsEvent, properties: [AnyHashable: Any]) {
         track(event, properties: properties)
     }
 
@@ -1648,7 +2072,7 @@ extension WPAnalytics {
     ///   - event: a `WPAnalyticsEvent` that represents the event name
     ///   - properties: a `Hash` that represents the properties
     ///   - blog: a `Blog` asssociated with the event
-    @objc static func trackEvent(_ event: WPAnalyticsEvent, properties: [AnyHashable: Any], blog: Blog) {
+    @objc public static func trackEvent(_ event: WPAnalyticsEvent, properties: [AnyHashable: Any], blog: Blog) {
         track(event, properties: properties, blog: blog)
     }
 
@@ -1658,7 +2082,7 @@ extension WPAnalytics {
     /// - Parameter event: a `String` that represents the Reader event name
     /// - Parameter properties: a `Hash` that represents the properties
     ///
-    @objc static func trackReaderEvent(_ event: WPAnalyticsEvent, properties: [AnyHashable: Any]) {
+    @objc public static func trackReaderEvent(_ event: WPAnalyticsEvent, properties: [AnyHashable: Any]) {
         var props = properties
         props[WPAppAnalyticsKeySubscriptionCount] = subscriptionCount
         WPAnalytics.track(event, properties: props)
@@ -1670,7 +2094,7 @@ extension WPAnalytics {
     /// - Parameter stat: a `String` that represents the Reader stat name
     /// - Parameter properties: a `Hash` that represents the properties
     ///
-    @objc static func trackReaderStat(_ stat: WPAnalyticsStat, properties: [AnyHashable: Any]) {
+    @objc public static func trackReaderStat(_ stat: WPAnalyticsStat, properties: [AnyHashable: Any]) {
         var props = properties
         props[WPAppAnalyticsKeySubscriptionCount] = subscriptionCount
         WPAnalytics.track(stat, withProperties: props)
@@ -1690,22 +2114,24 @@ extension WPAnalytics {
         }
 
         if event == nil {
-            print("🟡 Not Tracked: \"\(eventName)\" Block Editor event ignored as it was not found in the `trackBlockEditorEvent` conversion cases.")
+            print(
+                "🟡 Not Tracked: \"\(eventName)\" Block Editor event ignored as it was not found in the `trackBlockEditorEvent` conversion cases."
+            )
         } else {
             WPAnalytics.track(event!, properties: properties, blog: blog)
         }
     }
 
-    @objc static func trackSettingsChange(_ page: String, fieldName: String) {
+    @objc public static func trackSettingsChange(_ page: String, fieldName: String) {
         Self.trackSettingsChange(page, fieldName: fieldName, value: nil)
     }
 
-    @objc static func trackSettingsChange(_ page: String, fieldName: String, value: Any?) {
+    @objc public static func trackSettingsChange(_ page: String, fieldName: String, value: Any?) {
         var properties: [AnyHashable: Any] = ["page": page, "field_name": fieldName]
 
-        if let value = value {
+        if let value {
             let additionalProperties: [AnyHashable: Any] = ["value": value]
-            properties.merge(additionalProperties) { (_, new) in new }
+            properties.merge(additionalProperties) { _, new in new }
         }
 
         WPAnalytics.track(.settingsDidChange, properties: properties)

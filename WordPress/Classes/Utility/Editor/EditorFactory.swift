@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 
 /// This class takes care of instantiating the correct editor based on the App settings, feature flags,
 /// etc.
@@ -12,16 +13,19 @@ class EditorFactory {
 
     // MARK: - Editor: Instantiation
 
-    func instantiateEditor(for post: AbstractPost, loadAutosaveRevision: Bool = false, replaceEditor: @escaping ReplaceEditorBlock) -> EditorViewController {
+    func instantiateEditor(for post: AbstractPost, replaceEditor: @escaping ReplaceEditorBlock) -> EditorViewController {
         if gutenbergSettings.mustUseGutenberg(for: post) {
-            return createGutenbergVC(with: post, loadAutosaveRevision: loadAutosaveRevision, replaceEditor: replaceEditor)
+            if RemoteFeatureFlag.newGutenberg.enabled() {
+                return NewGutenbergViewController(post: post, replaceEditor: replaceEditor)
+            }
+            return createGutenbergVC(with: post, replaceEditor: replaceEditor)
         } else {
-            return AztecPostViewController(post: post, loadAutosaveRevision: loadAutosaveRevision, replaceEditor: replaceEditor)
+            return AztecPostViewController(post: post, replaceEditor: replaceEditor)
         }
     }
 
-    func createGutenbergVC(with post: AbstractPost, loadAutosaveRevision: Bool, replaceEditor: @escaping ReplaceEditorBlock) -> GutenbergViewController {
-        let gutenbergVC = GutenbergViewController(post: post, loadAutosaveRevision: loadAutosaveRevision, replaceEditor: replaceEditor)
+    func createGutenbergVC(with post: AbstractPost, replaceEditor: @escaping ReplaceEditorBlock) -> GutenbergViewController {
+        let gutenbergVC = GutenbergViewController(post: post, replaceEditor: replaceEditor)
 
         if gutenbergSettings.shouldAutoenableGutenberg(for: post) {
             gutenbergSettings.setGutenbergEnabled(true, for: post.blog, source: .onBlockPostOpening)
@@ -33,22 +37,36 @@ class EditorFactory {
         return gutenbergVC
     }
 
-    // TODO: DRY this up
-    func createHomepageGutenbergVC(with post: AbstractPost, loadAutosaveRevision: Bool, replaceEditor: @escaping ReplaceEditorBlock) -> EditHomepageViewController {
-        let gutenbergVC = EditHomepageViewController(post: post, loadAutosaveRevision: loadAutosaveRevision, replaceEditor: replaceEditor)
-
-        if gutenbergSettings.shouldAutoenableGutenberg(for: post) {
-            gutenbergSettings.setGutenbergEnabled(true, for: post.blog, source: .onBlockPostOpening)
-            gutenbergSettings.postSettingsToRemote(for: post.blog)
-            gutenbergVC.shouldPresentInformativeDialog = true
-            gutenbergSettings.willShowDialog(for: post.blog)
-        }
-
-        return gutenbergVC
-    }
     func switchToGutenberg(from source: EditorViewController) {
         let replacement = GutenbergViewController(post: source.post, replaceEditor: source.replaceEditor, editorSession: source.editorSession)
         source.replaceEditor(source, replacement)
+    }
 
+    // MARK: - Application Password Check
+
+    /// Determines if an application password is required for editing this post
+    /// Only returns true when NewGutenbergViewController would be used and application password is needed
+    /// - Parameter post: The post to be edited
+    /// - Returns: true if application password prompt should be shown
+    func requiresApplicationPasswordForEditor(post: AbstractPost) -> Bool {
+        guard gutenbergSettings.mustUseGutenberg(for: post) &&
+              RemoteFeatureFlag.newGutenberg.enabled() else {
+            return false
+        }
+
+        let blog = post.blog
+
+        // WPCOM Simple sites rely upon bearer tokens
+        if blog.isHostedAtWPcom {
+            return false
+        }
+
+        // Application passwords do not support private Atomic sites currently
+        if blog.isAtomic && blog.isPrivate {
+            return false
+        }
+
+        let hasApplicationPassword = (try? blog.getApplicationToken()) != nil
+        return !hasApplicationPassword
     }
 }

@@ -1,3 +1,6 @@
+import UIKit
+import WordPressData
+
 /// A router that handles routes that can be converted to /wp-admin links.
 ///
 /// Note that this is a workaround for an infinite redirect issue between WordPress and Jetpack
@@ -18,7 +21,7 @@ struct WPAdminConvertibleRouter: LinkRouter {
     }
 
     func canHandle(url: URL) -> Bool {
-        return matcher.routesMatching(url).count > 0
+        return !matcher.routesMatching(url).isEmpty
     }
 
     func handle(url: URL, shouldTrack track: Bool = false, source: DeepLinkSource? = nil) {
@@ -79,7 +82,7 @@ private extension WPAdminConvertibleNavigationAction {
         // If it is, then try to look up existing blogs and return the URL instead.
         if let siteID = Int(domain) {
             let blog = try? Blog.lookup(withID: siteID, in: ContextManager.shared.mainContext)
-            return blog?.hostURL as? String
+            return blog?.displayURL
         }
 
         if let _ = URL(string: domain) {

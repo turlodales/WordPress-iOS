@@ -1,3 +1,6 @@
+import UIKit
+import WordPressUI
+
 extension UIColor {
 
     static var invertedSystem5: UIColor {
@@ -16,7 +19,7 @@ extension UIColor {
     }
 
     static var invertedLink: UIColor {
-        UIColor(light: .primary(.shade30), dark: .primary(.shade50))
+        UIColor(light: UIAppColor.primary(.shade30), dark: UIAppColor.primary(.shade50))
     }
 
     static var invertedSeparator: UIColor {

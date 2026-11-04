@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 
 /// This extension is necessary because DomainsService is unavailable in ObjC.
 ///
@@ -12,7 +13,7 @@ extension BlogService {
     /// Convenience method to be able to refresh the blogs from ObjC.
     ///
     @objc
-    func refreshDomains(for blog: Blog, success: (() -> Void)?, failure: ((Error) -> Void)?) {
+    public func refreshDomains(for blog: Blog, success: (() -> Void)?, failure: ((Error) -> Void)?) {
         guard let account = blog.account else {
             failure?(BlogServiceDomainError.noAccountForSpecifiedBlog(blog: blog))
             return

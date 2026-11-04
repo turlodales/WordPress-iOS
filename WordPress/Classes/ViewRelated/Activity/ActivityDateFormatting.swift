@@ -1,3 +1,6 @@
+import Foundation
+import WordPressData
+
 // Activity Log has some specific needs when it comes to formatting Dates, that pop up in few places.
 // (at the minimum the Activity Log list, detail view, and the `ActivityStore`.
 // This encapsulates those needs in one place.
@@ -22,7 +25,7 @@ struct ActivityDateFormatting {
         return formatter
     }
 
-    static func timeZone(for site: JetpackSiteRef, managedObjectContext: NSManagedObjectContext = ContextManager.sharedInstance().mainContext) -> TimeZone {
+    static func timeZone(for site: JetpackSiteRef, managedObjectContext: NSManagedObjectContext = ContextManager.shared.mainContext) -> TimeZone {
 
         guard let blog = try? Blog.lookup(withID: site.siteID, in: managedObjectContext) else {
             DDLogInfo("[ActivityDateFormatting] Couldn't find a blog with specified siteID. Falling back to UTC.")

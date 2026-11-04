@@ -3,12 +3,11 @@ import UIKit
 import WordPressShared
 import Aztec
 
-
 class AztecAttachmentViewController: UITableViewController {
 
     @objc var attachment: ImageAttachment? {
         didSet {
-            if let attachment = attachment {
+            if let attachment {
                 alignment = attachment.alignment
                 alt = attachment.alt
                 size = attachment.size
@@ -27,7 +26,6 @@ class AztecAttachmentViewController: UITableViewController {
 
     fileprivate var handler: ImmuTableViewHandler!
 
-
     // MARK: - Initialization
 
     override init(style: UITableView.Style) {
@@ -40,20 +38,16 @@ class AztecAttachmentViewController: UITableViewController {
     }
 
     required convenience init() {
-        self.init(style: .grouped)
+        self.init(style: .insetGrouped)
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        ImmuTable.registerRows([
-            EditableTextRow.self,
-            ], tableView: self.tableView)
+        ImmuTable.registerRows([EditableTextRow.self], tableView: tableView)
 
         handler = ImmuTableViewHandler(takeOver: self)
         handler.viewModel = tableViewModel()
-
-        WPStyleGuide.configureColors(view: view, tableView: tableView)
 
         let cancelButton = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(AztecAttachmentViewController.handleCancelButtonTapped))
         navigationItem.leftBarButtonItem = cancelButton
@@ -108,9 +102,8 @@ class AztecAttachmentViewController: UITableViewController {
                     captionRow
                 ],
                 footerText: nil)
-            ])
+        ])
     }
-
 
     // MARK: - Actions
 
@@ -160,7 +153,7 @@ class AztecAttachmentViewController: UITableViewController {
 
         let values: [ImageAttachment.Alignment] = [.left, .center, .right, .none]
 
-        let titles = values.map { (value) in
+        let titles = values.map { value in
             return value.localizedString
         }
 
@@ -192,7 +185,7 @@ class AztecAttachmentViewController: UITableViewController {
     func displaySizeSelector(row: ImmuTableRow) {
         let values: [ImageAttachment.Size] = [.thumbnail, .medium, .large, .full, .none]
 
-        let titles = values.map { (value) in
+        let titles = values.map { value in
             return value.localizedString
         }
 
@@ -229,7 +222,7 @@ class AztecAttachmentViewController: UITableViewController {
     }
 
     @objc func handleDoneButtonTapped(sender: UIBarButtonItem) {
-        let checkedAlt = alt == "" ? nil : alt
+        let checkedAlt = alt?.isEmpty == true ? nil : alt
         onUpdate?(alignment, size, linkURL, checkedAlt, caption)
         dismiss(animated: true)
     }
@@ -253,7 +246,7 @@ class AztecAttachmentViewController: UITableViewController {
                                         hint: String? = nil,
                                         onValueChanged: @escaping SettingsAttributedTextChanged) {
 
-        // TODO: This shouldn't duplicate the styling from the Figcaption formatter.  Try to unify.
+        // TODO: This shouldn't duplicate the styling from the Figcaption formatter. Try to unify.
         let defaultAttributes: [NSAttributedString.Key: Any] = [
             .font: WPFontManager.notoRegularFont(ofSize: 14),
             .foregroundColor: UIColor.gray,

@@ -1,4 +1,5 @@
 import UIKit
+import WordPressUI
 
 extension NSAttributedString {
     /// Creates an `NSAttributedString` with the styles defined in `attributes` applied.
@@ -33,7 +34,7 @@ extension NSAttributedString {
         // set via CSS). So we'll look for a paragraph style specified for the
         // body of the text, so we can copy it use its text alignment.
         let paragraphStyle = NSMutableParagraphStyle()
-        if let attributes = attributes,
+        if let attributes,
             let bodyAttributes = attributes[.BodyAttribute],
             let pStyle = bodyAttributes[.paragraphStyle] as? NSParagraphStyle {
                 paragraphStyle.setParagraphStyle(pStyle)
@@ -43,9 +44,7 @@ extension NSAttributedString {
         paragraphStyle.paragraphSpacing = 0
         paragraphStyle.paragraphSpacingBefore = 0
 
-        attributedString.addAttribute(.paragraphStyle,
-                                      value: paragraphStyle,
-                                      range: NSMakeRange(0, attributedString.string.count - 1))
+        attributedString.addAttribute(.paragraphStyle, value: paragraphStyle)
 
         return NSAttributedString(attributedString: attributedString)
     }
@@ -62,7 +61,7 @@ extension NSAttributedString {
             return style + " }"
         }
 
-        let joinedStyles = styles?.joined(separator: "") ?? ""
+        let joinedStyles = styles?.joined() ?? ""
         return "<style>" + joinedStyles + "</style>"
     }
 
@@ -78,8 +77,8 @@ extension NSAttributedString {
                 return "font-family: -apple-system; font-size: \(size)px; " + boldStyle + italicStyle
             }
         case .foregroundColor:
-            if let color = attribute as? UIColor,
-                let colorHex = color.hexString() {
+            if let color = attribute as? UIColor {
+                let colorHex = color.hexString
                 return "color: #\(colorHex);"
             }
         case .underlineStyle:

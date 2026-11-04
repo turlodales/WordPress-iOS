@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 class JetpackScanThreatCell: UITableViewCell, NibReusable {
     @IBOutlet weak var iconBackgroundImageView: UIImageView!
@@ -32,9 +33,9 @@ class JetpackScanThreatCell: UITableViewCell, NibReusable {
 
     private func applyStyles() {
         titleLabel.font = WPStyleGuide.fontForTextStyle(.body, fontWeight: .medium)
-        titleLabel.textColor = .text
+        titleLabel.textColor = .label
 
-        detailLabel.textColor = .textSubtle
+        detailLabel.textColor = .secondaryLabel
         detailLabel.font = WPStyleGuide.fontForTextStyle(.subheadline)
     }
 }

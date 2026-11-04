@@ -1,34 +1,27 @@
 AllCops:
   Exclude:
     - DerivedData/**/*
-    - Pods/**/*
     - vendor/**/*
+    - WordPressKit/**/*
   NewCops: enable
 
 Metrics/BlockLength:
-  # "xfiles" is a standin for `Fast-`, `Pod-`, and `Rake-file`
+  # "xfiles" is a standin for `Fast-` and `Pod-file`
   Exclude: &xfiles
     - fastlane/Fastfile
     - fastlane/lanes/*.rb
     - Podfile
-    - Rakefile
 
 Metrics/MethodLength:
   Max: 30
   Exclude: *xfiles
 
 Layout/LineLength:
-  Max: 180
+  Max: 165
   Exclude: *xfiles
 
 Layout/EmptyLines:
   Exclude: *xfiles
-
-Style/MutableConstant:
-  Exclude:
-    # CocoaPods mutates some input values.
-    # It's simpler to relax this rule than to address each individually by passing mutable copies.
-    - Gutenberg/cocoapods_helpers.rb
 
 Style/AsciiComments:
   Exclude: *xfiles
@@ -36,3 +29,6 @@ Style/AsciiComments:
 Naming/FileName:
   Exclude:
     - fastlane/Matchfile
+
+Style/HashSyntax:
+  EnforcedShorthandSyntax: never

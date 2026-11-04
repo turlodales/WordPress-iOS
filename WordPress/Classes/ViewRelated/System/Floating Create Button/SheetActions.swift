@@ -1,3 +1,5 @@
+import WordPressShared
+
 /// Common Actions used by CreateButtonActionSheet
 
 struct PostAction: ActionSheetItem {
@@ -7,15 +9,32 @@ struct PostAction: ActionSheetItem {
     private let action = "create_new_post"
 
     func makeButton() -> ActionSheetButton {
-        let highlight: Bool = QuickStartTourGuide.shared.shouldSpotlight(.newpost)
-        return ActionSheetButton(title: NSLocalizedString("Blog post", comment: "Create new Blog Post button title"),
-                                 image: .gridicon(.posts),
-                                 identifier: "blogPostButton",
-                                 highlight: highlight,
-                                 action: {
-                                    WPAnalytics.track(.createSheetActionTapped, properties: ["source": source, "action": action])
-                                    handler()
-                                 })
+        return ActionSheetButton(
+            title: Strings.post,
+            image: UIImage(named: "wpl-posts")?.withRenderingMode(.alwaysTemplate) ?? .init(),
+            identifier: "blogPostButton",
+            action: {
+                WPAnalytics.track(.createSheetActionTapped, properties: ["source": source, "action": action])
+                handler()
+            })
+    }
+}
+
+struct PostFromAudioAction: ActionSheetItem {
+    let handler: () -> Void
+    let source: String
+
+    private let action = "create_new_post_from_audio"
+
+    func makeButton() -> ActionSheetButton {
+        return ActionSheetButton(
+            title: Strings.postFromAudio,
+            image: .gridicon(.microphone),
+            identifier: "blogPostFromAudioButton",
+            action: {
+                WPAnalytics.track(.createSheetActionTapped, properties: ["source": source, "action": action])
+                handler()
+            })
     }
 }
 
@@ -26,31 +45,33 @@ struct PageAction: ActionSheetItem {
     private let action = "create_new_page"
 
     func makeButton() -> ActionSheetButton {
-        let highlight: Bool = QuickStartTourGuide.shared.shouldSpotlight(.newPage)
-        return ActionSheetButton(title: NSLocalizedString("Site page", comment: "Create new Site Page button title"),
-                                            image: .gridicon(.pages),
-                                            identifier: "sitePageButton",
-                                            highlight: highlight,
-                                            action: {
-                                                WPAnalytics.track(.createSheetActionTapped, properties: ["source": source, "action": action])
-                                                handler()
-                                            })
+        return ActionSheetButton(
+            title: Strings.page,
+            image: UIImage(named: "wpl-pages")?.withRenderingMode(.alwaysTemplate) ?? .init(),
+            identifier: "sitePageButton",
+            action: {
+                WPAnalytics.track(.createSheetActionTapped, properties: ["source": source, "action": action])
+                handler()
+            })
     }
 }
 
-struct StoryAction: ActionSheetItem {
+struct AnonymousAction: ActionSheetItem {
+    let title: String
     let handler: () -> Void
-    let source: String
-
-    private let action = "create_new_story"
 
     func makeButton() -> ActionSheetButton {
-        return ActionSheetButton(title: NSLocalizedString("Story post", comment: "Create new Story button title"),
-                                            image: .gridicon(.story),
-                                            identifier: "storyButton",
-                                            action: {
-                                                WPAnalytics.track(.createSheetActionTapped, properties: ["source": source, "action": action])
-                                                handler()
-                                            })
+        ActionSheetButton(
+            title: title,
+            image: UIImage(systemName: "bolt")!,
+            identifier: title,
+            action: handler
+        )
     }
+}
+
+private enum Strings {
+    static let post = NSLocalizedString("createSheet.post", value: "Post", comment: "Create Sheet button title")
+    static let postFromAudio = NSLocalizedString("createSheet.postFromAudio", value: "Post from Audio", comment: "Create Sheet button title")
+    static let page = NSLocalizedString("createSheet.page", value: "Page", comment: "Create Sheet button title")
 }

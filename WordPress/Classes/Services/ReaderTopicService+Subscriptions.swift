@@ -1,6 +1,8 @@
 import Foundation
+import WordPressData
 import WordPressKit
-
+import WordPressShared
+import WordPressSharedUI
 
 private enum SubscriptionAction {
     case notifications(siteId: Int)
@@ -14,7 +16,7 @@ extension ReaderTopicService {
 
     private func apiRequest() -> WordPressComRestApi {
         let api = coreDataStack.performQuery { context in
-            try? WPAccount.lookupDefaultWordPressComAccount(in: context)?.wordPressComRestApi
+            try? WPAccount.defaultWordPressComAccountRestAPI(in: context)
         }
         if let api, api.hasCredentials() {
             return api
@@ -30,12 +32,12 @@ extension ReaderTopicService {
         }
 
         if siteTopic.postSubscription == nil {
-            siteTopic.postSubscription = NSEntityDescription.insertNewObject(forEntityName: ReaderSiteInfoSubscriptionPost.classNameWithoutNamespaces(),
+            siteTopic.postSubscription = NSEntityDescription.insertNewObject(forEntityName: ReaderSiteInfoSubscriptionPost.entityName(),
                                                                              into: context) as? ReaderSiteInfoSubscriptionPost
         }
 
         if siteTopic.emailSubscription == nil {
-            siteTopic.emailSubscription = NSEntityDescription.insertNewObject(forEntityName: ReaderSiteInfoSubscriptionEmail.classNameWithoutNamespaces(),
+            siteTopic.emailSubscription = NSEntityDescription.insertNewObject(forEntityName: ReaderSiteInfoSubscriptionEmail.entityName(),
                                                                               into: context) as? ReaderSiteInfoSubscriptionEmail
         }
 
@@ -79,7 +81,6 @@ extension ReaderTopicService {
     }
 }
 
-
 extension ReaderTopicService {
     /// Toggle site notifications subscription for new post
     ///
@@ -89,7 +90,7 @@ extension ReaderTopicService {
     ///   - success: Success block
     ///   - failure: Failure block
     func toggleSubscribingNotifications(for siteId: Int?, subscribe: Bool, _ success: (() -> Void)? = nil, _ failure: ((ReaderTopicServiceError?) -> Void)? = nil) {
-        guard let siteId = siteId else {
+        guard let siteId else {
             failure?(.invalidId)
             return
         }
@@ -108,7 +109,6 @@ extension ReaderTopicService {
             self.toggleSiteNotifications(with: siteId, subscribe: subscribe, in: context, successBlock, failureBlock)
         }
     }
-
 
     // MARK: Private methods
 
@@ -137,7 +137,6 @@ extension ReaderTopicService {
     }
 }
 
-
 extension ReaderTopicService {
     /// Toggle site notifications subscription for new comments
     ///
@@ -147,7 +146,7 @@ extension ReaderTopicService {
     ///   - success: Success block
     ///   - failure: Failure block
     func toggleSubscribingComments(for siteId: Int?, subscribe: Bool, _ success: (() -> Void)? = nil, _ failure: ((ReaderTopicServiceError?) -> Void)? = nil) {
-        guard let siteId = siteId else {
+        guard let siteId else {
             failure?(.invalidId)
             return
         }
@@ -169,7 +168,6 @@ extension ReaderTopicService {
             self.togglePostComments(with: siteId, subscribe: subscribe, in: context, successBlock, failureBlock)
         }
     }
-
 
     // MARK: Private methods
 
@@ -198,7 +196,6 @@ extension ReaderTopicService {
     }
 }
 
-
 extension ReaderTopicService {
     /// Toggle email site notifications subscription for new post
     ///
@@ -208,7 +205,7 @@ extension ReaderTopicService {
     ///   - success: Success block
     ///   - failure: Failure block
     func toggleSubscribingEmail(for siteId: Int?, subscribe: Bool, _ success: (() -> Void)? = nil, _ failure: ((ReaderTopicServiceError?) -> Void)? = nil) {
-        guard let siteId = siteId else {
+        guard let siteId else {
             failure?(.invalidId)
             return
         }
@@ -230,7 +227,6 @@ extension ReaderTopicService {
             self.togglePostsEmail(with: siteId, subscribe: subscribe, in: context, successBlock, failureBlock)
         }
     }
-
 
     /// Update email site notifications subscription frequency
     ///
@@ -258,7 +254,6 @@ extension ReaderTopicService {
             self.updatePostsEmail(with: siteId, frequency: frequency, in: context, successBlock, failureBlock)
         }
     }
-
 
     // MARK: Private methods
 

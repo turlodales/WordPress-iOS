@@ -10,7 +10,7 @@ final class PostSearchViewController: UIViewController, UITableViewDelegate, UIS
 
     private let tableView = UITableView(frame: .zero, style: .plain)
 
-    private lazy var dataSource = UITableViewDiffableDataSource<SectionID, ItemID> (tableView: tableView) { [weak self] tableView, indexPath, itemIdentifier in
+    private lazy var dataSource = UITableViewDiffableDataSource<SectionID, ItemID> (tableView: tableView) { [weak self] tableView, indexPath, _ in
         self?.tableView(tableView, cellForRowAt: indexPath)
     }
 
@@ -56,6 +56,7 @@ final class PostSearchViewController: UIViewController, UITableViewDelegate, UIS
         tableView.dataSource = dataSource
         tableView.delegate = self
         tableView.sectionHeaderTopPadding = 0
+        tableView.cellLayoutMarginsFollowReadableWidth = true
     }
 
     private func bindViewModel() {
@@ -164,7 +165,6 @@ final class PostSearchViewController: UIViewController, UITableViewDelegate, UIS
 
             switch viewModel.posts[indexPath.row].latest() {
             case let post as Post:
-                guard post.status != .trash else { return }
                 delegate?.edit(post)
             case let page as Page:
                 guard page.status != .trash else { return }
@@ -235,10 +235,19 @@ final class PostSearchViewController: UIViewController, UITableViewDelegate, UIS
         for cell in cells {
             guard let cell = cell as? PostSearchResultCell else { continue }
 
-            assert(cell.attributedText != nil)
-            let string = NSMutableAttributedString(attributedString: cell.attributedText ?? .init())
-            PostSearchViewModel.highlight(terms: terms, in: string)
-            cell.attributedText = string
+            // Highlight title
+            if let titleText = cell.titleAttributedText {
+                let titleString = NSMutableAttributedString(attributedString: titleText)
+                PostSearchViewModel.highlight(terms: terms, in: titleString)
+                cell.titleAttributedText = titleString
+            }
+
+            // Highlight excerpt
+            if let excerptText = cell.excerptAttributedText {
+                let excerptString = NSMutableAttributedString(attributedString: excerptText)
+                PostSearchViewModel.highlight(terms: terms, in: excerptString)
+                cell.excerptAttributedText = excerptString
+            }
         }
     }
 }
@@ -250,5 +259,6 @@ private enum Constants {
 }
 
 protocol PostSearchResultCell: AnyObject {
-    var attributedText: NSAttributedString? { get set }
+    var titleAttributedText: NSAttributedString? { get set }
+    var excerptAttributedText: NSAttributedString? { get set }
 }

@@ -1,4 +1,4 @@
-import Foundation
+import UIKit
 
 struct NewPageRoute: Route {
     let path = "/page"
@@ -16,10 +16,6 @@ struct NewPageForSiteRoute: Route {
 
 struct NewPageNavigationAction: NavigationAction {
     func perform(_ values: [String: String], source: UIViewController? = nil, router: LinkRouter) {
-        if let blog = blog(from: values) {
-            RootViewCoordinator.sharedPresenter.showPageEditor(forBlog: blog)
-        } else {
-            RootViewCoordinator.sharedPresenter.showPageEditor()
-        }
+        RootViewCoordinator.sharedPresenter.showNewPageEditor(blog: blog(from: values))
     }
 }

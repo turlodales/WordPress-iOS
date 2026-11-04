@@ -1,87 +1,130 @@
+import BuildSettingsKit
+import Foundation
+import FoundationModels
+
 /// FeatureFlag exposes a series of features to be conditionally enabled on
 /// different builds.
 @objc
-enum FeatureFlag: Int, CaseIterable {
+public enum FeatureFlag: Int, CaseIterable {
+    case domainRegistration
+    case selfHostedSites
+    case whatsNew
+    case qrCodeLogin
     case bloggingPrompts
-    case jetpackDisconnect
-    case debugMenu
     case siteIconCreator
-    case statsNewInsights
     case betaSiteDesigns
-    case commentModerationUpdate
     case compliancePopover
     case googleDomainsCard
-    case newTabIcons
+    case voiceToContent
+    case selfHostedSiteUserManagement
+    case readerGutenbergCommentComposer
+    case pluginManagementOverhaul
+    case newStats
+    case intelligence
+    case newSupport
+    case nativeBlockInserter
+    case statsAds
+    case mediaLibraryV2
+    case commentsV2
 
-    /// Returns a boolean indicating if the feature is enabled
+    /// Returns a boolean indicating if the feature is enabled.
+    ///
+    /// - warning: If the feature is unconditionally enabled, it doesn't mean
+    /// that the flag can be removed. It provides a capability of conditionally
+    /// disabling a feature if necessary. Use your best judgmenet.
     var enabled: Bool {
         if let overriddenValue = FeatureFlagOverrideStore().overriddenValue(for: self) {
             return overriddenValue
         }
 
+        let app = BuildSettings.current.brand
+
         switch self {
+        case .domainRegistration:
+            return app == .jetpack || app == .reader
+        case .selfHostedSites:
+            return app != .reader
+        case .whatsNew:
+            return true
+        case .qrCodeLogin:
+            return app == .jetpack
         case .bloggingPrompts:
-            return AppConfiguration.isJetpack
-        case .jetpackDisconnect:
-            return BuildConfiguration.current == .localDeveloper
-        case .debugMenu:
-            return BuildConfiguration.current ~= [.localDeveloper, .a8cBranchTest, .a8cPrereleaseTesting]
+            return app == .jetpack || app == .reader
         case .siteIconCreator:
-            return BuildConfiguration.current != .appStore
-        case .statsNewInsights:
-            return AppConfiguration.statsRevampV2Enabled
+            return BuildConfiguration.current.isInternal
         case .betaSiteDesigns:
-            return false
-        case .commentModerationUpdate:
             return false
         case .compliancePopover:
             return true
         case .googleDomainsCard:
             return false
-        case .newTabIcons:
+        case .voiceToContent:
+            return app == .jetpack && BuildConfiguration.current.isInternal
+        case .selfHostedSiteUserManagement:
             return true
+        case .readerGutenbergCommentComposer:
+            return false
+        case .pluginManagementOverhaul:
+            return true
+        case .newStats:
+            return false
+        case .intelligence:
+            guard #available(iOS 26, *) else {
+                return false
+            }
+            return SystemLanguageModel.default.supportsLocale()
+        case .newSupport:
+            return false
+        case .nativeBlockInserter:
+            return true
+        case .statsAds:
+            return BuildConfiguration.current == .debug
+        case .mediaLibraryV2:
+            return BuildConfiguration.current == .debug
+        case .commentsV2:
+            return BuildConfiguration.current == .debug
         }
     }
 
     var disabled: Bool {
-        return enabled == false
+        enabled == false
     }
 }
 
 /// Objective-C bridge for FeatureFlag.
 ///
 /// Since we can't expose properties on Swift enums we use a class instead
-class Feature: NSObject {
+public class Feature: NSObject {
     /// Returns a boolean indicating if the feature is enabled
-    @objc static func enabled(_ feature: FeatureFlag) -> Bool {
-        return feature.enabled
+    @objc public static func enabled(_ feature: FeatureFlag) -> Bool {
+        feature.enabled
     }
 }
 
 extension FeatureFlag {
     /// Descriptions used to display the feature flag override menu in debug builds
-    var description: String {
+    public var description: String {
         switch self {
-        case .bloggingPrompts:
-            return "Blogging Prompts"
-        case .jetpackDisconnect:
-            return "Jetpack disconnect"
-        case .debugMenu:
-            return "Debug menu"
-        case .siteIconCreator:
-            return "Site Icon Creator"
-        case .statsNewInsights:
-            return "New Cards for Stats Insights"
-        case .betaSiteDesigns:
-            return "Fetch Beta Site Designs"
-        case .commentModerationUpdate:
-            return "Comments Moderation Update"
-        case .compliancePopover:
-            return "Compliance Popover"
-        case .googleDomainsCard:
-            return "Google Domains Promotional Card"
-        case .newTabIcons:
-            return "New Tab Icons"
+        case .domainRegistration: "Domain Registration"
+        case .selfHostedSites: "Self-Hosted Sites"
+        case .whatsNew: "What's New"
+        case .qrCodeLogin: "QR Code Login"
+        case .bloggingPrompts: "Blogging Prompts"
+        case .siteIconCreator: "Site Icon Creator"
+        case .betaSiteDesigns: "Fetch Beta Site Designs"
+        case .compliancePopover: "Compliance Popover"
+        case .googleDomainsCard: "Google Domains Promotional Card"
+        case .voiceToContent: "Voice to Content"
+        case .selfHostedSiteUserManagement: "Self-hosted Site User Management"
+        case .pluginManagementOverhaul: "Plugin Management Overhaul"
+        case .readerGutenbergCommentComposer: "Gutenberg Comment Composer"
+        case .newStats: "New Stats"
+        case .intelligence: "Intelligence"
+        case .newSupport: "New Support"
+        case .nativeBlockInserter: "Native Block Inserter"
+        case .statsAds: "Stats Ads Tab"
+        case .mediaLibraryV2: "Media Library v2"
+        case .commentsV2: "Comments v2"
         }
     }
 }
@@ -89,15 +132,22 @@ extension FeatureFlag {
 extension FeatureFlag: OverridableFlag {
 
     var originalValue: Bool {
-        return enabled
+        enabled
     }
 
-    var canOverride: Bool {
-        switch self {
-        case .debugMenu:
-            return false
-        default:
-            return true
-        }
+    var key: String {
+        let key = String(describing: self)
+        return "ff-override-\(key)"
+    }
+}
+
+extension FeatureFlag: RolloutConfigurableFlag {
+    /// Represents the percentage of users to roll the flag out to.
+    ///
+    /// To set a percentage rollout, return a value between 0.0 and 1.0.
+    /// If a percentage rollout isn't applicable for the flag, return nil.
+    ///
+    var rolloutPercentage: Double? {
+        nil
     }
 }

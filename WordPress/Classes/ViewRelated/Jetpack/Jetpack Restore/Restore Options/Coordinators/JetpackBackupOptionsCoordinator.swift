@@ -1,4 +1,7 @@
 import Foundation
+import WordPressData
+import WordPressShared
+import WordPressKit
 
 protocol JetpackBackupOptionsView {
     func showNoInternetConnection()
@@ -24,7 +27,7 @@ class JetpackBackupOptionsCoordinator {
          restoreTypes: JetpackRestoreTypes,
          view: JetpackBackupOptionsView,
          service: JetpackBackupService? = nil,
-         coreDataStack: CoreDataStack = ContextManager.sharedInstance()) {
+         coreDataStack: CoreDataStack = ContextManager.shared) {
         self.service = service ?? JetpackBackupService(coreDataStack: coreDataStack)
         self.site = site
         self.rewindID = rewindID
@@ -48,7 +51,6 @@ class JetpackBackupOptionsCoordinator {
             }
 
             self?.view.showBackupStarted(for: backup.downloadID)
-
         }, failure: { [weak self] error in
             DDLogError("Error preparing downloadable backup object: \(error.localizedDescription)")
 

@@ -1,10 +1,21 @@
 import UIKit
+import WordPressShared
+import AsyncImageKit
 import AutomatticTracks
+import BuildSettingsKit
 import SwiftUI
+import WordPressData
 import WordPressFlux
+import TipKit
+import PulseUI
+import Support
 
 struct DebugMenuView: View {
     @StateObject private var viewModel = DebugMenuViewModel()
+    @State private var isShowingWebViewURLDialog = false
+    @State private var webViewURL = ""
+    @State private var isAuthenticatedMode = true
+    @State private var imageCacheSize: String = ""
 
     fileprivate var navigation: NavigationContext
 
@@ -12,14 +23,30 @@ struct DebugMenuView: View {
         List {
             Section { main }
             Section(Strings.sectionSettings) { settings }
-            if let blog = viewModel.blog {
-                Section(Strings.sectionQuickStart) { makeQuickStart(with: blog) }
-            }
+            Section(Strings.sectionTipKit) { tipKit }
+            Section(Strings.sectionWebView) { webView }
             Section(Strings.sectionLogging) { logging }
+            Section(Strings.sectionCaches) { caches }
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 (Text(Image(systemName: "bolt.fill")).foregroundColor(.yellow) + Text(" " + Strings.title)).font(.headline)
+            }
+        }
+        .alert(Strings.webViewDialogTitle, isPresented: $isShowingWebViewURLDialog) {
+            TextField("https://example.com", text: $webViewURL)
+                .keyboardType(.URL)
+                .textContentType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button(SharedStrings.Button.cancel, role: .cancel) {
+            }
+            Button(SharedStrings.Button.view) {
+                if isAuthenticatedMode {
+                    presentAuthenticatedWebView()
+                } else {
+                    presentUnauthenticatedWebView()
+                }
             }
         }
     }
@@ -29,6 +56,19 @@ struct DebugMenuView: View {
             DebugFeatureFlagsView()
         } label: {
             DebugMenuRow(systemImage: "flag.fill", color: .pink, title: Strings.featureFlags)
+        }
+        if ExtensiveLogging.enabled {
+            NavigationLink {
+                PulseUI.ConsoleView()
+                    .closeButtonHidden()
+            } label: {
+                DebugMenuRow(systemImage: "message.fill", color: .green, title: Strings.logs)
+            }
+        }
+        NavigationLink() {
+            BooleanUserDefaultsDebugView()
+        } label: {
+            DebugMenuRow(systemImage: "server.rack", color: .gray, title: Strings.booleanUserDefaults)
         }
     }
 
@@ -45,24 +85,44 @@ struct DebugMenuView: View {
         NavigationLink(Strings.readerCssTitle) {
             readerSettings
         }
+        Button(Strings.showReaderInterests) {
+            presentReaderInterests()
+        }
+        Button(Strings.resetReaderInterestsPrompt) {
+            UserDefaults.standard.readerDidSelectInterestsKey = false
+            // A bare emoji notice is illegible on the notice's inverted
+            // background in dark mode; a text title renders legibly in both.
+            let notice = Notice(title: Strings.readerInterestsPromptResetNotice, feedbackType: .success)
+            ActionDispatcher.dispatch(NoticeAction.post(notice))
+        }
     }
 
-    @ViewBuilder private func makeQuickStart(with blog: Blog) -> some View {
-        Button(Strings.quickStartForNewSiteRow) {
-            QuickStartTourGuide.shared.setup(for: blog, type: .newSite)
-            viewModel.objectWillChange.send() // Refresh
+    @ViewBuilder private var tipKit: some View {
+        Button(Strings.showAllTips) {
+            Tips.showAllTipsForTesting()
             showSuccessNotice()
         }
-        Button(Strings.quickStartForExistingSiteRow) {
-            QuickStartTourGuide.shared.setup(for: blog, type: .existingSite)
-            viewModel.objectWillChange.send() // Refresh
+        Button(Strings.hideAllTips) {
+            Tips.hideAllTipsForTesting()
             showSuccessNotice()
         }
-        Button(Strings.removeQuickStartRow, role: .destructive) {
-            QuickStartTourGuide.shared.remove(from: blog)
-            viewModel.objectWillChange.send() // Refresh
+        Button(Strings.resetTipKitData, role: .destructive) {
+            try? Tips.resetDatastore()
             showSuccessNotice()
-        }.disabled(blog.quickStartType == .undefined)
+        }
+    }
+
+    @ViewBuilder private var webView: some View {
+        Button(Strings.webViewRow) {
+            webViewURL = Blog.lastUsed(in: ContextManager.shared.mainContext)?.url ?? ""
+            isAuthenticatedMode = true
+            isShowingWebViewURLDialog = true
+        }
+        Button(Strings.unauthenticatedWebViewRow) {
+            webViewURL = ""
+            isAuthenticatedMode = false
+            isShowingWebViewURLDialog = true
+        }
     }
 
     @ViewBuilder private var logging: some View {
@@ -82,7 +142,7 @@ struct DebugMenuView: View {
                 HStack {
                     Text(Strings.encryptedLogging)
                     Spacer()
-                    Image(systemName: "chevron.right")
+                    Image(systemName: "chevron.forward")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary.opacity(0.5))
                 }
@@ -90,6 +150,70 @@ struct DebugMenuView: View {
             }.buttonStyle(.plain)
         }
         Toggle(Strings.alwaysSendLogs, isOn: $viewModel.isForcedCrashLoggingEnabled)
+    }
+
+    @ViewBuilder private var caches: some View {
+        HStack {
+            Text(Strings.imageCache)
+            Spacer()
+            Text(imageCacheSize)
+                .foregroundStyle(.secondary)
+            Button {
+                Task {
+                    await ImageDownloader.shared.clearURLSessionCache()
+                    await ImageDownloader.shared.clearMemoryCache()
+                    await refreshImageCacheSize()
+                    showSuccessNotice()
+                }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .task { await refreshImageCacheSize() }
+    }
+
+    private func refreshImageCacheSize() async {
+        let bytes = await ImageDownloader.shared.diskCacheSize
+        imageCacheSize = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+
+    private func presentAuthenticatedWebView() {
+        guard let url = URL(string: webViewURL) else {
+            preconditionFailure("Invalid URL")
+        }
+
+        guard let currentBlog = Blog.lastUsed(in: ContextManager.shared.mainContext) else {
+            preconditionFailure("Can't get current blog")
+        }
+
+        let webViewController = WebViewControllerFactory.controller(
+            url: url,
+            blog: currentBlog,
+            source: "debug_menu"
+        )
+        navigation.push(webViewController)
+    }
+
+    private func presentUnauthenticatedWebView() {
+        guard let url = URL(string: webViewURL) else {
+            preconditionFailure("Invalid URL")
+        }
+
+        let webViewController = WebViewControllerFactory.controller(url: url, source: "debug_menu")
+        navigation.push(webViewController)
+    }
+
+    /// Presents the Reader "Discover" select-interests screen directly, bypassing
+    /// the `readerDidSelectInterestsKey` flag *and* the `isFollowingInterests`
+    /// check that normally gate it, so it can be inspected on any account.
+    private func presentReaderInterests() {
+        let interestsViewController = ReaderSelectInterestsViewController(configuration: .discover)
+        interestsViewController.didSaveInterests = { [weak interestsViewController] _ in
+            interestsViewController?.presentingViewController?.dismiss(animated: true)
+        }
+        navigation.parentViewController?.present(interestsViewController, animated: true)
     }
 
     private var readerSettings: some View {
@@ -109,10 +233,6 @@ private func showSuccessNotice() {
 }
 
 private final class DebugMenuViewModel: ObservableObject {
-    var blog: Blog? {
-        RootViewCoordinator.sharedPresenter.mySitesCoordinator.currentBlog
-    }
-
     var isForcedCrashLoggingEnabled: Bool {
         get { UserSettings.userHasForcedCrashLoggingEnabled }
         set {
@@ -153,18 +273,19 @@ final class DebugMenuViewController: UIHostingController<DebugMenuView> {
     }
 
     static func configure(in window: UIWindow?) {
-        guard FeatureFlag.debugMenu.enabled else {
+        guard BuildConfiguration.current.isInternal else {
             return
         }
+
         assert(window != nil)
 
-        let gesture = UIScreenEdgePanGestureRecognizer(target: DebugMenuViewController.self, action: #selector(showDebugMenu))
+        let gesture = UIScreenEdgePanGestureRecognizer(target: DebugMenuViewController.self, action: #selector(showDebugMenu(_:)))
         gesture.edges = .right
         window?.addGestureRecognizer(gesture)
     }
 
-    @objc private static func showDebugMenu() {
-        guard let window = UIApplication.sharedIfAvailable()?.mainWindow,
+    @objc private static func showDebugMenu(_ sender: UIScreenEdgePanGestureRecognizer) {
+        guard let window = sender.view as? UIWindow,
               let topViewController = window.topmostPresentedViewController,
               !((topViewController as? UINavigationController)?.viewControllers.first is DebugMenuViewController) else {
             return
@@ -173,10 +294,8 @@ final class DebugMenuViewController: UIHostingController<DebugMenuView> {
         viewController.navigationItem.leftBarButtonItem = UIBarButtonItem(systemItem: .close, primaryAction: .init { [weak topViewController] _ in
             topViewController?.dismiss(animated: true)
         })
-        viewController.configureDefaultNavigationBarAppearance()
 
         let navigation = UINavigationController(rootViewController: viewController)
-        navigation.navigationBar.isTranslucent = true // Reset to default
         topViewController.present(navigation, animated: true)
     }
 }
@@ -202,10 +321,9 @@ private enum Strings {
     static let title = NSLocalizedString("debugMenu.title", value: "Developer", comment: "Title for debug menu screen")
     static let sectionSettings = NSLocalizedString("debugMenu.section.settings", value: "Settings", comment: "Debug Menu section title")
     static let sectionLogging = NSLocalizedString("debugMenu.section.logging", value: "Logging", comment: "Debug Menu section title")
-    static let sectionQuickStart = NSLocalizedString("debugMenu.section.quickStart", value: "Quick Start", comment: "Debug Menu section title")
+    static let sectionTipKit = NSLocalizedString("debugMenu.section.tipKit", value: "TipKit", comment: "Debug Menu section title")
+    static let sectionWebView = NSLocalizedString("debugMenu.section.webView", value: "Web View", comment: "Debug Menu section title")
     static let sandboxStoreCookieSecretRow = NSLocalizedString("Sandbox Store", comment: "Title of a row displayed on the debug screen used to configure the sandbox store use in the App.")
-    static let quickStartForNewSiteRow = NSLocalizedString("Enable Quick Start for New Site", comment: "Title of a row displayed on the debug screen used in debug builds of the app")
-    static let quickStartForExistingSiteRow = NSLocalizedString("Enable Quick Start for Existing Site", comment: "Title of a row displayed on the debug screen used in debug builds of the app")
     static let sendTestCrash = NSLocalizedString("Send Test Crash", comment: "Title of a row displayed on the debug screen used to crash the app and send a crash report to the crash logging provider to ensure everything is working correctly")
     static let sendLogMessage = NSLocalizedString("Send Log Message", comment: "Title of a row displayed on the debug screen used to send a pretend error message to the crash logging provider to ensure everything is working correctly")
     static let alwaysSendLogs = NSLocalizedString("Always Send Crash Logs", comment: "Title of a row displayed on the debug screen used to indicate whether crash logs should be forced to send, even if they otherwise wouldn't")
@@ -213,9 +331,23 @@ private enum Strings {
     static let readerCssTitle = NSLocalizedString("debugMenu.readerCellTitle", value: "Reader CSS URL", comment: "Title of the screen that allows the user to change the Reader CSS URL for debug builds")
     static let readerURLPlaceholder = NSLocalizedString("debugMenu.readerDefaultURL", value: "Default URL", comment: "Placeholder for the reader CSS URL")
     static let readerURLHint = NSLocalizedString("debugMenu.readerHit", value: "Add a custom CSS URL here to be loaded in Reader. If you're running Calypso locally this can be something like: http://192.168.15.23:3000/calypso/reader-mobile.css", comment: "Hint for the reader CSS URL field")
+    static let showReaderInterests = NSLocalizedString("debugMenu.showReaderInterests", value: "Show Reader Interests Screen", comment: "Debug menu action that presents the Reader select interests screen")
+    static let resetReaderInterestsPrompt = NSLocalizedString("debugMenu.resetReaderInterestsPrompt", value: "Reset Reader Interests Prompt", comment: "Debug menu action that clears the flag so the Reader select interests prompt can appear again")
+    static let readerInterestsPromptResetNotice = NSLocalizedString("debugMenu.readerInterestsPromptReset", value: "Reader interests prompt reset", comment: "Debug menu confirmation shown after clearing the flag that suppresses the Reader select interests prompt")
     static let remoteConfigTitle = NSLocalizedString("debugMenu.remoteConfig.title", value: "Remote Config", comment: "Remote Config debug menu title")
     static let analyics = NSLocalizedString("debugMenu.analytics", value: "Analytics", comment: "Debug menu item title")
     static let featureFlags = NSLocalizedString("debugMenu.featureFlags", value: "Feature Flags", comment: "Feature flags menu item")
-    static let removeQuickStartRow = NSLocalizedString("debugMenu.removeQuickStart", value: "Remove Current Tour", comment: "Remove current quick start tour menu item")
     static let weeklyRoundup = NSLocalizedString("debugMenu.weeklyRoundup", value: "Weekly Roundup", comment: "Weekly Roundup debug menu item")
+    static let booleanUserDefaults = NSLocalizedString("debugMenu.booleanUserDefaults", value: "Boolean User Defaults", comment: "Boolean User Defaults debug menu item")
+    static let webViewRow = NSLocalizedString("debugMenu.webView.row", value: "Browse as loggedin account", comment: "Debug menu item to present an authenticated web view for the currently displayed site")
+    static let unauthenticatedWebViewRow = NSLocalizedString("debugMenu.webView.unauthenticatedRow", value: "Open a web browser", comment: "Debug menu item to present an unauthenticated web view")
+    static let webViewDialogTitle = NSLocalizedString("debugMenu.webView.dialogTitle", value: "Enter URL", comment: "Title for web view URL input dialog")
+    static let logs = NSLocalizedString("debugMenu.item.logs", value: "Logs", comment: "Debug Menu item title")
+
+    static let showAllTips = NSLocalizedString("debugMenu.showAllTips", value: "Show All Tips", comment: "Debug Menu action for TipKit")
+    static let hideAllTips = NSLocalizedString("debugMenu.hideAllTips", value: "Hide All Tips", comment: "Debug Menu action for TipKit")
+    static let resetTipKitData = NSLocalizedString("debugMenu.resetTipKitData", value: "Reset Data", comment: "Debug Menu action for TipKit")
+
+    static let sectionCaches = NSLocalizedString("debugMenu.section.caches", value: "Caches", comment: "Debug Menu section title")
+    static let imageCache = NSLocalizedString("debugMenu.caches.imageCache", value: "Image Cache", comment: "Debug Menu label for image cache size")
 }

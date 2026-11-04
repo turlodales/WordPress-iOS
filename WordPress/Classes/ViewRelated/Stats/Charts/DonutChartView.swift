@@ -39,7 +39,7 @@ class DonutChartView: UIView {
 
     var totalCount: CGFloat = 0 {
         didSet {
-            totalCountLabel.text = Float(totalCount).abbreviatedString()
+            totalCountLabel.text = Double(totalCount).abbreviatedString()
         }
     }
 
@@ -57,12 +57,17 @@ class DonutChartView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
 
-        backgroundColor = .basicBackground
+        backgroundColor = .clear
 
         configureChartContainer()
         configureTitleViews()
         configureLegend()
         configureConstraints()
+
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
+            self.updateLegendAxis()
+        }
+        updateLegendAxis()
     }
 
     required init?(coder: NSCoder) {
@@ -178,7 +183,7 @@ class DonutChartView: UIView {
         // Here we'll increase the size of small segments if necessary. We loop through segments.count times
         // to ensure that after each adjustment the remaining segments are still an acceptable size.
         var displaySegments = adjustedSegmentsForDisplay(segments)
-        for _ in 0..<segments.count-1 {
+        for _ in 0..<segments.count - 1 {
             displaySegments = adjustedSegmentsForDisplay(displaySegments)
         }
 
@@ -203,7 +208,7 @@ class DonutChartView: UIView {
             currentTotal = segmentEndPercentage
 
             let startAngle = segmentStartPercentage.radiansFromPercent().radiansRotated(byDegrees: Constants.chartRotationDegrees) + endCapOffset
-            let endAngle =  segmentEndPercentage.radiansFromPercent().radiansRotated(byDegrees: Constants.chartRotationDegrees) - endCapOffset
+            let endAngle = segmentEndPercentage.radiansFromPercent().radiansRotated(byDegrees: Constants.chartRotationDegrees) - endCapOffset
 
             let path = UIBezierPath(arcCenter: chartCenterPoint,
                                     radius: chartRadius,
@@ -233,7 +238,7 @@ class DonutChartView: UIView {
         // need to adjust it to match the minimum, and add it to the array.
         let totalAdjustment: CGFloat = belowMinimumSegments.reduce(0) { $0 + minimumSizePercentage - $1.value }
 
-        guard belowMinimumSegments.count > 0 else {
+        guard !belowMinimumSegments.isEmpty else {
             return segments
         }
 
@@ -258,9 +263,7 @@ class DonutChartView: UIView {
 
     // MARK: - Dynamic Type
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
+    private func updateLegendAxis() {
         if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
             legendStackView.axis = .vertical
             legendStackView.alignment = .leading

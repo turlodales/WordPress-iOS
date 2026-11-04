@@ -1,38 +1,75 @@
-# Nodes with values to reuse in the pipeline.
-common_params:
-  # Common plugin settings to use with the `plugins` key.
-  - &common_plugins
-    - automattic/a8c-ci-toolkit#2.18.1
-  # Common environment values to use with the `env` key.
-  - &common_env
-    # Be sure to also update the `.xcode-version` file when updating the Xcode image/version here
-    IMAGE_ID: xcode-15.1
+# yaml-language-server: $schema=https://raw.githubusercontent.com/buildkite/pipeline-schema/main/schema.json
+---
+
+# Most of the steps need to run on a macOS agent, so let's define it as a root property.
+agents:
+  queue: mac
+env:
+  IMAGE_ID: $IMAGE_ID
 
 # This is the default pipeline – it will build and test the app
 steps:
-
   #################
-  # Create Prototype Builds for WP and JP
+  # Continuous Delivery: build & upload each app to TestFlight (internal testers) from trunk
   #################
-  - group: "🛠 Prototype Builds"
+  - group: ":testflight: TestFlight Builds"
+    key: testflight_builds_group
     steps:
-      - label: "🛠 WordPress Prototype Build"
-        command: ".buildkite/commands/prototype-build-wordpress.sh"
-        env: *common_env
-        plugins: *common_plugins
-        if: "build.pull_request.id != null || build.pull_request.draft"
+      # Reader is omitted: its App Store archive has been broken since #25321
+      # (PostHelper moved to the app target without updating the Reader target),
+      # and went undetected after #25179 removed Reader from CI. Re-add once
+      # the Reader target archives again.
+      - label: ":wordpress: :testflight: Build & Upload WordPress"
+        key: testflight_upload_wordpress
+        command: ".buildkite/commands/build-and-upload-testflight.sh wordpress"
+        plugins: [$CI_TOOLKIT_PLUGIN]
+        if: "build.branch == 'trunk'"
         notify:
           - github_commit_status:
-              context: "WordPress Prototype Build"
+              context: "TestFlight Build (wordpress)"
 
-      - label: "🛠 Jetpack Prototype Build"
-        command: ".buildkite/commands/prototype-build-jetpack.sh"
-        env: *common_env
-        plugins: *common_plugins
-        if: "build.pull_request.id != null || build.pull_request.draft"
+      - label: ":jetpack: :testflight: Build & Upload Jetpack"
+        key: testflight_upload_jetpack
+        command: ".buildkite/commands/build-and-upload-testflight.sh jetpack"
+        plugins: [$CI_TOOLKIT_PLUGIN]
+        if: "build.branch == 'trunk'"
         notify:
           - github_commit_status:
-              context: "Jetpack Prototype Build"
+              context: "TestFlight Build (jetpack)"
+
+      # Waiting for App Store Connect to process the upload needs no Xcode, so it doesn't hold a Mac.
+      - label: ":wordpress: :testflight: Process WordPress"
+        command: ".buildkite/commands/finalize-testflight-build.sh wordpress"
+        depends_on: testflight_upload_wordpress
+        if: "build.branch == 'trunk'"
+        agents:
+          queue: "default"
+        plugins:
+          - $DOCKER_PLUGIN: &testflight_processing_docker
+              image: "$DOCKER_RUBY_FULL_IMAGE"
+              # An explicit pull is retried by the plugin; the one implied by `docker run` is not.
+              always-pull: true
+              mount-buildkite-agent: true
+              propagate-environment: true
+              environment:
+                - APP_STORE_CONNECT_API_KEY_KEY_ID
+                - APP_STORE_CONNECT_API_KEY_ISSUER_ID
+                - APP_STORE_CONNECT_API_KEY_KEY
+        notify:
+          - github_commit_status:
+              context: "TestFlight Processing (WordPress)"
+
+      - label: ":jetpack: :testflight: Process Jetpack"
+        command: ".buildkite/commands/finalize-testflight-build.sh jetpack"
+        depends_on: testflight_upload_jetpack
+        if: "build.branch == 'trunk'"
+        agents:
+          queue: "default"
+        plugins:
+          - $DOCKER_PLUGIN: *testflight_processing_docker
+        notify:
+          - github_commit_status:
+              context: "TestFlight Processing (Jetpack)"
 
   #################
   # Create Builds for Testing
@@ -42,8 +79,7 @@ steps:
       - label: "🛠 :wordpress: Build for Testing"
         key: "build_wordpress"
         command: ".buildkite/commands/build-for-testing.sh wordpress"
-        env: *common_env
-        plugins: *common_plugins
+        plugins: [$CI_TOOLKIT_PLUGIN]
         notify:
           - github_commit_status:
               context: "WordPress Build for Testing"
@@ -51,8 +87,7 @@ steps:
       - label: "🛠 :jetpack: Build for Testing"
         key: "build_jetpack"
         command: ".buildkite/commands/build-for-testing.sh jetpack"
-        env: *common_env
-        plugins: *common_plugins
+        plugins: [$CI_TOOLKIT_PLUGIN]
         notify:
           - github_commit_status:
               context: "Jetpack Build for Testing"
@@ -60,76 +95,109 @@ steps:
   #################
   # Run Unit Tests
   #################
-  - label: "🔬 :wordpress: Unit Tests"
-    command: ".buildkite/commands/run-unit-tests.sh"
-    depends_on: "build_wordpress"
-    env: *common_env
-    plugins: *common_plugins
-    artifact_paths:
-      - "build/results/*"
-    notify:
-      - github_commit_status:
-          context: "Unit Tests"
-
-  #################
-  # UI Tests
-  #################
-  - group: "🔬 UI Tests"
+  - group: "🔬 Unit Tests"
+    key: unit_tests_group
     steps:
-      - label: "🔬 :jetpack: UI Tests (iPhone)"
-        command: .buildkite/commands/run-ui-tests.sh 'iPhone 15'
-        depends_on: "build_jetpack"
-        env: *common_env
-        plugins: *common_plugins
-        artifact_paths:
-          - "build/results/*"
-          - "build/results/crashes/*"
+      - label: "🔬 :swift: Swift Package Tests and String Catalog Coverage"
+        command: .buildkite/commands/run-swift-package-tests.sh
+        plugins: [$CI_TOOLKIT_PLUGIN]
         notify:
           - github_commit_status:
-              context: "UI Tests (iPhone)"
+              context: "Swift Package Tests"
 
-      - label: "🔬 :jetpack: UI Tests (iPad)"
-        command: .buildkite/commands/run-ui-tests.sh 'iPad Pro (12.9-inch) (6th generation)'
-        depends_on: "build_jetpack"
-        env: *common_env
-        plugins: *common_plugins
+      - label: "🔬 :wordpress: Unit Tests"
+        command: ".buildkite/commands/run-unit-tests.sh"
+        depends_on: "build_wordpress"
+        plugins:
+          - $CI_TOOLKIT_PLUGIN
+          - ${TEST_COLLECTOR}:
+              files: build/results/report.junit
+              format: junit
+              missing-error: 0
+              api-token-env-name: BUILDKITE_ANALYTICS_TOKEN_UNIT_TESTS
         artifact_paths:
           - "build/results/*"
-          - "build/results/crashes/*"
+        retry:
+          automatic:
+            - exit_status: "*"
+              limit: 1
         notify:
           - github_commit_status:
-              context: "UI Tests (iPad)"
+              context: "Unit Tests"
+      # Disabled till https://github.com/wordpress-mobile/WordPress-iOS/pull/24537 is completed
+      # - label: "🔬 Keystone Unit Tests"
+      #   command: .buildkite/commands/run-unit-tests-for-scheme.sh Keystone
+      #   plugins: [$CI_TOOLKIT_PLUGIN]
+      #   artifact_paths:
+      #     - "build/results/*"
+      #   notify:
+      #     - github_commit_status:
+      #         context: "Unit Tests Keystone"
 
   #################
   # Linters
   #################
   - group: "Linters"
+    key: linters_group
     steps:
-      - label: "☢️ Danger - PR Check"
-        command: .buildkite/commands/danger-pr-check.sh
-        plugins:
-          - docker#v5.8.0:
-              image: "public.ecr.aws/docker/library/ruby:3.2.2"
-              propagate-environment: true
-              environment:
-                - "DANGER_GITHUB_API_TOKEN"
-        if: "build.pull_request.id != null"
-        agents:
-          queue: "default"
+      - label: ":danger: Danger - PR Check"
+        command: danger
+        key: danger
+        # No "build.pull_request.id" condition as we want this check to run also on merge queues where it is a no-op
         retry:
           manual:
             permit_on_passed: true
+        agents:
+          queue: "linter"
+
+      - label: ":swift: SwiftLint"
+        command: swiftlint
+        notify:
+          - github_commit_status:
+              context: "SwiftLint"
+        agents:
+          queue: "linter"
+
       - label: "🧹 Lint Translations"
         command: "gplint /workdir/WordPress/Resources/AppStoreStrings.po"
         plugins:
-          - docker#v3.8.0:
+          - $DOCKER_PLUGIN:
               image: "public.ecr.aws/automattic/glotpress-validator:1.0.0"
+              # An explicit pull is retried by the plugin; the one implied by `docker run` is not.
+              always-pull: true
         agents:
           queue: "default"
         notify:
           - github_commit_status:
               context: "Lint Translations"
+
       - label: ":sleuth_or_spy: Lint Localized Strings Format"
         command: .buildkite/commands/lint-localized-strings-format.sh
-        plugins: *common_plugins
-        env: *common_env
+        plugins: [$CI_TOOLKIT_PLUGIN]
+
+      - label: ":test_tube: Localization Tooling Unit Tests"
+        command: .buildkite/commands/test-localization-tooling.sh
+        # Pure Ruby, so it runs in a Ruby container on the Linux queue instead of booting a Mac VM.
+        agents:
+          queue: "default"
+        plugins:
+          - $DOCKER_PLUGIN:
+              image: "$DOCKER_RUBY_IMAGE"
+              # An explicit pull is retried by the plugin; the one implied by `docker run` is not.
+              always-pull: true
+        notify:
+          - github_commit_status:
+              context: "Localization Tooling Unit Tests"
+
+  #################
+  # Claude Build Analysis - dynamically uploaded so Build result conditions evaluate at runtime after the wait
+  #################
+  - label: ":claude: 🕵️ Check for Build Failures and Run Claude Analysis"
+    command: .buildkite/commands/upload-claude-analysis.sh
+    # Add specific group dependencies. Using a `wait` step wouldn't work as it would never start given the prompt block
+    depends_on:
+      - linters_group
+      - unit_tests_group
+    allow_dependency_failure: true
+    agents:
+      queue: upload

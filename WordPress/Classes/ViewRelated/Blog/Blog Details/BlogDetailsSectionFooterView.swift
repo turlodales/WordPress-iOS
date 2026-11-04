@@ -1,22 +1,23 @@
 import UIKit
+import WordPressUI
 
-class BlogDetailsSectionFooterView: UITableViewHeaderFooterView {
+public class BlogDetailsSectionFooterView: UITableViewHeaderFooterView {
     private let titleLabel: UILabel = {
         let titleLabel = UILabel()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.numberOfLines = 0
-        titleLabel.font = WPStyleGuide.tableviewSectionFooterFont()
-        titleLabel.textColor = .neutral(.shade40)
+        titleLabel.font = .preferredFont(forTextStyle: .footnote)
+        titleLabel.textColor = UIAppColor.neutral(.shade40)
         return titleLabel
     }()
     private let spacerView = UIView(frame: .zero)
 
-    override public init(reuseIdentifier: String?) {
+    public override init(reuseIdentifier: String?) {
         super.init(reuseIdentifier: reuseIdentifier)
         setupSubviews()
     }
 
-    required public init?(coder aDecoder: NSCoder) {
+    public required init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
         setupSubviews()
     }
@@ -34,11 +35,11 @@ class BlogDetailsSectionFooterView: UITableViewHeaderFooterView {
             stackView.bottomAnchor.constraint(equalTo: contentView.readableContentGuide.bottomAnchor),
             // Spacer view.
             spacerView.heightAnchor.constraint(equalToConstant: 20),
-            ])
+        ])
         updateUI(title: nil, shouldShowExtraSpacing: false)
     }
 
-    @objc func updateUI(title: String?, shouldShowExtraSpacing: Bool) {
+    @objc public func updateUI(title: String?, shouldShowExtraSpacing: Bool) {
         titleLabel.text = title
         spacerView.isHidden = !shouldShowExtraSpacing
     }

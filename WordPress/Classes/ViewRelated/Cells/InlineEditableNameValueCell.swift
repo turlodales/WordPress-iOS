@@ -1,23 +1,29 @@
 import UIKit
-import WordPressAuthenticator
+import WordPressShared
+import WordPressUI
 
 @objc protocol InlineEditableNameValueCellDelegate: AnyObject {
-    @objc optional func inlineEditableNameValueCell(_ cell: InlineEditableNameValueCell,
-                                                    valueTextFieldDidChange value: String)
-    @objc optional func inlineEditableNameValueCell(_ cell: InlineEditableNameValueCell,
-                                                    valueTextFieldEditingDidEnd text: String)
-    @objc optional func inlineEditableNameValueCell(_ cell: InlineEditableNameValueCell,
-                                                    valueTextFieldShouldReturn textField: UITextField) -> Bool
-
+    @objc optional func inlineEditableNameValueCell(
+        _ cell: InlineEditableNameValueCell,
+        valueTextFieldDidChange value: String
+    )
+    @objc optional func inlineEditableNameValueCell(
+        _ cell: InlineEditableNameValueCell,
+        valueTextFieldEditingDidEnd text: String
+    )
+    @objc optional func inlineEditableNameValueCell(
+        _ cell: InlineEditableNameValueCell,
+        valueTextFieldShouldReturn textField: UITextField
+    ) -> Bool
 }
 
-class InlineEditableNameValueCell: WPTableViewCell, NibReusable {
+class InlineEditableNameValueCell: WPTableViewCell, Reusable {
     typealias ValueSanitizerBlock = (_ value: String?) -> String?
 
     fileprivate enum Const {
         enum Color {
-            static let nameText = UIColor.text
-            static let valueText = UIColor.textSubtle
+            static let nameText = UIColor.label
+            static let valueText = UIColor.secondaryLabel
         }
 
         enum Text {
@@ -26,9 +32,26 @@ class InlineEditableNameValueCell: WPTableViewCell, NibReusable {
         }
     }
 
-    @IBOutlet weak var nameValueWidthRatioConstraint: NSLayoutConstraint!
-    @IBOutlet weak var nameLabel: UILabel!
-    @IBOutlet weak var valueTextField: LoginTextField!
+    let nameLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isOpaque = false
+        label.backgroundColor = nil
+        label.contentMode = .left
+        label.textAlignment = .natural
+        // Tapping the label focuses the text field.
+        label.isUserInteractionEnabled = true
+        label.setContentHuggingPriority(UILayoutPriority(251), for: .horizontal)
+        label.setContentHuggingPriority(UILayoutPriority(251), for: .vertical)
+        return label
+    }()
+    let valueTextField: UITextField = {
+        let textField = UITextField()
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        textField.autocapitalizationType = .none
+        textField.minimumFontSize = 17
+        return textField
+    }()
     weak var delegate: InlineEditableNameValueCellDelegate?
     var valueSanitizer: ValueSanitizerBlock?
 
@@ -39,26 +62,53 @@ class InlineEditableNameValueCell: WPTableViewCell, NibReusable {
         }
     }
 
-    override func awakeFromNib() {
-        super.awakeFromNib()
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+
+        clipsToBounds = true
+        preservesSuperviewLayoutMargins = true
+        contentView.isOpaque = false
+        contentView.clipsToBounds = true
+        contentView.contentMode = .center
+        contentView.preservesSuperviewLayoutMargins = true
+        contentView.insetsLayoutMarginsFromSafeArea = false
+
+        contentView.addSubview(nameLabel)
+        contentView.addSubview(valueTextField)
+        NSLayoutConstraint.activate([
+            nameLabel.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
+            nameLabel.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            contentView.layoutMarginsGuide.bottomAnchor.constraint(equalTo: nameLabel.bottomAnchor),
+            valueTextField.topAnchor.constraint(equalTo: contentView.topAnchor),
+            valueTextField.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 16),
+            contentView.trailingAnchor.constraint(equalTo: valueTextField.trailingAnchor, constant: 16),
+            contentView.bottomAnchor.constraint(equalTo: valueTextField.bottomAnchor)
+        ])
+
         selectionStyle = .none
 
         nameLabel.textColor = Const.Color.nameText
         nameLabel.font = WPStyleGuide.tableviewTextFont()
         nameLabel.numberOfLines = 0
-        nameLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(setValueTextFieldAsFirstResponder(_:))))
+        nameLabel.addGestureRecognizer(
+            UITapGestureRecognizer(target: self, action: #selector(setValueTextFieldAsFirstResponder(_:)))
+        )
 
         valueTextField.textColor = Const.Color.valueText
-        valueTextField.tintColor = .textPlaceholder
+        valueTextField.tintColor = .placeholderText
         valueTextField.font = WPStyleGuide.tableviewTextFont()
         valueTextField.borderStyle = .none
         valueTextField.delegate = self
-        valueTextField.addTarget(self,
-                                 action: #selector(textFieldDidChange(textField:)),
-                                 for: UIControl.Event.editingChanged)
-        valueTextField.addTarget(self,
-                                 action: #selector(textEditingDidEnd(textField:)),
-                                 for: UIControl.Event.editingDidEnd)
+        valueTextField.addTarget(
+            self,
+            action: #selector(textFieldDidChange(textField:)),
+            for: UIControl.Event.editingChanged
+        )
+        valueTextField.addTarget(
+            self,
+            action: #selector(textEditingDidEnd(textField:)),
+            for: UIControl.Event.editingDidEnd
+        )
         if effectiveUserInterfaceLayoutDirection == .leftToRight {
             // swiftlint:disable:next inverse_text_alignment
             valueTextField.textAlignment = .right
@@ -70,6 +120,10 @@ class InlineEditableNameValueCell: WPTableViewCell, NibReusable {
         accessoryType = .none
     }
 
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     @objc func textFieldDidChange(textField: UITextField) {
         textField.text = textField.text?.replacingOccurrences(of: Const.Text.space, with: Const.Text.nonBreakingSpace)
 
@@ -78,7 +132,7 @@ class InlineEditableNameValueCell: WPTableViewCell, NibReusable {
     }
 
     @objc func textEditingDidEnd(textField: UITextField) {
-        if let valueSanitizer = valueSanitizer {
+        if let valueSanitizer {
             textField.text = valueSanitizer(textField.text)
         }
 
@@ -90,7 +144,7 @@ class InlineEditableNameValueCell: WPTableViewCell, NibReusable {
     }
 
     private func replaceNonBreakingSpaceWithSpace(for textField: UITextField) -> String {
-        return textField.text?.replacingOccurrences(of: Const.Text.nonBreakingSpace, with: Const.Text.space) ?? ""
+        textField.text?.replacingOccurrences(of: Const.Text.nonBreakingSpace, with: Const.Text.space) ?? ""
     }
 
     @objc func setValueTextFieldAsFirstResponder(_ gesture: UITapGestureRecognizer) {
@@ -100,7 +154,7 @@ class InlineEditableNameValueCell: WPTableViewCell, NibReusable {
 
 extension InlineEditableNameValueCell: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        return delegate?.inlineEditableNameValueCell?(self, valueTextFieldShouldReturn: textField) ?? true
+        delegate?.inlineEditableNameValueCell?(self, valueTextFieldShouldReturn: textField) ?? true
     }
 }
 

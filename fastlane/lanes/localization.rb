@@ -4,6 +4,9 @@
 # Constants
 #################################################
 
+# See WordPress/Makefile
+GUTENBERG_TAG = 'v1.121.0'
+
 # URL of the GlotPress project containing the app's strings
 GLOTPRESS_APP_STRINGS_PROJECT_URL = 'https://translate.wordpress.org/projects/apps/ios/dev/'
 
@@ -94,21 +97,82 @@ MANUALLY_MAINTAINED_STRINGS_FILES = {
   File.join('WordPress', 'Resources', 'en.lproj', 'InfoPlist.strings') => 'infoplist.', # For now WordPress and Jetpack share the same InfoPlist.strings
   File.join('WordPress', 'WordPressDraftActionExtension', 'en.lproj', 'InfoPlist.strings') => 'ios-sharesheet.', # CFBundleDisplayName for the "Save as Draft" share action
   File.join('WordPress', 'JetpackDraftActionExtension', 'en.lproj', 'InfoPlist.strings') => 'ios-jetpack-sharesheet.', # CFBundleDisplayName for the "Save to Jetpack" share action
-  File.join('WordPress', 'JetpackIntents', 'en.lproj', 'Sites.strings') => 'ios-widget.' # Strings from the `.intentdefinition`, used for configuring the iOS Widget
+  File.join('WordPress', 'JetpackStatsWidgets', 'en.lproj', 'Localizable.strings') => 'ios-widget.' # Strings for the App Intents UI used when configuring the iOS Widget; resolved at runtime via the prefixed keys in the app's Localizable.strings
 }.freeze
 
-# Application-agnostic settings for the `upload_to_app_store` action (also known as `deliver`).
-# Used in `update_*_metadata_on_app_store_connect` lanes.
-#
-UPLOAD_TO_APP_STORE_COMMON_PARAMS = {
-  app_version: release_version_current,
-  skip_binary_upload: true,
-  overwrite_screenshots: true,
-  phased_release: true,
-  precheck_include_in_app_purchases: false,
-  api_key_path: APP_STORE_CONNECT_KEY_PATH,
-  app_rating_config_path: File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'metadata', 'ratings_config.json')
-}.freeze
+# Remote Swift Packages whose localizable strings we want to extract (they're checked out under Derived Data
+# during resolvePackageDependencies). Currently none. Leaving here for future-proofing.
+REMOTE_SWIFT_PACKAGES_TO_LOCALIZE = [].freeze
+
+def upload_to_app_store_common_params
+  {
+    app_version: release_version_current,
+    skip_binary_upload: true,
+    overwrite_screenshots: true,
+    phased_release: true,
+    precheck_include_in_app_purchases: false,
+    api_key: app_store_connect_api_key,
+    # [AINFRA-933] Disabling the use of `app_rating_config_path` after seeing the ASC API error:
+    # > The provided entity includes an unknown attribute - 'seventeenPlus' is not an attribute on the
+    # > resource 'ageRatingDeclarations'
+    # app_rating_config_path: File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'metadata', 'ratings_config.json'),
+    copyright: "© #{Time.now.year} Automattic, Inc."
+  }
+end
+
+WORDPRESS_EN_LPROJ = File.join('WordPress', 'Resources', 'en.lproj')
+
+# Applies temporary, exact-value patches for known GlotPress translations that fail placeholder linting.
+# TODO: Remove this function after the corresponding GlotPress translations are corrected.
+def apply_glotpress_translation_patch(parent_dir:)
+  patches = {
+    'ko' => [
+      ['editor.textCounter.wordCount|==|plural.few', '%1$l개 단어', '%1$ld개 단어'],
+      ['editor.textCounter.wordCount|==|plural.many', '%1$l개 단어', '%1$ld개 단어'],
+      ['editor.textCounter.wordCount|==|plural.one', '%1$l개 단어', '%1$ld개 단어'],
+      ['editor.textCounter.wordCount|==|plural.other', '%1$l개 단어', '%1$ld개 단어'],
+      ['editor.textCounter.wordCount|==|plural.two', '%1$l개 단어', '%1$ld개 단어'],
+      ['editor.textCounter.wordCount|==|plural.zero', '%1$l개 단어', '%1$ld개 단어']
+    ],
+    'ro' => [
+      ['blogging.reminders.weeklyCount|==|plural.one', 'O dată pe săptămână', '%1$d dată pe săptămână'],
+      ['blogging.reminders.weeklyCount|==|plural.zero', 'Nicio dată pe săptămână', 'De %1$d ori pe săptămână'],
+      ['editor.textCounter.wordCount|==|plural.one', 'Un cuvânt', '%1$ld cuvânt'],
+      ['editor.textCounter.wordCount|==|plural.zero', 'Niciun cuvânt', '%1$ld cuvinte'],
+      ['mediaLibrary.upload.banner.failedOnly.single', 'A eșuat o încărcare', 'A eșuat %1$d încărcare'],
+      ['mediaLibrary.upload.banner.uploadingOnly.single', 'Încarc un element', 'Încarc %1$d element'],
+      ['stats.insights.totalLikes.guideText.latestPost.singular', 'Ultimul articol %1$@ a avut o apreciere.', 'Ultimul articol %1$@ a avut %2$@ apreciere.']
+    ],
+    'zh-Hans' => [
+      ['editor.textCounter.wordCount|==|plural.few', '%1$l 个字', '%1$ld 个字'],
+      ['editor.textCounter.wordCount|==|plural.many', '%1$l 个字', '%1$ld 个字'],
+      ['editor.textCounter.wordCount|==|plural.one', '%1$l 个字', '%1$ld 个字'],
+      ['editor.textCounter.wordCount|==|plural.other', '%1$l 个字', '%1$ld 个字'],
+      ['editor.textCounter.wordCount|==|plural.two', '%1$l 个字', '%1$ld 个字'],
+      ['editor.textCounter.wordCount|==|plural.zero', '%1$l 个字', '%1$ld 个字']
+    ],
+    'zh-Hant' => [
+      ['editor.textCounter.wordCount|==|plural.few', '%1$l 字', '%1$ld 字'],
+      ['editor.textCounter.wordCount|==|plural.many', '%1$l 字', '%1$ld 字'],
+      ['editor.textCounter.wordCount|==|plural.one', '%1$l 字', '%1$ld 字'],
+      ['editor.textCounter.wordCount|==|plural.other', '%1$l 字', '%1$ld 字'],
+      ['editor.textCounter.wordCount|==|plural.two', '%1$l 字', '%1$ld 字'],
+      ['editor.textCounter.wordCount|==|plural.zero', '%1$l 字', '%1$ld 字']
+    ]
+  }
+
+  patches.each do |locale, replacements|
+    path = File.join(parent_dir, "#{locale}.lproj", 'Localizable.strings')
+    content = File.read(path)
+    patched = replacements.reduce(content) do |result, (key, current, replacement)|
+      result.sub(%("#{key}" = "#{current}";), %("#{key}" = "#{replacement}";))
+    end
+    next if patched == content
+
+    File.write(path, patched)
+    UI.message("Applied temporary GlotPress translation patch for #{locale}.")
+  end
+end
 
 #################################################
 # Lanes
@@ -121,179 +185,255 @@ platform :ios do
   #
   # @called_by complete_code_freeze
   #
-  lane :generate_strings_file_for_glotpress do |options|
-    cocoapods
+  lane :generate_strings_file_for_glotpress do |skip_commit: false, derived_data_path: DERIVED_DATA_PATH, gutenberg_absolute_path: nil|
+    # Fetch fresh packages to read the latest localizations from them.
+    #
+    # Notice we currently need to do this in CI as well as locally.
+    # That's because we haven't yet implemented a method to share the derived data folder explicitly between the CI SPM caching logic and this lane.
+    #
+    # See also:
+    # - https://github.com/wordpress-mobile/WordPress-iOS/pull/23506/files/f694d2c3f433d616deeb15a61a3e9a01f55bc07e#r1725934262
+    # - https://github.com/wordpress-mobile/WordPress-iOS/pull/23506#discussion_r1727419190
+    resolve_packages(derived_data_path: derived_data_path)
 
-    # On top of fetching the latest Pods, we also need to fetch the source for the Gutenberg code.
-    # To get it, we need to manually clone the repo, since Gutenberg is distributed via XCFramework.
-    # XCFrameworks are binary targets and cannot extract strings via genstrings from there.
-    config = gutenberg_config!
-
-    ref_node = config[:ref]
-    UI.user_error!('Could not find Gutenberg ref to clone the repository in order to access its strings.') if ref_node.nil?
-
-    ref = ref_node[:tag] || ref_node[:commit]
-    UI.user_error!('The ref to clone Gutenberg in order to access its strings has neither tag nor commit values.') if ref.nil?
-
-    github_org = config[:github_org]
-    UI.user_error!('Could not find GitHub organization name to clone Gutenberg in order to access its strings.') if github_org.nil?
-
-    repo_name = config[:repo_name]
-    UI.user_error!('Could not find GitHub repository name to clone Gutenberg in order to access its strings.') if repo_name.nil?
-
-    # Create a temporary directory to clone Gutenberg into.
-    # We'll run the rest of the automation from within the block, but notice that only the Gutenbreg cloning happens within the temporary directory.
-    gutenberg_clone_name = 'Gutenberg-Strings-Clone'
-    Dir.mktmpdir do |tempdir|
-      Dir.chdir(tempdir) do
-        repo_url = "https://github.com/#{github_org}/#{repo_name}"
-        UI.message("Cloning Gutenberg from #{repo_url} into #{gutenberg_clone_name}. This might take a few minutes…")
-        sh("git clone --depth 1 #{repo_url} #{gutenberg_clone_name}")
-        Dir.chdir(gutenberg_clone_name) do
-          if config[:ref][:tag]
-            sh("git fetch origin refs/tags/#{ref}:refs/tags/#{ref}")
-            sh("git checkout refs/tags/#{ref}")
-          else
-            sh("git fetch origin #{ref}")
-            sh("git checkout #{ref}")
-          end
-        end
+    if gutenberg_absolute_path
+      # It's simpler to ask the caller to give an absolute path than to make it absolute ourselves
+      # Given this is a debug option, it seems like an okay tradeoff.
+      unless File.absolute_path?(gutenberg_absolute_path)
+        UI.user_error!("Please provide gutenberg_absolute_path as an absolute path. Current value: #{gutenberg_absolute_path}")
       end
 
-      # Notice that we are no longer in the tempdir, so the paths below are back to being relative to the project root folder.
-      # However, we are still in the tempdir block, so that once the automation is done, the tempdir will be automatically deleted.
-      wordpress_en_lproj = File.join('WordPress', 'Resources', 'en.lproj')
-      ios_generate_strings_file_from_code(
-        paths: ['WordPress/', 'Pods/WordPress*/', 'Pods/WPMediaPicker/', 'WordPressShared/WordPressShared/', File.join(tempdir, gutenberg_clone_name)],
-        exclude: ['*Vendor*', 'WordPress/WordPressTest/**', '**/AppLocalizedString.swift'],
-        routines: ['AppLocalizedString'],
-        output_dir: wordpress_en_lproj
-      )
+      UI.user_error!("Could not find Gutenberg project at given path #{gutenberg_absolute_path}") unless Dir.exist?(gutenberg_absolute_path)
 
-      # Merge various manually-maintained `.strings` files into the previously generated `Localizable.strings` so their extra keys are also imported in GlotPress.
-      # Note: We will re-extract the translations back during `download_localized_strings_and_metadata` (via a call to `ios_extract_keys_from_strings_files`)
-      ios_merge_strings_files(
-        paths_to_merge: MANUALLY_MAINTAINED_STRINGS_FILES,
-        destination: File.join(wordpress_en_lproj, 'Localizable.strings')
-      )
+      UI.message("Using Gutenberg from #{gutenberg_absolute_path} instead of cloning it...")
+      generate_strings_file(gutenberg_path: gutenberg_absolute_path, derived_data_path: derived_data_path)
+    else
+      # On top of fetching the latest dependencies, we also need to fetch the source for the Gutenberg code.
+      # To get it, we need to manually clone the repo, since Gutenberg is distributed via XCFramework.
+      # XCFrameworks are binary targets and cannot extract strings via genstrings from there.
 
-      git_commit(path: [wordpress_en_lproj], message: 'Update strings for localization', allow_nothing_to_commit: true) unless options[:skip_commit]
+      # Create a temporary directory to clone Gutenberg into.
+      Dir.mktmpdir do |tempdir|
+        gutenberg_clone_name = 'Gutenberg-Strings-Clone'
+        gutenberg_path = File.join(tempdir, gutenberg_clone_name)
+        repo_url = 'https://github.com/wordpress-mobile/gutenberg-mobile'
+        UI.message("Cloning Gutenberg from #{repo_url} into #{gutenberg_clone_name}. This might take a few minutes…")
+        sh('git', 'clone', '--depth', '1', repo_url, gutenberg_path)
+
+        Dir.chdir(gutenberg_path) do
+          sh('git', 'fetch', 'origin', "refs/tags/#{GUTENBERG_TAG}:refs/tags/#{GUTENBERG_TAG}")
+          sh('git', 'checkout', "refs/tags/#{GUTENBERG_TAG}")
+        end
+
+        generate_strings_file(gutenberg_path: gutenberg_path, derived_data_path: derived_data_path)
+      end
     end
+
+    # Merge various manually-maintained `.strings` files into the previously generated `Localizable.strings` so their extra keys are also imported in GlotPress.
+    # Note: We will re-extract the translations back during `download_localized_strings_and_metadata` (via a call to `ios_extract_keys_from_strings_files`)
+    # The flat plural originals ride the main app GlotPress project alongside everything else. They're transient
+    # — the forward lane returns them as a string we write to a temp file the merge reads, never to the worktree.
+    Dir.mktmpdir do |plurals_tmp|
+      paths_to_merge = MANUALLY_MAINTAINED_STRINGS_FILES.dup
+      run_plural_step('forward') do
+        plural_originals = File.join(plurals_tmp, 'Plurals.strings')
+        File.write(plural_originals, generate_plural_strings_for_glotpress)
+        paths_to_merge[plural_originals] = '' # flat keys are self-qualified; no prefix
+      end
+
+      ios_merge_strings_files(
+        paths_to_merge: paths_to_merge,
+        destination: File.join(WORDPRESS_EN_LPROJ, 'Localizable.strings')
+      )
+    end
+
+    git_commit(path: [WORDPRESS_EN_LPROJ], message: 'Update strings for localization', allow_nothing_to_commit: true) unless skip_commit
   end
 
-  # Updates the `AppStoreStrings.po` files (WP+JP) with the latest content from the `release_notes.txt` files and the other text sources
+  # Runs a plural-pipeline step, never fatally — a failure is logged so the parallel plural run (whose result
+  # isn't consumed at runtime until cutover) can't break a release.
+  def run_plural_step(label)
+    yield
+  rescue StandardError => e
+    UI.error("Plural pipeline (#{label}) failed; continuing: #{e.message}")
+  end
+
+  def generate_strings_file(gutenberg_path:, derived_data_path:)
+    ios_generate_strings_file_from_code(
+      paths: [
+        'WordPress/',
+        'Modules/Sources/',
+        'Sources/',
+        gutenberg_path,
+        *REMOTE_SWIFT_PACKAGES_TO_LOCALIZE.map { |name| File.join(derived_data_path, 'SourcePackages', 'checkouts', name, 'Sources') }
+      ],
+      exclude: ['*Vendor*', 'WordPress/WordPressTest/**', '**/AppLocalizedString.swift'],
+      routines: ['AppLocalizedString'],
+      output_dir: WORDPRESS_EN_LPROJ
+    )
+  end
+
+  # Updates the `AppStoreStrings.po` files (WP+JP) with the latest content from the `release_notes.txt` files and the other text sources.
   #
-  # @option [String] version The current `x.y` version of the app. Optional. Used to derive the `release_notes_xxy` key to use in the `.po` file.
+  # @param [String] version The current `x.y` version of the app. Used to derive the `release_notes_xxy` key to use in the `.po` file.
+  # @param [Boolean] skip_confirm If true, avoids any interactive prompt.
   #
-  desc 'Updates the AppStoreStrings.po file with the latest data'
-  lane :update_appstore_strings do |options|
+  lane :update_appstore_strings do |version: release_version_current, skip_confirm: false|
     ensure_git_status_clean
 
-    release_version = release_version_current
-
-    unless Fastlane::Helper::GitHelper.checkout_and_pull(editorial_branch_name(version: release_version))
-      UI.user_error!("Editorialization branch for version #{release_version} doesn't exist.")
+    unless Fastlane::Helper::GitHelper.checkout_and_pull(editorial_branch_name(version: version))
+      UI.user_error!("Editorialization branch for version #{version} doesn't exist.")
     end
 
-    update_wordpress_appstore_strings(options)
-    update_jetpack_appstore_strings(options)
+    update_wordpress_appstore_strings(version: version)
+    update_jetpack_appstore_strings(version: version)
 
-    unless options[:skip_confirm] || UI.confirm('Ready to push changes to remote and continue with the editorialization process?')
+    unless skip_confirm || UI.confirm('Ready to push changes to remote and continue with the editorialization process?')
       UI.message("Aborting as requested. Don't forget to push the changes and create the integration PR manually.")
       next
     end
 
     push_to_git_remote(tags: false)
 
-    pr_url = create_release_management_pull_request(
-      base_branch: compute_release_branch_name(options:, version: release_version),
-      title: "Merge editorialized release notes in #{release_version}"
-    )
+    pr_url = create_backmerge_pr(source_branch: git_branch, target_branch: release_branch_name(version: version))
 
     message = <<~MESSAGE
       Release notes and metadata localization sources successfully generated. Next, review and merge the [integration PR](#{pr_url}).
     MESSAGE
-    buildkite_annotate(context: 'editorialization-completed', style: 'success', message:) if is_ci
+    buildkite_annotate(context: 'editorialization-completed', style: 'success', message: message) if is_ci
   end
 
-  # Updates the `AppStoreStrings.po` file for WordPress, with the latest content from the `release_notes.txt` file and the other text sources
+  # Updates the `AppStoreStrings.po` file for WordPress, with the latest content from the `release_notes.txt` file and the other text sources.
   #
-  # @option [String] version The current `x.y` version of the app. Optional. Used to derive the `release_notes_xxy` key to use in the `.po` file.
+  # @param [String] version The current `x.y` version of the app. Used to derive the `release_notes_xxy` key to use in the `.po` file.
+  # @param [Boolean] skip_commit If true, skips committing changes to git.
   #
-  desc 'Updates the AppStoreStrings.po file for the WordPress app with the latest data'
-  lane :update_wordpress_appstore_strings do |options|
+  lane :update_wordpress_appstore_strings do |version: release_version_current, skip_commit: false|
     source_metadata_folder = File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'metadata', 'default')
     custom_metadata_folder = File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'appstoreres', 'metadata', 'source')
-    version = options.fetch(:version, release_version_current)
+
+    # Translator comments for App Store metadata
+    screenshot_comment = <<~COMMENT.chomp
+      translators: This is a promo text that will be drawn on the promotional screenshots we use in the App Store.
+      No specified characters limit here, but try to keep as short as the source one.
+    COMMENT
+
+    standard_whats_new_comment = "translators: This is a standard chunk of text used to tell a user what's new with a release when nothing major has changed."
 
     files = {
       whats_new: WORDPRESS_RELEASE_NOTES_PATH,
-      app_store_name: File.join(source_metadata_folder, 'name.txt'),
-      app_store_subtitle: File.join(source_metadata_folder, 'subtitle.txt'),
-      app_store_desc: File.join(source_metadata_folder, 'description.txt'),
-      app_store_keywords: File.join(source_metadata_folder, 'keywords.txt'),
-      'standard-whats-new-1' => File.join(custom_metadata_folder, 'standard_whats_new_1.txt'),
-      'standard-whats-new-2' => File.join(custom_metadata_folder, 'standard_whats_new_2.txt'),
-      'standard-whats-new-3' => File.join(custom_metadata_folder, 'standard_whats_new_3.txt'),
-      'standard-whats-new-4' => File.join(custom_metadata_folder, 'standard_whats_new_4.txt'),
-      'app_store_screenshot-1' => File.join(custom_metadata_folder, 'promo_screenshot_1.txt'),
-      'app_store_screenshot-2' => File.join(custom_metadata_folder, 'promo_screenshot_2.txt'),
-      'app_store_screenshot-3' => File.join(custom_metadata_folder, 'promo_screenshot_3.txt'),
-      'app_store_screenshot-4' => File.join(custom_metadata_folder, 'promo_screenshot_4.txt'),
-      'app_store_screenshot-5' => File.join(custom_metadata_folder, 'promo_screenshot_5.txt'),
-      'app_store_screenshot-6' => File.join(custom_metadata_folder, 'promo_screenshot_6.txt'),
-      'app_store_screenshot-7' => File.join(custom_metadata_folder, 'promo_screenshot_7.txt')
+      app_store_name: {
+        path: File.join(source_metadata_folder, 'name.txt'),
+        comment: "translators: The application name in the Apple App Store. Please keep the brand name ('WordPress') verbatim. Limit to 30 characters including spaces and punctuation!"
+      },
+      app_store_subtitle: {
+        path: File.join(source_metadata_folder, 'subtitle.txt'),
+        comment: 'translators: Subtitle to be displayed below the application name in the Apple App Store. Limit to 30 characters including spaces and commas!'
+      },
+      app_store_desc: {
+        path: File.join(source_metadata_folder, 'description.txt'),
+        comment: 'translators: Multi-paragraph text used to display in the Apple App Store.'
+      },
+      app_store_keywords: {
+        path: File.join(source_metadata_folder, 'keywords.txt'),
+        comment: <<~COMMENT.chomp
+          translators: Keywords used in the App Store search engine to find the app.
+          Delimit with a comma between each keyword. Limit to 100 characters including spaces and commas.
+        COMMENT
+      },
+      **(1..3).to_h do |i|
+        [
+          "standard-whats-new-#{i}",
+          { path: File.join(custom_metadata_folder, "standard_whats_new_#{i}.txt"), comment: standard_whats_new_comment }
+        ]
+      end,
+      'standard-whats-new-4' => {
+        path: File.join(custom_metadata_folder, 'standard_whats_new_4.txt'),
+        comment: <<~COMMENT.chomp
+          translators: This is a standard chunk of text used to tell a user what's new with a release when nothing major has changed.
+          It's in a haiku format and may be more difficult to translate; maybe come up with something equally awesome in haiku.
+        COMMENT
+      },
+      **(1..7).to_h do |i|
+        [
+          "app_store_screenshot-#{i}",
+          { path: File.join(custom_metadata_folder, "promo_screenshot_#{i}.txt"), comment: screenshot_comment }
+        ]
+      end
     }
 
-    ios_update_metadata_source(
+    gp_update_metadata_source(
       po_file_path: File.join(PROJECT_ROOT_FOLDER, 'WordPress', 'Resources', 'AppStoreStrings.po'),
       source_files: files,
-      release_version: version
+      release_version: version,
+      commit_changes: !skip_commit
     )
   end
 
-  # Updates the `AppStoreStrings.po` file for Jetpack, with the latest content from the `release_notes.txt` file and the other text sources
+  # Updates the `AppStoreStrings.po` file for Jetpack, with the latest content from the `release_notes.txt` file and the other text sources.
   #
-  # @option [String] version The current `x.y` version of the app. Optional. Used to derive the `release_notes_xxy` key to use in the `.po` file.
+  # @param [String] version The current `x.y` version of the app. Used to derive the `release_notes_xxy` key to use in the `.po` file.
+  # @param [Boolean] skip_commit If true, skips committing changes to git.
   #
-  desc 'Updates the AppStoreStrings.po file for the Jetpack app with the latest data'
-  lane :update_jetpack_appstore_strings do |options|
-    # Commented out to silence RuboCop about unused vars.
-    # See details below for why that was done and why we should keep the definition in the codebase for future use.
-    # source_metadata_folder = File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'jetpack_metadata', 'default')
-    # custom_metadata_folder = File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'appstoreres', 'jetpack_metadata', 'source')
-    version = options.fetch(:version, release_version_current)
+  lane :update_jetpack_appstore_strings do |version: release_version_current, skip_commit: false|
+    source_metadata_folder = File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'jetpack_metadata', 'default')
+    custom_metadata_folder = File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'appstoreres', 'jetpack_metadata', 'source')
+
+    screenshot_comment = <<~COMMENT.chomp
+      translators: This is a promo text that will be drawn on the promotional screenshots we use in the App Store.
+      No specified characters limit here, but try to keep as short as the source one.
+    COMMENT
 
     files = {
-      whats_new: JETPACK_RELEASE_NOTES_PATH
-      # We are currently iterating on the App Store copy for Jetpack.
-      # It's therefore easier to update the English US metadata without triggering a translation.
-      # Once we'll settle on a new copy, we'll re-enable reading these sources for the GlotPress po file.
-      #
-      # app_store_name: File.join(source_metadata_folder, 'name.txt'),
-      # app_store_subtitle: File.join(source_metadata_folder, 'subtitle.txt'),
-      # app_store_desc: File.join(source_metadata_folder, 'description.txt'),
-      # app_store_keywords: File.join(source_metadata_folder, 'keywords.txt'),
-      # 'screenshot-text-1' => File.join(custom_metadata_folder, 'promo_screenshot_1.txt'),
-      # 'screenshot-text-2' => File.join(custom_metadata_folder, 'promo_screenshot_2.txt'),
-      # 'screenshot-text-3' => File.join(custom_metadata_folder, 'promo_screenshot_3.txt'),
-      # 'screenshot-text-4' => File.join(custom_metadata_folder, 'promo_screenshot_4.txt'),
-      # 'screenshot-text-5' => File.join(custom_metadata_folder, 'promo_screenshot_5.txt'),
-      # 'screenshot-text-6' => File.join(custom_metadata_folder, 'promo_screenshot_6.txt')
+      whats_new: JETPACK_RELEASE_NOTES_PATH,
+      app_store_name: {
+        path: File.join(source_metadata_folder, 'name.txt'),
+        comment: "translators: The application name in the Apple App Store. Please keep the brand names ('Jetpack' and 'WordPress') verbatim. Limit to 30 characters including spaces and punctuation!"
+      },
+      app_store_subtitle: {
+        path: File.join(source_metadata_folder, 'subtitle.txt'),
+        comment: 'translators: Subtitle to be displayed below the application name in the Apple App Store. Limit to 30 characters including spaces and commas!'
+      },
+      app_store_desc: {
+        path: File.join(source_metadata_folder, 'description.txt'),
+        comment: 'translators: Multi-paragraph text used to display in the Apple App Store.'
+      },
+      app_store_keywords: {
+        path: File.join(source_metadata_folder, 'keywords.txt'),
+        comment: <<~COMMENT.chomp
+          translators: Keywords used in the App Store search engine to find the app.
+          Delimit with a comma between each keyword. Limit to 100 characters including spaces and commas.
+        COMMENT
+      },
+      **(1..6).to_h do |i|
+        [
+          "screenshot-text-#{i}",
+          { path: File.join(custom_metadata_folder, "promo_screenshot_#{i}.txt"), comment: screenshot_comment }
+        ]
+      end
     }
 
-    ios_update_metadata_source(
+    gp_update_metadata_source(
       po_file_path: File.join(PROJECT_ROOT_FOLDER, 'WordPress', 'Jetpack', 'Resources', 'AppStoreStrings.po'),
       source_files: files,
-      release_version: version
+      release_version: version,
+      commit_changes: !skip_commit
     )
   end
-
 
   # Downloads the localized app strings and App Store Connect metadata from GlotPress.
   #
-  desc 'Downloads localized metadata for App Store Connect from GlotPress'
+  desc 'Downloads localized strings and metadata for App Store Connect from GlotPress'
   lane :download_localized_strings_and_metadata do
+    download_localized_strings
+    download_wordpress_localized_app_store_metadata
+    download_jetpack_localized_app_store_metadata
+  end
+
+  # Notice that there is one lane for both apps because the strings are (mostly) shared.
+  #
+  desc 'Downloads localized strings (`.strings`) from GlotPress and commits them'
+  lane :download_localized_strings do
     # Download `Localizable.strings` translations used within the app
     parent_dir_for_lprojs = File.join(PROJECT_ROOT_FOLDER, 'WordPress', 'Resources')
     ios_download_strings_files_from_glotpress(
@@ -301,6 +441,7 @@ platform :ios do
       locales: GLOTPRESS_TO_LPROJ_APP_LOCALE_CODES,
       download_dir: parent_dir_for_lprojs
     )
+    apply_glotpress_translation_patch(parent_dir: parent_dir_for_lprojs)
     git_commit(
       path: File.join(parent_dir_for_lprojs, '*.lproj', 'Localizable.strings'),
       message: 'Update app translations – `Localizable.strings`',
@@ -322,9 +463,8 @@ platform :ios do
       allow_nothing_to_commit: true
     )
 
-    # Finally, also download the AppStore metadata (app title, keywords, etc.)
-    download_wordpress_localized_app_store_metadata
-    download_jetpack_localized_app_store_metadata
+    # Fold plural translations from the downloaded Localizable.strings into Plurals.xcstrings.
+    run_plural_step('reverse') { download_localized_plurals }
   end
 
   # Downloads the localized metadata (for App Store Connect) from GlotPress for the WordPress app.
@@ -343,7 +483,7 @@ platform :ios do
     # Download metadata translations from GlotPress
     download_localized_app_store_metadata(
       glotpress_project_url: GLOTPRESS_WORDPRESS_APP_STORE_METADATA_PROJECT_URL,
-      metadata_directory:,
+      metadata_directory: metadata_directory,
       locales: WORDPRESS_METADATA_GLOTPRESS_LOCALE_CODES,
       commit_message: 'Update WordPress metadata translations'
     )
@@ -366,7 +506,7 @@ platform :ios do
     download_localized_app_store_metadata(
       glotpress_project_url: GLOTPRESS_JETPACK_APP_STORE_METADATA_PROJECT_URL,
       locales: JETPACK_METADATA_GLOTPRESS_LOCALE_CODES,
-      metadata_directory:,
+      metadata_directory: metadata_directory,
       commit_message: 'Update Jetpack metadata translations'
     )
   end
@@ -388,7 +528,7 @@ platform :ios do
 
     gp_downloadmetadata(
       project_url: glotpress_project_url,
-      target_files:,
+      target_files: target_files,
       locales: locales_map,
       download_path: metadata_directory
     )
@@ -428,9 +568,9 @@ platform :ios do
   # @option [Boolean] with_screenshots (default: false) If true, will also upload the latest screenshot files to ASC
   #
   desc 'Updates the App Store Connect localized metadata'
-  lane :update_metadata_on_app_store_connect do |options|
-    update_wordpress_metadata_on_app_store_connect(options)
-    update_jetpack_metadata_on_app_store_connect(options)
+  lane :update_metadata_on_app_store_connect do |with_screenshots: false|
+    update_wordpress_metadata_on_app_store_connect(with_screenshots: with_screenshots)
+    update_jetpack_metadata_on_app_store_connect(with_screenshots: with_screenshots)
   end
 
   # Uploads the localized metadata for WordPress (from `fastlane/metadata/`) to App Store Connect
@@ -438,18 +578,17 @@ platform :ios do
   # @option [Boolean] with_screenshots (default: false) If true, will also upload the latest screenshot files to ASC
   #
   desc 'Uploads the WordPress metadata to App Store Connect, localized, and optionally including screenshots.'
-  lane :update_wordpress_metadata_on_app_store_connect do |options|
+  lane :update_wordpress_metadata_on_app_store_connect do |with_screenshots: false|
     # Skip screenshots by default. The naming is "with" to make it clear that
     # callers need to opt-in to adding screenshots. The naming of the deliver
     # parameter, on the other hand, uses the skip verb.
-    with_screenshots = options.fetch(:with_screenshots, false)
     skip_screenshots = with_screenshots == false
 
     upload_to_app_store(
-      **UPLOAD_TO_APP_STORE_COMMON_PARAMS,
+      **upload_to_app_store_common_params,
       app_identifier: WORDPRESS_BUNDLE_IDENTIFIER,
-      screenshots_path: File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'promo-screenshots'),
-      skip_screenshots:
+      screenshots_path: WORDPRESS_PROMO_SCREENSHOTS_PATH,
+      skip_screenshots: skip_screenshots
     )
   end
 
@@ -458,19 +597,18 @@ platform :ios do
   # @option [Boolean] with_screenshots (default: false) If true, will also upload the latest screenshot files to ASC
   #
   desc 'Uploads the Jetpack metadata to App Store Connect, localized, and optionally including screenshots.'
-  lane :update_jetpack_metadata_on_app_store_connect do |options|
+  lane :update_jetpack_metadata_on_app_store_connect do |with_screenshots: false|
     # Skip screenshots by default. The naming is "with" to make it clear that
     # callers need to opt-in to adding screenshots. The naming of the deliver
     # parameter, on the other hand, uses the skip verb.
-    with_screenshots = options.fetch(:with_screenshots, false)
     skip_screenshots = with_screenshots == false
 
     upload_to_app_store(
-      **UPLOAD_TO_APP_STORE_COMMON_PARAMS,
+      **upload_to_app_store_common_params,
       app_identifier: JETPACK_BUNDLE_IDENTIFIER,
       metadata_path: File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'jetpack_metadata'),
-      screenshots_path: File.join(PROJECT_ROOT_FOLDER, 'fastlane', 'jetpack_promo_screenshots'),
-      skip_screenshots:
+      screenshots_path: JETPACK_PROMO_SCREENSHOTS_PATH,
+      skip_screenshots: skip_screenshots
     )
   end
 
@@ -487,22 +625,22 @@ platform :ios do
     UI.message('Checking app strings translation status...')
     check_translation_progress(
       glotpress_url: GLOTPRESS_APP_STRINGS_PROJECT_URL,
-      abort_on_violations:,
-      skip_confirm:
+      abort_on_violations: abort_on_violations,
+      skip_confirm: skip_confirm
     )
 
     UI.message('Checking WordPress release notes strings translation status...')
     check_translation_progress(
       glotpress_url: GLOTPRESS_WORDPRESS_APP_STORE_METADATA_PROJECT_URL,
-      abort_on_violations:,
-      skip_confirm:
+      abort_on_violations: abort_on_violations,
+      skip_confirm: skip_confirm
     )
 
     UI.message('Checking Jetpack release notes strings translation status...')
     check_translation_progress(
       glotpress_url: GLOTPRESS_JETPACK_APP_STORE_METADATA_PROJECT_URL,
-      abort_on_violations:,
-      skip_confirm:
+      abort_on_violations: abort_on_violations,
+      skip_confirm: skip_confirm
     )
   end
 end

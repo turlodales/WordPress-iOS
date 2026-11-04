@@ -1,4 +1,3 @@
-import UIKit
 import CoreLocation
 
 extension CLPlacemark {
@@ -18,7 +17,7 @@ extension CLPlacemark {
         if let zipCode = postalCode {
             address.append(", " + zipCode)
         }
-        if let country = country {
+        if let country {
             address.append(", " + country)
         }
         return address

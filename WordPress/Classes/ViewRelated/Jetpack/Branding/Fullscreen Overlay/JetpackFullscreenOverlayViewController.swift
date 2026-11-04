@@ -1,5 +1,6 @@
 import UIKit
 import Lottie
+import WordPressUI
 
 class JetpackFullscreenOverlayViewController: UIViewController {
 
@@ -8,10 +9,10 @@ class JetpackFullscreenOverlayViewController: UIViewController {
     private let viewModel: JetpackFullscreenOverlayViewModel
 
     /// Sets the animation based on the language orientation
-    private var animation: Animation? {
+    private var animation: LottieAnimation? {
         traitCollection.layoutDirection == .leftToRight ?
-        Animation.named(viewModel.animationLtr) :
-        Animation.named(viewModel.animationRtl)
+        LottieAnimation.named(viewModel.animationLtr) :
+        LottieAnimation.named(viewModel.animationRtl)
     }
 
     // MARK: Lazy Views
@@ -45,7 +46,7 @@ class JetpackFullscreenOverlayViewController: UIViewController {
     // MARK: Outlets
 
     @IBOutlet weak var contentStackView: UIStackView!
-    @IBOutlet weak var animationView: AnimationView!
+    @IBOutlet weak var animationView: LottieAnimationView!
     @IBOutlet weak var titleLabel: UILabel!
     @IBOutlet weak var subtitleLabel: UILabel!
     @IBOutlet weak var footnoteLabel: UILabel!
@@ -60,7 +61,7 @@ class JetpackFullscreenOverlayViewController: UIViewController {
 
     init(with viewModel: JetpackFullscreenOverlayViewModel) {
         self.viewModel = viewModel
-        super.init(nibName: nil, bundle: nil)
+        super.init(nibName: "JetpackFullscreenOverlayViewController", bundle: .keystone)
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -97,14 +98,6 @@ class JetpackFullscreenOverlayViewController: UIViewController {
 
     private func configureNavigationBar() {
         addCloseButtonIfNeeded()
-
-        let appearance = UINavigationBarAppearance()
-        appearance.backgroundColor = Colors.backgroundColor
-        appearance.shadowColor = .clear
-        navigationItem.standardAppearance = appearance
-        navigationItem.compactAppearance = appearance
-        navigationItem.scrollEdgeAppearance = appearance
-        navigationItem.compactScrollEdgeAppearance = appearance
     }
 
     private func addCloseButtonIfNeeded() {
@@ -154,7 +147,7 @@ class JetpackFullscreenOverlayViewController: UIViewController {
             .kern: Metrics.titleKern
         ]
         let attributedString = NSMutableAttributedString(string: viewModel.title)
-        attributedString.addAttributes(defaultAttributes, range: NSRange(location: 0, length: attributedString.length))
+        attributedString.addAttributes(defaultAttributes)
         titleLabel.attributedText = attributedString
     }
 
@@ -242,7 +235,6 @@ class JetpackFullscreenOverlayViewController: UIViewController {
         dismissOverlay()
     }
 
-
     @IBAction func switchButtonPressed(_ sender: Any) {
         viewModel.didTapPrimary()
     }
@@ -293,20 +285,26 @@ private extension JetpackFullscreenOverlayViewController {
     }
 
     enum Colors {
-        private static let jetpackGreen50 = UIColor.muriel(color: .jetpackGreen, .shade50).lightVariant()
-        private static let jetpackGreen30 = UIColor.muriel(color: .jetpackGreen, .shade30).lightVariant()
-        private static let jetpackGreen90 = UIColor.muriel(color: .jetpackGreen, .shade90).lightVariant()
+        private static let jetpackGreen50 = UIAppColor.jetpackGreen(.shade50)
+        private static let jetpackGreen30 = UIAppColor.jetpackGreen(.shade30)
+        private static let jetpackGreen90 = UIAppColor.jetpackGreen(.shade90)
 
-        static let backgroundColor = UIColor(light: .systemBackground,
-                                             dark: .muriel(color: .jetpackGreen, .shade100))
-        static let footnoteTextColor = UIColor(light: .muriel(color: .gray, .shade50),
-                                               dark: .muriel(color: .gray, .shade5))
-        static let actionInfoTextColor = UIColor.textSubtle
+        static let backgroundColor = UIColor(
+            light: .systemBackground,
+            dark: UIAppColor.jetpackGreen(.shade100)
+        )
+        static let footnoteTextColor = UIColor(
+            light: UIAppColor.gray(.shade50),
+            dark: UIAppColor.gray(.shade5)
+        )
+        static let actionInfoTextColor = UIColor.secondaryLabel
         static let learnMoreButtonTextColor = UIColor(light: jetpackGreen50, dark: jetpackGreen30)
         static let switchButtonBackgroundColor = jetpackGreen50
         static let continueButtonTextColor = UIColor(light: jetpackGreen50, dark: .white)
         static let switchButtonTextColor = UIColor.white
-        static let closeButtonTintColor = UIColor(light: .muriel(color: .gray, .shade5),
-                                                  dark: jetpackGreen90)
+        static let closeButtonTintColor = UIColor(
+            light: UIAppColor.gray(.shade5),
+            dark: jetpackGreen90
+        )
     }
 }

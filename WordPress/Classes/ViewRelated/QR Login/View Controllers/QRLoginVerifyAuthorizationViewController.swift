@@ -1,4 +1,6 @@
 import UIKit
+import WordPressKit
+import WordPressShared
 
 class QRLoginVerifyAuthorizationViewController: UIViewController {
     @IBOutlet weak var stackView: UIStackView!
@@ -6,7 +8,6 @@ class QRLoginVerifyAuthorizationViewController: UIViewController {
     @IBOutlet weak var titleLabel: UILabel!
     @IBOutlet weak var subTitleLabel: UILabel!
     @IBOutlet weak var loadingIndicator: UIActivityIndicatorView!
-
 
     @IBOutlet weak var confirmButton: UIButton!
     @IBOutlet weak var cancelButton: UIButton!
@@ -153,7 +154,7 @@ extension QRLoginVerifyAuthorizationViewController: QRLoginVerifyView {
 extension QRLoginVerifyAuthorizationViewController {
     private func applyStyles() {
         titleLabel.font = WPStyleGuide.serifFontForTextStyle(.title1, fontWeight: .semibold)
-        titleLabel.textColor = .text
+        titleLabel.textColor = .label
 
         subTitleLabel.font = .preferredFont(forTextStyle: .headline)
         subTitleLabel.textColor = .systemRed
@@ -178,7 +179,7 @@ extension QRLoginVerifyAuthorizationViewController {
         subTitleLabel.text = subTitle
         self.confirmButton.setTitle(confirmButton, for: .normal)
 
-        guard let cancelButton = cancelButton else {
+        guard let cancelButton else {
             self.cancelButton.isHidden = true
             return
         }

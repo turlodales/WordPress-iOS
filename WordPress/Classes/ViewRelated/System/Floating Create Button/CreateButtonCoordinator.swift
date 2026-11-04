@@ -1,70 +1,50 @@
+import UIKit
 import Gridicons
+import WordPressData
 import WordPressFlux
+import WordPressShared
+import WordPressUI
 
-@objc class CreateButtonCoordinator: NSObject {
+final class CreateButtonCoordinator: NSObject {
 
     private enum Constants {
         static let padding: CGFloat = -16 // Bottom and trailing padding to position the button along the bottom right corner
         static let heightWidth: CGFloat = 56 // Height and width of the button
-        static let popoverOffset: CGFloat = -10 // The vertical offset of the iPad popover
-        static let maximumTooltipViews = 5 // Caps the number of times the user can see the announcement tooltip
+        static let popoverOffset: CGFloat = -4 // The vertical offset of the iPad popover
         static let skippedPromptsUDKey = "wp_skipped_blogging_prompts"
     }
 
-    var button: FloatingActionButton = {
-        let button = FloatingActionButton(image: .gridicon(.plus))
-        button.accessibilityLabel = NSLocalizedString("Create", comment: "Accessibility label for create floating action button")
+    var button: UIButton = {
+        let button: UIButton
+        if #available(iOS 26, *) {
+            var configuration = UIButton.Configuration.prominentGlass()
+            configuration.image = UIImage(systemName: "plus")
+            configuration.contentInsets = .init(top: 12, leading: 12, bottom: 12, trailing: 12)
+            configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+                font: .systemFont(ofSize: 20, weight: .semibold)
+            )
+            button = UIButton(configuration: configuration, primaryAction: nil)
+            button.tintColor = .label.withAlphaComponent(0.9)
+        } else {
+            button = FloatingActionButton(image: .gridicon(.plus))
+        }
+        button.accessibilityLabel = NSLocalizedString(
+            "Create",
+            comment: "Accessibility label for create floating action button"
+        )
         button.accessibilityIdentifier = "floatingCreateButton"
         return button
     }()
 
     private weak var viewController: UIViewController?
 
-    private let noticeAnimator = NoticeAnimator(duration: 0.5, springDampening: 0.7, springVelocity: 0.0)
-
-    private func notice(for blog: Blog) -> Notice {
-        let showsStories = blog.supports(.stories)
-        let title = showsStories ? NSLocalizedString("Create a post, page, or story", comment: "The tooltip title for the Floating Create Button") : NSLocalizedString("Creates new post, or page", comment: " Accessibility hint for create floating action button")
-        let notice = Notice(title: title,
-                            message: "",
-                            style: ToolTipNoticeStyle()) { [weak self] _ in
-                self?.didDismissTooltip = true
-                self?.hideNotice()
-        }
-        return notice
-    }
-
-    // Once this reaches `maximumTooltipViews` we won't show the tooltip again
-    private var shownTooltipCount: Int {
-        set {
-            if newValue >= Constants.maximumTooltipViews {
-                didDismissTooltip = true
-            } else {
-                UserPersistentStoreFactory.instance().createButtonTooltipDisplayCount = newValue
-            }
-        }
-        get {
-            return UserPersistentStoreFactory.instance().createButtonTooltipDisplayCount
-        }
-    }
-
-    private var didDismissTooltip: Bool {
-        set {
-            UserPersistentStoreFactory.instance().createButtonTooltipWasDisplayed = newValue
-        }
-        get {
-            return UserPersistentStoreFactory.instance().createButtonTooltipWasDisplayed
-        }
-    }
-
     // TODO: when prompt is used, get prompt from cache so it's using the latest.
     private var prompt: BloggingPrompt?
 
     private lazy var bloggingPromptsService: BloggingPromptsService? = {
-        return BloggingPromptsService(blog: blog)
+        BloggingPromptsService(blog: blog)
     }()
 
-    private weak var noticeContainerView: NoticeContainerView?
     private let actions: [ActionSheetItem]
     private let source: String
     private let blog: Blog?
@@ -83,37 +63,38 @@ import WordPressFlux
 
         super.init()
 
-        listenForQuickStart()
-
         // Only fetch the prompt if it is actually needed, i.e. on the FAB that has multiple actions.
         if actions.count > 1 {
             fetchBloggingPrompt()
         }
     }
 
-    deinit {
-        quickStartObserver = nil
-    }
-
     /// Should be called any time the `viewController`'s trait collections will change. Dismisses when horizontal class changes to transition from .popover -> .custom
     /// - Parameter previousTraitCollection: The previous trait collection
     /// - Parameter newTraitCollection: The new trait collection
-    @objc func presentingTraitCollectionWillChange(_ previousTraitCollection: UITraitCollection, newTraitCollection: UITraitCollection) {
+    func presentingTraitCollectionWillChange(
+        _ previousTraitCollection: UITraitCollection,
+        newTraitCollection: UITraitCollection
+    ) {
         if let actionSheetController = viewController?.presentedViewController as? ActionSheetViewController {
             if previousTraitCollection.horizontalSizeClass != newTraitCollection.horizontalSizeClass {
-                viewController?.dismiss(animated: false, completion: { [weak self] in
-                    guard let self = self else {
-                        return
-                    }
-                    self.setupPresentation(on: actionSheetController, for: newTraitCollection)
-                    self.viewController?.present(actionSheetController, animated: false, completion: nil)
-                })
+                viewController?
+                    .dismiss(
+                        animated: false,
+                        completion: { [weak self] in
+                            guard let self else {
+                                return
+                            }
+                            self.setupPresentation(on: actionSheetController, for: newTraitCollection)
+                            self.viewController?.present(actionSheetController, animated: false, completion: nil)
+                        }
+                    )
             }
         }
     }
 
     /// Button must be manually shown _after_ adding using `showCreateButton`
-    @objc func add(to view: UIView, trailingAnchor: NSLayoutXAxisAnchor, bottomAnchor: NSLayoutYAxisAnchor) {
+    func add(to view: UIView, trailingAnchor: NSLayoutXAxisAnchor, bottomAnchor: NSLayoutYAxisAnchor) {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.isHidden = true
 
@@ -121,35 +102,36 @@ import WordPressFlux
 
         NSLayoutConstraint.activate([
             button.bottomAnchor.constraint(equalTo: bottomAnchor, constant: Constants.padding),
-            button.heightAnchor.constraint(equalToConstant: Constants.heightWidth),
-            button.widthAnchor.constraint(equalToConstant: Constants.heightWidth),
             button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: Constants.padding)
         ])
+
+        if #unavailable(iOS 26) {
+            NSLayoutConstraint.activate([
+                button.heightAnchor.constraint(equalToConstant: Constants.heightWidth),
+                button.widthAnchor.constraint(equalToConstant: Constants.heightWidth)
+            ])
+        }
 
         button.addTarget(self, action: #selector(showCreateSheet), for: .touchUpInside)
     }
 
-    private var currentTourElement: QuickStartTourElement?
-
     @objc func showCreateSheet() {
-        didDismissTooltip = true
-        hideNotice()
-
-        guard let viewController = viewController else {
+        guard let viewController else {
             return
         }
 
+        // Temporarily show the sheet when the FAB is tapped on the Reader tab.
         if actions.count == 1 {
             actions.first?.handler()
         } else {
             let actionSheetVC = actionSheetController(with: viewController.traitCollection)
-            viewController.present(actionSheetVC, animated: true, completion: { [weak self] in
-                WPAnalytics.track(.createSheetShown, properties: ["source": self?.source ?? ""])
-
-                if let element = self?.currentTourElement {
-                    QuickStartTourGuide.shared.visited(element)
+            viewController.present(
+                actionSheetVC,
+                animated: true,
+                completion: { [weak self] in
+                    WPAnalytics.track(.createSheetShown, properties: ["source": self?.source ?? ""])
                 }
-            })
+            )
         }
     }
 
@@ -160,31 +142,28 @@ import WordPressFlux
     }
 
     private func setupPresentation(on viewController: UIViewController, for traitCollection: UITraitCollection) {
-        if traitCollection.horizontalSizeClass == .regular && traitCollection.verticalSizeClass == .regular {
-            viewController.modalPresentationStyle = .popover
-        } else {
-            viewController.modalPresentationStyle = .custom
+        viewController.modalPresentationStyle = .popover
+        viewController.popoverPresentationController?.sourceView = button
+        viewController.popoverPresentationController?.sourceRect = button.bounds.offsetBy(
+            dx: 0,
+            dy: Constants.popoverOffset
+        )
+
+        // Pre-compute `preferredContentSize`
+        viewController.view.layoutIfNeeded()
+
+        viewController.popoverPresentationController?.adaptiveSheetPresentationController.detents = [
+            .custom { [weak viewController] _ in
+                viewController?.preferredContentSize.height ?? 320
+            }
+        ]
+
+        viewController.preferredTransition = .zoom { [weak self] _ in
+            self?.button
         }
-
-        viewController.popoverPresentationController?.sourceView = self.button
-        viewController.popoverPresentationController?.sourceRect = self.button.bounds.offsetBy(dx: 0, dy: Constants.popoverOffset)
-        viewController.transitioningDelegate = self
     }
 
-    private func hideNotice() {
-        if let container = noticeContainerView {
-            NoticePresenter.dismiss(container: container)
-        }
-    }
-
-    func hideCreateButtonTooltip() {
-        didDismissTooltip = true
-        hideNotice()
-    }
-
-    @objc func hideCreateButton() {
-        hideNotice()
-
+    func hideCreateButton() {
         if UIAccessibility.isReduceMotionEnabled {
             button.isHidden = true
         } else {
@@ -194,79 +173,19 @@ import WordPressFlux
 
     func removeCreateButton() {
         button.removeFromSuperview()
-        noticeContainerView?.removeFromSuperview()
     }
 
-    @objc func showCreateButton(for blog: Blog) {
-        let showsStories = blog.supports(.stories)
-        button.accessibilityHint = showsStories ? NSLocalizedString("Creates new post, page, or story", comment: " Accessibility hint for create floating action button") : NSLocalizedString("Create a post or page", comment: " Accessibility hint for create floating action button")
-        showCreateButton(notice: notice(for: blog))
+    func showCreateButton(for blog: Blog) {
+        button.accessibilityHint = Strings.createPostHint
+        showCreateButton()
     }
 
-    private func showCreateButton(notice: Notice) {
-        if !didDismissTooltip {
-            noticeContainerView = noticeAnimator.present(notice: notice, in: viewController!.view, sourceView: button)
-            shownTooltipCount += 1
-        }
-
+    private func showCreateButton() {
         if UIAccessibility.isReduceMotionEnabled {
             button.isHidden = false
         } else {
             button.springAnimation(toShow: true)
         }
-    }
-
-    // MARK: - Quick Start
-
-    private var quickStartObserver: Any?
-
-    private func quickStartNotice(_ description: NSAttributedString) -> Notice {
-        let notice = Notice(title: "",
-                            message: "",
-                            style: ToolTipNoticeStyle(attributedMessage: description)) { [weak self] _ in
-                self?.didDismissTooltip = true
-                self?.hideNotice()
-        }
-
-        return notice
-    }
-
-    private func listenForQuickStart() {
-        quickStartObserver = NotificationCenter.default.addObserver(forName: .QuickStartTourElementChangedNotification, object: nil, queue: nil) { [weak self] (notification) in
-            guard let self = self,
-                let userInfo = notification.userInfo,
-                let element = userInfo[QuickStartTourGuide.notificationElementKey] as? QuickStartTourElement,
-                let description = userInfo[QuickStartTourGuide.notificationDescriptionKey] as? NSAttributedString,
-                element == .newpost || element == .newPage else {
-                    return
-            }
-
-            self.currentTourElement = element
-            self.hideNotice()
-            self.didDismissTooltip = false
-            self.showCreateButton(notice: self.quickStartNotice(description))
-        }
-    }
-}
-
-// MARK: Tranisitioning Delegate
-
-extension CreateButtonCoordinator: UIViewControllerTransitioningDelegate {
-    public func animationController(forPresented presented: UIViewController, presenting: UIViewController, source: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-        return BottomSheetAnimationController(transitionType: .presenting)
-    }
-
-    public func animationController(forDismissed dismissed: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-        return BottomSheetAnimationController(transitionType: .dismissing)
-    }
-
-    public func presentationController(forPresented presented: UIViewController, presenting: UIViewController?, source: UIViewController) -> UIPresentationController? {
-        let presentationController = BottomSheetPresentationController(presentedViewController: presented, presenting: presenting)
-        return presentationController
-    }
-
-    public func interactionControllerForDismissal(using animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
-        return (viewController?.presentedViewController?.presentationController as? BottomSheetPresentationController)?.interactionController
     }
 }
 
@@ -278,28 +197,32 @@ private extension CreateButtonCoordinator {
 
         // TODO: check for cached prompt first.
 
-        guard let bloggingPromptsService = bloggingPromptsService else {
+        guard let bloggingPromptsService else {
             DDLogError("FAB: failed creating BloggingPromptsService instance.")
             prompt = nil
             return
         }
 
-        bloggingPromptsService.todaysPrompt(success: { [weak self] (prompt) in
-            self?.prompt = prompt
-        }, failure: { [weak self] (error) in
-            self?.prompt = nil
-            DDLogError("FAB: failed fetching blogging prompt: \(String(describing: error))")
-        })
+        bloggingPromptsService.todaysPrompt(
+            success: { [weak self] prompt in
+                self?.prompt = prompt
+            },
+            failure: { [weak self] error in
+                self?.prompt = nil
+                DDLogError("FAB: failed fetching blogging prompt: \(String(describing: error))")
+            }
+        )
     }
 
     private func createPromptHeaderView() -> BloggingPromptsHeaderView? {
         guard FeatureFlag.bloggingPrompts.enabled,
-              let blog = blog,
-              blog.isAccessibleThroughWPCom(),
-              let prompt = prompt,
-              let siteID = blog.dotComID,
-              BlogDashboardPersonalizationService(siteID: siteID.intValue).isEnabled(.prompts),
-              !userSkippedPrompt(prompt, for: blog) else {
+            let blog,
+            blog.isAccessibleThroughWPCom,
+            let prompt,
+            let siteID = blog.dotComID,
+            BlogDashboardPersonalizationService(siteID: siteID.intValue).isEnabled(.prompts),
+            !userSkippedPrompt(prompt, for: blog)
+        else {
             return nil
         }
 
@@ -307,12 +230,22 @@ private extension CreateButtonCoordinator {
 
         promptsHeaderView.answerPromptHandler = { [weak self] in
             WPAnalytics.track(.promptsBottomSheetAnswerPrompt)
-            self?.viewController?.dismiss(animated: true) {
-                let editor = EditPostViewController(blog: blog, prompt: prompt)
-                editor.modalPresentationStyle = .fullScreen
-                editor.entryPoint = .bloggingPromptsActionSheetHeader
-                self?.viewController?.present(editor, animated: true)
-            }
+            self?.viewController?
+                .dismiss(animated: true) {
+                    // UIKit runs the dismissal completion on the main thread but
+                    // doesn't declare it, so state the isolation explicitly.
+                    MainActor.assumeIsolated {
+                        guard let viewController = self?.viewController else { return }
+                        PostEditorRouter.showNewPost(
+                            for: blog,
+                            from: viewController,
+                            context: NewPostEditorContext(
+                                prompt: prompt,
+                                entryPoint: .bloggingPromptsActionSheetHeader
+                            )
+                        )
+                    }
+                }
         }
 
         promptsHeaderView.infoButtonHandler = { [weak self] in
@@ -320,7 +253,8 @@ private extension CreateButtonCoordinator {
             guard let presentedViewController = self?.viewController?.presentedViewController else {
                 return
             }
-            BloggingPromptsIntroductionPresenter(interactionType: .actionable(blog: blog)).present(from: presentedViewController)
+            BloggingPromptsIntroductionPresenter(interactionType: .actionable(blog: blog))
+                .present(from: presentedViewController)
         }
 
         return promptsHeaderView
@@ -328,8 +262,10 @@ private extension CreateButtonCoordinator {
 
     func userSkippedPrompt(_ prompt: BloggingPrompt, for blog: Blog) -> Bool {
         guard AppConfiguration.isJetpack,
-              let siteID = blog.dotComID?.stringValue,
-              let allSkippedPrompts = UserPersistentStoreFactory.instance().array(forKey: Constants.skippedPromptsUDKey) as? [[String: Int32]] else {
+            let siteID = blog.dotComID?.stringValue,
+            let allSkippedPrompts = UserPersistentStoreFactory.instance().array(forKey: Constants.skippedPromptsUDKey)
+                as? [[String: Int32]]
+        else {
             return false
         }
         let siteSkippedPrompts = allSkippedPrompts.filter { $0.keys.first == siteID }
@@ -337,5 +273,87 @@ private extension CreateButtonCoordinator {
 
         return !matchingPrompts.isEmpty
     }
+}
 
+private extension UIButton {
+
+    private enum Constants {
+        enum Maximize {
+            static let damping: CGFloat = 0.7
+            static let duration: TimeInterval = 0.5
+            static let initialScale: CGFloat = 0.0
+            static let finalScale: CGFloat = 1.0
+        }
+        enum Minimize {
+            static let damping: CGFloat = 0.9
+            static let duration: TimeInterval = 0.25
+            static let initialScale: CGFloat = 1.0
+            static let finalScale: CGFloat = 0.001
+        }
+    }
+
+    /// Animates the showing and hiding of a view using a spring animation
+    /// - Parameter toShow: Whether to show the view
+    func springAnimation(toShow: Bool) {
+        if toShow {
+            guard isHidden == true else { return }
+            maximizeSpringAnimation()
+        } else {
+            guard isHidden == false else { return }
+            minimizeSpringAnimation()
+        }
+    }
+
+    /// Applies a spring animation, from size 1 to 0
+    private func minimizeSpringAnimation() {
+        let damping = Constants.Minimize.damping
+        let scaleInitial = Constants.Minimize.initialScale
+        let scaleFinal = Constants.Minimize.finalScale
+        let duration = Constants.Minimize.duration
+
+        scaleAnimation(duration: duration, damping: damping, scaleInitial: scaleInitial, scaleFinal: scaleFinal) {
+            [weak self] _ in
+            self?.transform = .identity
+            self?.isHidden = true
+        }
+    }
+
+    /// Applies a spring animation, from size 0 to 1
+    private func maximizeSpringAnimation() {
+        let damping = Constants.Maximize.damping
+        let scaleInitial = Constants.Maximize.initialScale
+        let scaleFinal = Constants.Maximize.finalScale
+        let duration = Constants.Maximize.duration
+
+        scaleAnimation(duration: duration, damping: damping, scaleInitial: scaleInitial, scaleFinal: scaleFinal)
+    }
+
+    private func scaleAnimation(
+        duration: TimeInterval,
+        damping: CGFloat,
+        scaleInitial: CGFloat,
+        scaleFinal: CGFloat,
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        setNeedsDisplay() // Make sure we redraw so that corners are rounded
+        transform = CGAffineTransform(scaleX: scaleInitial, y: scaleInitial)
+        isHidden = false
+
+        let animator = UIViewPropertyAnimator(duration: duration, dampingRatio: damping) {
+            self.transform = CGAffineTransform(scaleX: scaleFinal, y: scaleFinal)
+        }
+        animator.addCompletion { _ in
+            completion?(true)
+        }
+        animator.startAnimation()
+    }
+}
+
+private enum Strings {
+    static let readerSource = "reader"
+    static let createPostHint = NSLocalizedString(
+        "createPostSheet.createPostHint",
+        value: "Create a post or page",
+        comment: "Accessibility hint for create floating action button"
+    )
 }

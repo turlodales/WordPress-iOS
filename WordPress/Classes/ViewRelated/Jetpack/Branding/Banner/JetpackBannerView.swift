@@ -1,5 +1,6 @@
 import Combine
 import UIKit
+import WordPressUI
 
 class JetpackBannerView: UIView {
 
@@ -42,7 +43,7 @@ class JetpackBannerView: UIView {
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: JetpackBannerView.minimumHeight).isActive = true
         backgroundColor = Self.jetpackBannerBackgroundColor
-        let textProvider = JetpackBrandingTextProvider(screen: nil) // Use default text in case `configure()` is never called.
+        let textProvider = JetpackBrandingTextProvider()
         let jetpackButton = JetpackButton(style: .banner, title: textProvider.brandingText())
         jetpackButton.translatesAutoresizingMaskIntoConstraints = false
         jetpackButton.addTarget(self, action: #selector(jetpackButtonTapped), for: .touchUpInside)
@@ -56,8 +57,10 @@ class JetpackBannerView: UIView {
 
     /// Preferred minimum height to be used for constraints
     static let minimumHeight: CGFloat = 44
-    private static let jetpackBannerBackgroundColor = UIColor(light: .muriel(color: .jetpackGreen, .shade0),
-                                                              dark: .muriel(color: .jetpackGreen, .shade90))
+    private static let jetpackBannerBackgroundColor = UIColor(
+        light: UIAppColor.jetpackGreen(.shade0),
+        dark: UIAppColor.jetpackGreen(.shade90)
+    )
 }
 
 // MARK: Responding to scroll events

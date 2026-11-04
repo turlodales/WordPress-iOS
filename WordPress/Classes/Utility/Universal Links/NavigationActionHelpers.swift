@@ -1,9 +1,10 @@
 import Foundation
+import WordPressData
 import WordPressFlux
 
 extension NavigationAction {
     func defaultBlog() -> Blog? {
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
         return Blog.lastUsedOrFirst(in: context)
     }
 
@@ -12,7 +13,7 @@ extension NavigationAction {
             return nil
         }
 
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
 
         if let blog = Blog.lookup(hostname: domain, in: context) {
             return blog
@@ -26,8 +27,9 @@ extension NavigationAction {
         return nil
     }
 
-    func postFailureNotice(title: String) {
+    func postFailureNotice(title: String, message: String? = nil) {
         let notice = Notice(title: title,
+                            message: message,
                             feedbackType: .error,
                             notificationInfo: nil)
         ActionDispatcher.dispatch(NoticeAction.post(notice))

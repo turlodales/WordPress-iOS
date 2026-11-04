@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 import WordPressKit
 
 /// Service providing access to user roles
@@ -11,7 +12,7 @@ struct RoleService {
     fileprivate let siteID: Int
 
     init?(blog: Blog, coreDataStack: CoreDataStack) {
-        guard let api = blog.wordPressComRestApi(), let dotComID = blog.dotComID as? Int else {
+        guard let api = blog.wordPressComRestApi, let dotComID = blog.dotComID as? Int else {
             return nil
         }
 
@@ -24,7 +25,7 @@ struct RoleService {
     /// Forces a refresh of roles from the api and stores them in Core Data.
     ///
     func fetchRoles(success: @escaping () -> Void, failure: @escaping (Error) -> Void) {
-        remote.getUserRoles(siteID, success: { (remoteRoles) in
+        remote.getUserRoles(siteID, success: { remoteRoles in
             self.coreDataStack.performAndSave({ context in
                 self.mergeRoles(remoteRoles, in: context)
             }, completion: success, on: .main)

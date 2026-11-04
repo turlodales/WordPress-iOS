@@ -1,4 +1,5 @@
-import Foundation
+import UIKit
+import WordPressData
 
 struct BlazeOverlayViewModel {
 
@@ -16,9 +17,7 @@ struct BlazeOverlayViewModel {
 
     var buttonTitle: NSAttributedString {
         switch source {
-        case .dashboardCard:
-            fallthrough
-        case .campaignList:
+        case .dashboardCard, .campaignList, .publishSuccessView:
             fallthrough
         case .menuItem:
             return buttonTitleWithIcon(title: Strings.blazeButtonTitle)
@@ -74,7 +73,6 @@ struct BlazeOverlayViewModel {
         static let blazeButtonTitle = NSLocalizedString("blaze.overlay.buttonTitle", value: "Blaze a post now", comment: "Button title for a Blaze overlay prompting users to select a post to blaze.")
         static let blazePostButtonTitle = NSLocalizedString("blaze.overlay.withPost.buttonTitle", value: "Blaze this post", comment: "Button title for the Blaze overlay prompting users to blaze the selected post.")
         static let blazePageButtonTitle = NSLocalizedString("blaze.overlay.withPage.buttonTitle", value: "Blaze this page", comment: "Button title for the Blaze overlay prompting users to blaze the selected page.")
-
     }
 
     private enum Metrics {

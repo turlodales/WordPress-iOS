@@ -1,62 +1,63 @@
 import Foundation
+import SVProgressHUD
 import WordPressFlux
+import WordPressUI
+import SwiftUI
 
 extension PostEditor {
 
+    @MainActor
     func displayPostSettings() {
-        let settingsViewController: PostSettingsViewController
-        if post is Page {
-            settingsViewController = PageSettingsViewController(post: post)
-        } else {
-            settingsViewController = PostSettingsViewController(post: post)
+        // Use the new SwiftUI-based Post Settings
+        let originalFeaturedImageID = post.featuredImage?.mediaID
+        let viewModel = PostSettingsViewModel(post: post)
+        viewModel.onEditorPostSaved = { [weak self] in
+            self?.didSavePostSettings(originalFeaturedImageID: originalFeaturedImageID)
         }
-        settingsViewController.featuredImageDelegate = self as? FeaturedImageDelegate
-        settingsViewController.hidesBottomBarWhenPushed = true
-        self.navigationController?.pushViewController(settingsViewController, animated: true)
+        let postSettingsVC = PostSettingsViewController(viewModel: viewModel)
+        let navigation = UINavigationController(rootViewController: postSettingsVC)
+        self.navigationController?.present(navigation, animated: true)
     }
 
-    private func createPostRevisionBeforePreview(completion: @escaping (() -> Void)) {
-        let context = ContextManager.sharedInstance().mainContext
-        context.performAndWait {
-            post = self.post.createRevision()
-            ContextManager.sharedInstance().save(context)
-            completion()
+    func didSavePostSettings(originalFeaturedImageID: NSNumber?) {
+        editorContentWasUpdated()
+
+        // Check if featured image changed and notify Gutenberg
+        if let gutenbergVC = self as? GutenbergViewController,
+           originalFeaturedImageID != self.post.featuredImage?.mediaID {
+            let newMediaID = self.post.featuredImage?.mediaID ?? GutenbergFeaturedImageHelper.mediaIdNoFeaturedImageSet as NSNumber
+            gutenbergVC.gutenbergDidRequestFeaturedImageId(newMediaID)
         }
     }
 
     private func savePostBeforePreview(completion: @escaping ((String?, Error?) -> Void)) {
-        let context = ContextManager.sharedInstance().mainContext
-        let postService = PostService(managedObjectContext: context)
-
-        if !post.hasUnsavedChanges() {
+        guard !post.changes.isEmpty || post.getOriginal().isNewDraft else {
             completion(nil, nil)
             return
         }
 
-        SVProgressHUD.setDefaultMaskType(.clear)
-        SVProgressHUD.show(withStatus: NSLocalizedString("Generating Preview", comment: "Message to indicate progress of generating preview"))
+        Task { @MainActor in
+            let coordinator = PostCoordinator.shared
+            do {
+                if post.isStatus(in: [.draft, .pending]) {
+                    SVProgressHUD.setDefaultMaskType(.clear)
+                    SVProgressHUD.show(withStatus: Strings.savingDraft)
 
-        postService.autoSave(post, success: { [weak self] savedPost, previewURL in
+                    let original = post.getOriginal()
+                    try await coordinator.save(original)
+                    self.post = original
+                    self.createRevisionOfPost()
 
-            guard let self = self else {
-                return
-            }
-
-            self.post = savedPost
-
-            if self.post.isRevision() {
-                ContextManager.sharedInstance().save(context)
-                completion(previewURL, nil)
-            } else {
-                self.createPostRevisionBeforePreview() {
-                    completion(previewURL, nil)
+                    completion(nil, nil)
+                } else {
+                    SVProgressHUD.setDefaultMaskType(.clear)
+                    SVProgressHUD.show(withStatus: Strings.creatingAutosave)
+                    let autosave = try await PostRepository().autosave(post)
+                    completion(autosave.previewURL.absoluteString, nil)
                 }
+            } catch {
+                completion(nil, error)
             }
-        }) { error in
-
-            //When failing to save a published post will result in "preview not available"
-            DDLogError("Error while trying to save post before preview: \(String(describing: error))")
-            completion(nil, error)
         }
     }
 
@@ -72,15 +73,10 @@ extension PostEditor {
             return
         }
 
-        guard post.remoteStatus != .pushing else {
-            displayPostIsUploadingAlert()
-            return
-        }
-
         emitPostSaveEvent()
 
         savePostBeforePreview() { [weak self] previewURLString, error in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
@@ -93,7 +89,7 @@ extension PostEditor {
             }
 
             let previewController: PreviewWebKitViewController
-            if let previewURLString = previewURLString, let previewURL = URL(string: previewURLString) {
+            if let previewURLString, let previewURL = URL(string: previewURLString) {
                 previewController = PreviewWebKitViewController(post: self.post, previewURL: previewURL, source: "edit_post_more_preview")
             } else {
                 if self.post.permaLink == nil {
@@ -104,41 +100,40 @@ extension PostEditor {
                 previewController = PreviewWebKitViewController(post: self.post, source: "edit_post_more_preview")
             }
             previewController.trackOpenEvent()
-            let navWrapper = LightNavigationController(rootViewController: previewController)
-            if self.navigationController?.traitCollection.userInterfaceIdiom == .pad {
-                navWrapper.modalPresentationStyle = .fullScreen
-            }
-            self.navigationController?.present(navWrapper, animated: true)
+            self.navigationController?.presentCoveringWindow(previewController)
         }
     }
 
-    func displayHistory() {
-        let revisionsViewController = RevisionsTableViewController(post: post) { [weak self] revision in
-            guard let post = self?.post.update(from: revision) else {
-                return
-            }
+    func displayRevisionsList() {
+        let viewController = RevisionsTableViewController(post: post)
+        viewController.onRevisionSelected = { [weak self] revision in
+            guard let self else { return }
 
-            // show the notice with undo button
-            let notice = Notice(title: "Revision loaded", message: nil, feedbackType: .success, notificationInfo: nil, actionTitle: "Undo", cancelTitle: nil) { (happened) in
-                guard happened else {
-                    return
-                }
-                DispatchQueue.main.async {
-                    guard let original = self?.post.original,
-                        let clone = self?.post.clone(from: original) else {
-                        return
-                    }
-                    self?.post = clone
+            self.navigationController?.popViewController(animated: true)
 
-                    WPAnalytics.track(.postRevisionsLoadUndone)
-                }
-            }
-            ActionDispatcher.dispatch(NoticeAction.post(notice))
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(300)) {
+                self.post.postTitle = revision.postTitle
+                self.post.content = revision.postContent
+                self.post.mt_excerpt = revision.postExcerpt
 
-            DispatchQueue.main.async {
-                self?.post = post
+                // It's important to clear the pending uploads associated with the
+                // post. The assumption is that if the revision on the remote,
+                // its associated media has to be also uploaded.
+                MediaCoordinator.shared.cancelUploadOfAllMedia(for: self.post)
+                self.post.media = []
+
+                self.post = self.post // Reload the ui
+
+                let notice = Notice(title: Strings.revisionLoaded, feedbackType: .success)
+                ActionDispatcher.dispatch(NoticeAction.post(notice))
             }
         }
-        navigationController?.pushViewController(revisionsViewController, animated: true)
+        navigationController?.pushViewController(viewController, animated: true)
     }
+}
+
+private enum Strings {
+    static let savingDraft = NSLocalizedString("postEditor.savingDraftForPreview", value: "Saving draft...", comment: "Saving draft to generate a preview (status message")
+    static let creatingAutosave = NSLocalizedString("postEditor.creatingAutosaveForPreview", value: "Creating autosave...", comment: "Creating autosave to generate a preview (status message")
+    static let revisionLoaded = NSLocalizedString("postEditor.revisionLoaded", value: "Revision loaded", comment: "Title for a snackbar")
 }

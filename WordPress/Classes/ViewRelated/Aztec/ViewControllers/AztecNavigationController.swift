@@ -1,7 +1,6 @@
 import Foundation
 import UIKit
 
-
 // MARK: - AztecNavigationControllerDelegate Protocol
 //
 protocol AztecNavigationControllerDelegate: UINavigationControllerDelegate {
@@ -10,7 +9,6 @@ protocol AztecNavigationControllerDelegate: UINavigationControllerDelegate {
     ///
     func navigationController(_ navigationController: UINavigationController, didDismiss alertController: UIAlertController)
 }
-
 
 // MARK: - AztecNavigationController
 //
@@ -22,11 +20,7 @@ class AztecNavigationController: UINavigationController {
         return delegate as? AztecNavigationControllerDelegate
     }
 
-    override var preferredStatusBarStyle: UIStatusBarStyle {
-        return WPStyleGuide.preferredStatusBarStyle
-    }
-
-    // MARK: - Overriden Methods
+    // MARK: - Overridden Methods
 
     override func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
         guard let alertController = presentedViewController as? UIAlertController else {

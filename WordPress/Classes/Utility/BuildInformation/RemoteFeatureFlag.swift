@@ -1,15 +1,8 @@
 import Foundation
+import BuildSettingsKit
 
 @objc
-enum RemoteFeatureFlag: Int, CaseIterable {
-    case jetpackFeaturesRemovalPhaseOne
-    case jetpackFeaturesRemovalPhaseTwo
-    case jetpackFeaturesRemovalPhaseThree
-    case jetpackFeaturesRemovalPhaseFour
-    case jetpackFeaturesRemovalPhaseNewUsers
-    case jetpackFeaturesRemovalPhaseSelfHosted
-    case jetpackFeaturesRemovalStaticPosters
-    case jetpackMigrationPreventDuplicateNotifications
+public enum RemoteFeatureFlag: Int, CaseIterable {
     case blaze
     case blazeManageCampaigns
     case wordPressIndividualPluginSupport
@@ -18,31 +11,23 @@ enum RemoteFeatureFlag: Int, CaseIterable {
     case bloggingPromptsSocial
     case siteEditorMVP
     case contactSupportChatbot
-    case jetpackSocialImprovements
     case domainManagement
     case dynamicDashboardCards
     case plansInSiteCreation
-    case bloganuaryDashboardNudge // pcdRpT-4FE-p2
-    case wordPressSotWCard
+    case inAppRating
+    case siteMonitoring
+    case inAppUpdates
+    case gravatarQuickEditor
+    case dotComWebLogin
+    case newGutenberg
+    case newGutenbergPlugins
+    case statsAds
+    case readerInWordPressApp
 
     var defaultValue: Bool {
+        let app = BuildSettings.current.brand
+
         switch self {
-        case .jetpackMigrationPreventDuplicateNotifications:
-            return true
-        case .jetpackFeaturesRemovalPhaseOne:
-            return false
-        case .jetpackFeaturesRemovalPhaseTwo:
-            return false
-        case .jetpackFeaturesRemovalPhaseThree:
-            return false
-        case .jetpackFeaturesRemovalPhaseFour:
-            return false
-        case .jetpackFeaturesRemovalPhaseNewUsers:
-            return false
-        case .jetpackFeaturesRemovalPhaseSelfHosted:
-            return false
-        case .jetpackFeaturesRemovalStaticPosters:
-            return false
         case .blaze:
             return false
         case .blazeManageCampaigns:
@@ -59,40 +44,36 @@ enum RemoteFeatureFlag: Int, CaseIterable {
             return true
         case .contactSupportChatbot:
             return false
-        case .jetpackSocialImprovements:
-            return AppConfiguration.isJetpack
         case .domainManagement:
             return false
         case .dynamicDashboardCards:
             return false
         case .plansInSiteCreation:
             return false
-        case .bloganuaryDashboardNudge:
-            return AppConfiguration.isJetpack
-        case .wordPressSotWCard:
-            return true
+        case .inAppRating:
+            return false
+        case .siteMonitoring:
+            return false
+        case .inAppUpdates:
+            return false
+        case .gravatarQuickEditor:
+            return BuildConfiguration.current.isInternal
+        case .dotComWebLogin:
+            return false
+        case .newGutenberg:
+            return app == .reader
+        case .newGutenbergPlugins:
+            return false
+        case .statsAds:
+            return false
+        case .readerInWordPressApp:
+            return false
         }
     }
 
     /// This key must match the server-side one for remote feature flagging
     var remoteKey: String {
         switch self {
-        case .jetpackFeaturesRemovalPhaseOne:
-            return "jp_removal_one"
-        case .jetpackFeaturesRemovalPhaseTwo:
-            return "jp_removal_two"
-        case .jetpackFeaturesRemovalPhaseThree:
-            return "jp_removal_three"
-        case .jetpackFeaturesRemovalPhaseFour:
-            return "jp_removal_four"
-        case .jetpackFeaturesRemovalPhaseNewUsers:
-            return "jp_removal_new_users"
-        case .jetpackFeaturesRemovalPhaseSelfHosted:
-            return "jp_removal_self_hosted"
-        case .jetpackFeaturesRemovalStaticPosters:
-            return "jp_removal_static_posters"
-        case .jetpackMigrationPreventDuplicateNotifications:
-            return "prevent_duplicate_notifs_remote_field"
         case .blaze:
             return "blaze"
         case .blazeManageCampaigns:
@@ -109,39 +90,35 @@ enum RemoteFeatureFlag: Int, CaseIterable {
             return "site_editor_mvp"
         case .contactSupportChatbot:
             return "contact_support_chatbot"
-        case .jetpackSocialImprovements:
-            return "jetpack_social_improvements_v1"
         case .domainManagement:
             return "domain_management"
         case .dynamicDashboardCards:
             return "dynamic_dashboard_cards"
         case .plansInSiteCreation:
             return "plans_in_site_creation"
-        case .bloganuaryDashboardNudge:
-            return "bloganuary_dashboard_nudge"
-        case .wordPressSotWCard:
-            return "wp_sotw_2023_nudge"
+        case .inAppRating:
+            return "in_app_rating_and_feedback"
+        case .siteMonitoring:
+            return "site_monitoring"
+        case .inAppUpdates:
+            return "in_app_updates"
+        case .gravatarQuickEditor:
+            return "gravatar_quick_editor"
+        case .dotComWebLogin:
+            return "jp_wpcom_web_login"
+        case .newGutenberg:
+            return "gutenberg_kit"
+        case .newGutenbergPlugins:
+            return "gutenberg_kit_plugins"
+        case .statsAds:
+            return "stats_ads"
+        case .readerInWordPressApp:
+            return "wordpress_ios_reader"
         }
     }
 
-    var description: String {
+    public var description: String {
         switch self {
-        case .jetpackMigrationPreventDuplicateNotifications:
-            return "Jetpack Migration prevent duplicate WordPress app notifications when Jetpack is installed"
-        case .jetpackFeaturesRemovalPhaseOne:
-            return "Jetpack Features Removal Phase One"
-        case .jetpackFeaturesRemovalPhaseTwo:
-            return "Jetpack Features Removal Phase Two"
-        case .jetpackFeaturesRemovalPhaseThree:
-            return "Jetpack Features Removal Phase Three"
-        case .jetpackFeaturesRemovalPhaseFour:
-            return "Jetpack Features Removal Phase Four"
-        case .jetpackFeaturesRemovalPhaseNewUsers:
-            return "Jetpack Features Removal Phase For New Users"
-        case .jetpackFeaturesRemovalPhaseSelfHosted:
-            return "Jetpack Features Removal Phase For Self-Hosted Sites"
-        case .jetpackFeaturesRemovalStaticPosters:
-            return "Jetpack Features Removal Static Screens Phase"
         case .blaze:
             return "Blaze"
         case .blazeManageCampaigns:
@@ -158,26 +135,40 @@ enum RemoteFeatureFlag: Int, CaseIterable {
             return "Site Editor MVP"
         case .contactSupportChatbot:
             return "Contact Support via DocsBot"
-        case .jetpackSocialImprovements:
-            return "Jetpack Social Improvements v1"
         case .domainManagement:
             return "Domain Management"
         case .dynamicDashboardCards:
             return "Dynamic Dashboard Cards"
         case .plansInSiteCreation:
             return "Plans in Site Creation"
-        case .bloganuaryDashboardNudge:
-            return "Bloganuary Dashboard Nudge"
-        case .wordPressSotWCard:
-            return "SoTW Nudge Card for WordPress App"
+        case .inAppRating:
+            return "In-App Rating and Feedback"
+        case .siteMonitoring:
+            return "Site Monitoring"
+        case .inAppUpdates:
+            return "In-App Updates"
+        case .gravatarQuickEditor:
+            return "Gravatar Quick Editor"
+        case .dotComWebLogin:
+            return "Log in to WordPress.com from web browser"
+        case .newGutenberg:
+            return "Experimental Block Editor"
+        case .newGutenbergPlugins:
+            return "Experimental Block Editor Plugins"
+        case .statsAds:
+            return "Stats Ads Tab"
+        case .readerInWordPressApp:
+            return "Reader in WordPress App"
         }
     }
 
     /// If the flag is overridden, the overridden value is returned.
     /// If the flag exists in the local cache, the current value will be returned.
     /// If the flag is not overridden and does not exist in the local cache, the compile-time default will be returned.
-    func enabled(using remoteStore: RemoteFeatureFlagStore = RemoteFeatureFlagStore(),
-                 overrideStore: FeatureFlagOverrideStore = FeatureFlagOverrideStore()) -> Bool {
+    func enabled(
+        using remoteStore: RemoteFeatureFlagStore = RemoteFeatureFlagStore(),
+        overrideStore: FeatureFlagOverrideStore = FeatureFlagOverrideStore()
+    ) -> Bool {
         if let overriddenValue = overrideStore.overriddenValue(for: self) {
             return overriddenValue
         }
@@ -190,8 +181,12 @@ enum RemoteFeatureFlag: Int, CaseIterable {
 }
 
 extension RemoteFeatureFlag: OverridableFlag {
+    var key: String {
+        "ff-override-\(String(describing: self))"
+    }
+
     var originalValue: Bool {
-        return enabled()
+        enabled()
     }
 
     var canOverride: Bool {
@@ -202,9 +197,9 @@ extension RemoteFeatureFlag: OverridableFlag {
 /// Objective-C bridge for RemoteFeatureFlag.
 ///
 /// Since we can't expose properties on Swift enums we use a class instead
-class RemoteFeature: NSObject {
+public class RemoteFeature: NSObject {
     /// Returns a boolean indicating if the feature is enabled
-    @objc static func enabled(_ feature: RemoteFeatureFlag) -> Bool {
-        return feature.enabled()
+    @objc public static func enabled(_ feature: RemoteFeatureFlag) -> Bool {
+        feature.enabled()
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
-
+import WordPressData
+import WordPressKit
 
 extension PostService {
 
@@ -9,7 +10,7 @@ extension PostService {
                           failure: @escaping (Error?) -> Void) {
         guard let blogId = post.blog.dotComID,
             let postId = post.postID,
-            let api = post.blog.wordPressComRestApi() else {
+            let api = post.blog.wordPressComRestApi else {
                 failure(nil)
                 return
         }
@@ -17,37 +18,16 @@ extension PostService {
         let remote = PostServiceRemoteREST(wordPressComRestApi: api, siteID: blogId)
         remote.getPostRevisions(for: blogId.intValue,
                                 postId: postId.intValue,
-                                success: { (remoteRevisions) in
+                                success: { remoteRevisions in
                                     self.managedObjectContext.perform {
                                         let _ = self.syncPostRevisions(
                                             from: remoteRevisions ?? [],
                                             for: postId.intValue,
                                             with: blogId.intValue
                                         )
-                                        ContextManager.sharedInstance().save(self.managedObjectContext, completion: success, on: .main)
+                                        ContextManager.shared.save(self.managedObjectContext, completion: success, on: .main)
                                     }
         }, failure: failure)
-    }
-
-    /// Check if the given post matches the latest revision on the site and logs an error event if it doesn't.
-    @objc(checkLatestRevisionForPost:usingRemote:)
-    func checkLatestRevision(for post: AbstractPost, using remote: PostServiceRemote) -> Void {
-        guard let postID = post.postID,
-              postID.int64Value > 0,
-              let restApi = (remote as? PostServiceRemoteREST),
-              let localRevision = post.revisions?.first as? NSNumber
-        else {
-            return
-        }
-
-        restApi.getPostLatestRevisionID(for: postID) { latestRemoteRevision in
-            if let latestRemoteRevision, latestRemoteRevision != localRevision {
-                DDLogError("The latest revision (\(latestRemoteRevision)) of the post (id: \(postID)) is about to be overwritten by an edit that's based on revision \(localRevision)")
-                WordPressAppDelegate.logError(NSError(domain: "PostEditor.OverwritePost", code: 1))
-            }
-        } failure: { _ in
-            // Do nothing
-        }
     }
 
     // MARK: Private methods

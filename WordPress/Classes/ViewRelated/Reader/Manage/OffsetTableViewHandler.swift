@@ -1,3 +1,6 @@
+import UIKit
+import WordPressUI
+
 // A table view handler offset by 1 (for Add a Topic in Reader Tags)
 class OffsetTableViewHandler: WPTableViewHandler {
 
@@ -32,11 +35,11 @@ class OffsetTableViewHandler: WPTableViewHandler {
 
         let oldIndexPath = indexPath.map {
             adjustedToTable(indexPath: $0)
-        } ?? nil
+        }
 
         let newPath = newIndexPath.map {
             adjustedToTable(indexPath: $0)
-        } ?? nil
+        }
 
         super.controller(controller, didChange: anObject, at: oldIndexPath, for: type, newIndexPath: newPath)
     }

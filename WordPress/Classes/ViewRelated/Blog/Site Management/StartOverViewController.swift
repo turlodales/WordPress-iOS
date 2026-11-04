@@ -1,19 +1,21 @@
 import UIKit
 import MessageUI
+import WordPressData
 import WordPressShared
+import WordPressUI
 
  /// StartOverViewController allows user to trigger help session to remove site content.
  ///
-open class StartOverViewController: UITableViewController, MFMailComposeViewControllerDelegate {
+class StartOverViewController: UITableViewController, MFMailComposeViewControllerDelegate {
     // MARK: - Properties: must be set by creator
 
     /// The blog whose content we want to remove
     ///
-    @objc var blog: Blog!
+    var blog: Blog!
 
     // MARK: - Properties: table content
 
-    @objc let headerView: TableViewHeaderDetailView = {
+    let headerView: TableViewHeaderDetailView = {
         let header = NSLocalizedString("Let Us Help", comment: "Heading for instructions on Start Over settings page")
         /// GlotPress breaks if iOS keys are longer than 256 characters.
         /// So lets split it to keep GlotPress happy :) GH: #15353
@@ -30,12 +32,12 @@ open class StartOverViewController: UITableViewController, MFMailComposeViewCont
        return TableViewHeaderDetailView(title: header, detail: detail)
     }()
 
-    @objc let contactCell: UITableViewCell = {
+    let contactCell: UITableViewCell = {
         let contactTitle = NSLocalizedString("Contact Support", comment: "Button to contact support on Start Over settings page")
 
         let actionCell = WPTableViewCellDefault(style: .value1, reuseIdentifier: nil)
         actionCell.textLabel?.text = contactTitle
-        WPStyleGuide.configureTableViewActionCell(actionCell)
+        actionCell.textLabel?.textColor = UIAppColor.primary
         actionCell.textLabel?.textAlignment = .center
 
         return actionCell
@@ -47,8 +49,8 @@ open class StartOverViewController: UITableViewController, MFMailComposeViewCont
     ///
     /// - Parameter blog: The Blog currently at the site
     ///
-    @objc convenience init(blog: Blog) {
-        self.init(style: .grouped)
+    convenience init(blog: Blog) {
+        self.init(style: .insetGrouped)
         self.blog = blog
     }
 
@@ -62,8 +64,6 @@ open class StartOverViewController: UITableViewController, MFMailComposeViewCont
         tableView.cellLayoutMarginsFollowReadableWidth = true
         tableView.estimatedSectionHeaderHeight = 100.0
         tableView.sectionHeaderHeight = UITableView.automaticDimension
-
-        WPStyleGuide.configureColors(view: view, tableView: tableView)
     }
 
     // MARK: Table View Data Source
@@ -95,10 +95,10 @@ open class StartOverViewController: UITableViewController, MFMailComposeViewCont
     fileprivate func contactSupport() {
         tableView.deselectSelectedRowWithAnimation(true)
 
-        WPAppAnalytics.track(.siteSettingsStartOverContactSupportClicked, with: blog)
+        WPAppAnalytics.track(.siteSettingsStartOverContactSupportClicked, blog: blog)
         if MFMailComposeViewController.canSendMail() {
             showAppleMailComposer()
-        } else if let googleMailURL = googleMailURL,
+        } else if let googleMailURL,
                 UIApplication.shared.canOpenURL(googleMailURL) {
             showGoogleMailComposerForURL(googleMailURL)
         } else {
@@ -108,29 +108,29 @@ open class StartOverViewController: UITableViewController, MFMailComposeViewCont
 
     // Mark - Email handling
 
-    @objc let mailRecipient = "help@wordpress.com"
+    let mailRecipient = "help@wordpress.com"
 
-    @objc var mailSubject: String {
+    var mailSubject: String {
         guard let displayURL = self.blog.displayURL else {
             return "Start over"
         }
         return "Start over with site \(displayURL)"
     }
 
-    @objc var mailBody: String {
+    var mailBody: String {
         guard let siteURL = self.blog.url else {
             return "I want to start over"
         }
         return "I want to start over with the site \(siteURL)"
     }
 
-    @objc var googleMailURL: URL? {
+    var googleMailURL: URL? {
         let googleMailString = "googlegmail:///co?to=\(mailRecipient)"
             + "&subject=\(mailSubject)&body=\(mailBody)"
         return URL(string: googleMailString.addingPercentEncoding(withAllowedCharacters: NSCharacterSet.urlQueryAllowed)!)
     }
 
-    @objc func showAppleMailComposer() {
+    func showAppleMailComposer() {
         let mailComposeController = MFMailComposeViewController()
         mailComposeController.mailComposeDelegate = self
         mailComposeController.setToRecipients([mailRecipient])
@@ -139,22 +139,18 @@ open class StartOverViewController: UITableViewController, MFMailComposeViewCont
         present(mailComposeController, animated: true)
     }
 
-    @objc func showGoogleMailComposerForURL(_ url: URL ) {
+    func showGoogleMailComposerForURL(_ url: URL ) {
         UIApplication.shared.open(url)
     }
 
-    @objc func showAlertToSendEmail() {
+    func showAlertToSendEmail() {
         let title = String(format: NSLocalizedString("Contact us at %@", comment: "Alert title for contact us alert, placeholder for help email address, inserted at run time."), mailRecipient)
         let message = NSLocalizedString("\nPlease send us an email to have your content cleared out.", comment: "Message to ask the user to send us an email to clear their content.")
 
-        let alertController =  UIAlertController(title: title,
-                                                 message: message,
-                                                 preferredStyle: .alert)
-        alertController.addCancelActionWithTitle(NSLocalizedString("OK",
-                                                 comment: "Button title. An acknowledgement of the message displayed in a prompt."))
+        let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alertController.addCancelActionWithTitle(SharedStrings.Button.ok)
         alertController.presentFromRootViewController()
     }
-
 
     // MARK: - MFMailComposeViewControllerDelegate Method
 

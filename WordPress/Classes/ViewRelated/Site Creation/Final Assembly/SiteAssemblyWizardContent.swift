@@ -1,7 +1,7 @@
-
 import UIKit
-
-import WordPressAuthenticator
+import WordPressData
+import WordPressKit
+import WordPressShared
 
 // MARK: - SiteAssemblyWizardContent
 
@@ -18,7 +18,10 @@ final class SiteAssemblyWizardContent: UIViewController {
     private let service: SiteAssemblyService
 
     /// Displays the domain and plan checkout web view.
-    private lazy var siteCreationPurchasingController = SiteCreationPurchasingWebFlowController(viewController: self, origin: .siteCreation)
+    private lazy var siteCreationPurchasingController = SiteCreationPurchasingWebFlowController(
+        viewController: self,
+        origin: .siteCreation
+    )
 
     /// The new `Blog`, if successfully created; `nil` otherwise.
     private var createdBlog: Blog?
@@ -26,20 +29,11 @@ final class SiteAssemblyWizardContent: UIViewController {
     /// The content view serves as the root view of this view controller.
     private let contentView: SiteAssemblyContentView
 
-    /// We reuse a `NUXButtonViewController` from `WordPressAuthenticator`. Ideally this might be in `WordPressUI`.
-    private let buttonViewController = NUXButtonViewController.instance()
-
     /// This view controller manages the interaction with error states that can arise during site assembly.
     private var errorStateViewController: ErrorStateViewController?
 
     /// Locally tracks the network connection status via `NetworkStatusDelegate`
     private var isNetworkActive = ReachabilityUtils.isInternetReachable()
-
-    /// UseDefaults helper for quick start settings
-    private let quickStartSettings: QuickStartSettings
-
-    /// Closure to be executed upon dismissal
-    private let onDismiss: ((Blog, Bool) -> Void)?
 
     // MARK: SiteAssemblyWizardContent
 
@@ -48,16 +42,9 @@ final class SiteAssemblyWizardContent: UIViewController {
     /// - Parameters:
     ///   - creator: the in-flight creation instance
     ///   - service: the service to use for initiating site creation
-    ///   - quickStartSettings: the UserDefaults helper for quick start settings
-    ///   - onDismiss: the closure to be executed upon dismissal
-    init(creator: SiteCreator,
-         service: SiteAssemblyService,
-         quickStartSettings: QuickStartSettings = QuickStartSettings(),
-         onDismiss: ((Blog, Bool) -> Void)? = nil) {
+    init(creator: SiteCreator, service: SiteAssemblyService) {
         self.siteCreator = creator
         self.service = service
-        self.quickStartSettings = quickStartSettings
-        self.onDismiss = onDismiss
         self.contentView = SiteAssemblyContentView(siteCreator: siteCreator)
 
         super.init(nibName: nil, bundle: nil)
@@ -78,7 +65,7 @@ final class SiteAssemblyWizardContent: UIViewController {
         super.viewDidLoad()
 
         hidesBottomBarWhenPushed = true
-        installButtonViewController()
+        installButtonBar()
         SiteCreationAnalyticsHelper.trackSiteCreationSuccessLoading(siteCreator.design)
     }
 
@@ -109,7 +96,7 @@ final class SiteAssemblyWizardContent: UIViewController {
         let creationRequest = siteCreator.build()
         let shouldPerformPurchasingStep = siteCreator.shouldShowCheckout
         service.createSite(creationRequest: creationRequest) { [weak self] status in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
@@ -131,18 +118,19 @@ final class SiteAssemblyWizardContent: UIViewController {
                 }
 
                 self.contentView.siteURLString = blog?.url as String?
-                self.contentView.siteName = blog?.displayURL as String?
+                self.contentView.siteName = blog?.displayURL
                 self.createdBlog = blog
 
-                // This stat is part of a funnel that provides critical information.  Before
+                // This stat is part of a funnel that provides critical information. Before
                 // making ANY modification to this stat please refer to: p4qSXL-35X-p2
                 SiteCreationAnalyticsHelper.trackSiteCreationSuccess(self.siteCreator.design)
             }
             if status == .succeeded,
-               shouldPerformPurchasingStep,
-               let domain = self.siteCreator.address,
-               let planId = self.siteCreator.planId,
-               let blog = self.createdBlog {
+                shouldPerformPurchasingStep,
+                let domain = self.siteCreator.address,
+                let planId = self.siteCreator.planId,
+                let blog = self.createdBlog
+            {
                 self.attemptPurchasing(domain: domain, planId: planId, site: blog)
             } else {
                 self.contentView.status = status
@@ -152,7 +140,8 @@ final class SiteAssemblyWizardContent: UIViewController {
 
     /// The site must be created before attempting plan and/or domain purchasing.
     private func attemptPurchasing(domain: DomainSuggestion, planId: Int, site: Blog) {
-        self.siteCreationPurchasingController.purchase(domain: domain, planId: planId, site: site) { [weak self] result in
+        self.siteCreationPurchasingController.purchase(domain: domain, planId: planId, site: site) {
+            [weak self] result in
             guard let self else {
                 return
             }
@@ -174,25 +163,36 @@ final class SiteAssemblyWizardContent: UIViewController {
         }
     }
 
-    private func installButtonViewController() {
-        buttonViewController.delegate = self
+    private func installButtonBar() {
+        // The Jetpack app suppresses the bar's top shadow, matching the empty
+        // `buttonViewTopShadowImage` its authenticator style used to supply.
+        let buttonBar = SiteAssemblyButtonBar(
+            buttonTitle: SharedStrings.Button.done,
+            showsTopShadow: AppConfiguration.isWordPress
+        )
+        buttonBar.onTap = { [weak self] in
+            self?.doneButtonTapped()
+        }
 
-        let primaryButtonText = NSLocalizedString("Done",
-                                                  comment: "Tapping a button with this label allows the user to exit the Site Creation flow")
-        buttonViewController.setButtonTitles(primary: primaryButtonText)
+        // installButtonContainerView computes the initial off-screen offset from
+        // bounds.height before Auto Layout runs. Only the height matters here, and
+        // it is width-independent (single-line button title), so the zero width
+        // that view.bounds may still have at viewDidLoad time is harmless.
+        let fittingSize = buttonBar.systemLayoutSizeFitting(
+            CGSize(width: view.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        buttonBar.frame = CGRect(origin: .zero, size: CGSize(width: view.bounds.width, height: fittingSize.height))
 
-        contentView.buttonContainerView = buttonViewController.view
-
-        buttonViewController.willMove(toParent: self)
-        addChild(buttonViewController)
-        buttonViewController.didMove(toParent: self)
+        contentView.buttonContainerView = buttonBar
     }
 
     private func installErrorStateViewController(with type: ErrorStateViewType) {
         var configuration = ErrorStateViewConfiguration.configuration(type: type)
 
         configuration.retryActionHandler = { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 return
             }
             self.retryTapped()
@@ -220,7 +220,7 @@ final class SiteAssemblyWizardContent: UIViewController {
 
         if configuration.contactSupportActionHandler == nil {
             configuration.contactSupportActionHandler = { [weak self] in
-                guard let self = self else {
+                guard let self else {
                     return
                 }
                 self.contactSupportTapped()
@@ -229,7 +229,7 @@ final class SiteAssemblyWizardContent: UIViewController {
 
         if configuration.dismissalActionHandler == nil {
             configuration.dismissalActionHandler = { [weak self] in
-                guard let self = self else {
+                guard let self else {
                     return
                 }
                 self.dismissTapped()
@@ -268,12 +268,26 @@ private extension SiteAssemblyWizardContent {
 
     func dismissTapped(viaDone: Bool = false, completion: (() -> Void)? = nil) {
         // TODO : using viaDone, capture analytics event via #10335
+        RootViewCoordinator.shared.isSiteCreationActive = false
         navigationController?.dismiss(animated: true, completion: completion)
     }
 
     func retryTapped(viaDone: Bool = false) {
         // TODO : using viaDone, capture analytics event via #10335
         attemptSiteCreation()
+    }
+
+    func doneButtonTapped() {
+        SiteCreationAnalyticsHelper.trackSiteCreationSuccessPreviewOkButtonTapped()
+
+        guard let blog = createdBlog else { return }
+
+        RootViewCoordinator.shared.isSiteCreationActive = false
+        RootViewCoordinator.shared.reloadUIIfNeeded(blog: blog)
+
+        dismissTapped(viaDone: true) { [blog] in
+            RootViewCoordinator.sharedPresenter.showBlogDetails(for: blog)
+        }
     }
 }
 
@@ -282,50 +296,5 @@ private extension SiteAssemblyWizardContent {
 extension SiteAssemblyWizardContent: NetworkStatusDelegate {
     func networkStatusDidChange(active: Bool) {
         isNetworkActive = active
-    }
-}
-
-// MARK: - NUXButtonViewControllerDelegate
-
-extension SiteAssemblyWizardContent: NUXButtonViewControllerDelegate {
-    func primaryButtonPressed() {
-        SiteCreationAnalyticsHelper.trackSiteCreationSuccessPreviewOkButtonTapped()
-
-        guard let blog = createdBlog, let navigationController = navigationController else {
-            return
-        }
-
-        if let onDismiss = self.onDismiss {
-            let quickstartPrompt = QuickStartPromptViewController(blog: blog)
-            quickstartPrompt.onDismiss = onDismiss
-            navigationController.pushViewController(quickstartPrompt, animated: true)
-            return
-        }
-
-        dismissTapped(viaDone: true) { [blog, weak self] in
-            RootViewCoordinator.sharedPresenter.showBlogDetails(for: blog)
-
-            // present quick start, and mark site title as complete if they already selected one
-            guard let self = self else {
-                return
-            }
-            let completedSteps: [QuickStartTour] = self.siteCreator.hasSiteTitle ? [QuickStartSiteTitleTour(blog: blog)] : []
-            self.showQuickStartPrompt(for: blog, completedSteps: completedSteps)
-        }
-    }
-
-    private func showQuickStartPrompt(for blog: Blog, completedSteps: [QuickStartTour] = []) {
-        guard !quickStartSettings.promptWasDismissed(for: blog) else {
-            return
-        }
-
-        let rootViewController = RootViewCoordinator.sharedPresenter.rootViewController
-        let quickstartPrompt = QuickStartPromptViewController(blog: blog)
-        quickstartPrompt.onDismiss = { blog, showQuickStart in
-            if showQuickStart {
-                QuickStartTourGuide.shared.setupWithDelay(for: blog, type: .newSite, withCompletedSteps: completedSteps)
-            }
-        }
-        rootViewController.present(quickstartPrompt, animated: true)
     }
 }

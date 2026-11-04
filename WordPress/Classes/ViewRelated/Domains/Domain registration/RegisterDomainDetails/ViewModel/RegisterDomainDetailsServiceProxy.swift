@@ -1,5 +1,7 @@
 import Foundation
 import CoreData
+import WordPressData
+import WordPressKit
 
 /// Protocol for cart response, empty because there are no external details.
 protocol CartResponseProtocol {}
@@ -61,7 +63,7 @@ protocol RegisterDomainDetailsServiceProxyProtocol {
 class RegisterDomainDetailsServiceProxy: RegisterDomainDetailsServiceProxyProtocol {
 
     private lazy var context = {
-        ContextManager.sharedInstance().mainContext
+        ContextManager.shared.mainContext
     }()
 
     private lazy var restApi: WordPressComRestApi = {
@@ -208,10 +210,9 @@ class RegisterDomainDetailsServiceProxy: RegisterDomainDetailsServiceProxyProtoc
                           failure: @escaping (Error) -> Void) {
 
         if let blog = try? Blog.lookup(withID: siteID, in: context),
-           let domains = blog.domains as? Set<ManagedDomain>,
-           let newPrimaryDomain = domains.first(where: { $0.domainName == domain }) {
+           let newPrimaryDomain = blog.domains?.first(where: { $0.domainName == domain }) {
 
-            for existingPrimaryDomain in domains.filter({ $0.isPrimary }) {
+            for existingPrimaryDomain in (blog.domains ?? []).filter({ $0.isPrimary }) {
                 existingPrimaryDomain.isPrimary = false
             }
 
@@ -225,6 +226,4 @@ class RegisterDomainDetailsServiceProxy: RegisterDomainDetailsServiceProxyProtoc
                                                      success: success,
                                                      failure: failure)
     }
-
-
 }

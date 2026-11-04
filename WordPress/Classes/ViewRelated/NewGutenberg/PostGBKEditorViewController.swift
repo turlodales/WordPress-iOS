@@ -1,0 +1,498 @@
+import Foundation
+import UIKit
+import WebKit
+import SafariServices
+import GutenbergKit
+import WordPressData
+import WordPressShared
+import WordPressUI
+
+class PostGBKEditorViewController: UIViewController, GutenbergKit.EditorViewControllerDelegate {
+
+    let blog: Blog
+
+    /* private */ let editorViewController: GutenbergKit.EditorViewController
+    private let status: String // TODO: Can be deleted?
+
+    private lazy var mediaPickerHelper = GutenbergMediaPickerHelper(context: self, blog: blog)
+
+    private var currentSuggestionsController: GutenbergSuggestionsViewController?
+
+    /// Whether the editor has finished loading at least once, so the user could have edited it.
+    private(set) var hasEditorLoaded = false
+
+    /// Whether the editor crashed and has not reloaded yet, so calls into it are refused.
+    private(set) var isEditorUnavailable = false
+
+    /// Whether the editor locked saving, e.g. during a media upload, so its content
+    /// may be incomplete or reference temporary media URLs.
+    private(set) var isSavingLocked = false
+
+    /// Pages say "page" in alerts. Custom post types say "post", as "Post Settings" does.
+    private let isPage: Bool
+
+    init(
+        postId: Int?,
+        postType: PostTypeDetails,
+        title: String?,
+        content: String?,
+        status: String?,
+        blog: Blog
+    ) {
+        self.status = status ?? "draft"
+        self.blog = blog
+        self.isPage = postType.postType == PostTypeDetails.page.postType
+
+        EditorLocalization.localize = { $0.localized }
+
+        // Create configuration with post content
+        let editorConfiguration = EditorConfiguration(blog: blog, postType: postType)
+            .toBuilder()
+            .setTitle(title ?? "")
+            .setContent(content ?? "")
+            .setPostID(postId)
+            .setPostStatus(self.status)
+            .setNativeInserterEnabled(FeatureFlag.nativeBlockInserter.enabled)
+            .build()
+
+        // Use prefetched dependencies if available (fast path with spinner),
+        // otherwise pass nil and GutenbergKit will fetch them (shows progress bar)
+        let cachedDependencies = EditorDependencyManager.shared.dependencies(for: blog, postType: postType)
+
+        self.editorViewController = GutenbergKit.EditorViewController(
+            configuration: editorConfiguration,
+            dependencies: cachedDependencies,
+            mediaPicker: MediaPickerController(blog: blog)
+        )
+
+        super.init(nibName: nil, bundle: nil)
+
+        self.editorViewController.delegate = self
+    }
+
+    required init?(coder aDecoder: NSCoder) {
+        fatalError()
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        edgesForExtendedLayout = []
+
+        setupEditorView()
+
+        // Load auth cookies if needed (for private sites)
+        Task {
+            await loadAuthenticationCookiesAsync()
+        }
+
+        SiteSuggestionService.shared.prefetchSuggestionsIfNeeded(for: blog) {
+            // Do nothing
+        }
+    }
+
+    func editorModeToggle() -> UIAction {
+        let title =
+            editorViewController.isCodeEditorEnabled ? PostEditorStrings.visualEditor : PostEditorStrings.codeEditor
+        let icon = editorViewController.isCodeEditorEnabled ? "doc.richtext" : "curlybraces"
+        return UIAction(
+            title: title,
+            image: UIImage(systemName: icon),
+            attributes: isEditorUnavailable ? [.disabled] : []
+        ) { [weak editorViewController] _ in
+            editorViewController?.isCodeEditorEnabled.toggle()
+        }
+    }
+
+    func helpAction() -> UIAction {
+        let helpTitle =
+            JetpackFeaturesRemovalCoordinator.jetpackFeaturesEnabled()
+            ? PostEditorStrings.helpAndSupport : PostEditorStrings.help
+        return UIAction(title: helpTitle, image: UIImage(systemName: "questionmark.circle")) { [weak self] _ in
+            guard let url = URL(string: "https://wordpress.com/support/wordpress-editor/") else { return }
+            self?.present(SFSafariViewController(url: url), animated: true)
+        }
+    }
+
+    /// Asks before saving while the editor locks saving. A lock is only advisory, so a
+    /// plugin that never releases one can't keep the user from saving.
+    func performAfterConfirmingSavingLock(_ action: @escaping () -> Void) {
+        guard isSavingLocked else {
+            return action()
+        }
+        let alert = UIAlertController(
+            title: notReadyTitle,
+            message: isPage
+                ? PostEditorStrings.savePageWhileNotReadyMessage : PostEditorStrings.savePostWhileNotReadyMessage,
+            preferredStyle: .alert
+        )
+        alert.addCancelActionWithTitle(PostEditorStrings.keepEditing)
+        alert.addDefaultActionWithTitle(PostEditorStrings.continueAnyway) { _ in action() }
+        present(alert, animated: true)
+    }
+
+    /// Asks before closing while the editor locks saving, since closing ends the editor's uploads.
+    func showLeaveWhileSavingLockedAlert(onLeave: @escaping () -> Void) {
+        let alert = UIAlertController(
+            title: notReadyTitle,
+            message: isPage
+                ? PostEditorStrings.leavePageWhileNotReadyMessage : PostEditorStrings.leavePostWhileNotReadyMessage,
+            preferredStyle: .alert
+        )
+        alert.addCancelActionWithTitle(PostEditorStrings.keepEditing)
+        alert.addDestructiveActionWithTitle(PostEditorStrings.leave) { _ in onLeave() }
+        present(alert, animated: true)
+    }
+
+    private var notReadyTitle: String {
+        isPage ? PostEditorStrings.notReadyPageTitle : PostEditorStrings.notReadyPostTitle
+    }
+
+    func feedbackAction() -> UIAction {
+        UIAction(title: PostEditorStrings.sendFeedback, image: UIImage(systemName: "envelope")) { [weak self] _ in
+            self?
+                .present(
+                    SubmitFeedbackViewController(source: "gutenberg_kit", feedbackPrefix: "Editor"),
+                    animated: true
+                )
+        }
+    }
+
+    // MARK: - GutenbergKit.EditorViewControllerDelegate
+
+    /// Subclasses that override this must call `super`.
+    func editorDidLoad(_ viewContoller: GutenbergKit.EditorViewController) {
+        hasEditorLoaded = true
+        isEditorUnavailable = false
+    }
+
+    /// Subclasses that override this must call `super`.
+    func editorDidBecomeUnavailable(_ viewController: GutenbergKit.EditorViewController) {
+        isEditorUnavailable = true
+        // The reloaded editor reports its availability again.
+        isSavingLocked = false
+    }
+
+    func editor(_ viewContoller: GutenbergKit.EditorViewController, didDisplayInitialContent content: String) {
+        // Do nothing
+    }
+
+    func editor(_ viewContoller: GutenbergKit.EditorViewController, didEncounterCriticalError error: any Error) {
+        trackEditorError(error, event: .gutenbergKitEditorCriticalError)
+    }
+
+    func editor(_ viewController: GutenbergKit.EditorViewController, didFailToLoad error: any Error) {
+        var properties: [String: Any] = [:]
+
+        switch error {
+        case let error as GutenbergKit.EditorHTTPClient.ClientError:
+            switch error {
+            case let .wpError(wpError, requestURL):
+                properties["category"] = "wordpress"
+                properties["request_url"] = requestURL.absoluteString
+                properties["wordpress_error_code"] = wpError.code
+            case let .downloadFailed(statusCode, requestURL),
+                let .unknown(_, statusCode, requestURL):
+                properties["category"] = "http"
+                properties["http_status"] = statusCode
+                properties["request_url"] = requestURL.absoluteString
+            }
+        case is URLError:
+            properties["category"] = "network"
+        default:
+            properties["category"] = "unknown"
+        }
+
+        trackEditorError(error, event: .gutenbergKitEditorLoadFailed, properties: properties)
+    }
+
+    private func trackEditorError(
+        _ error: any Error,
+        event: WPAnalyticsEvent,
+        properties: [String: Any] = [:]
+    ) {
+        let nsError = error as NSError
+        var properties = properties
+        properties["error_domain"] = nsError.domain
+        properties["error_code"] = nsError.code
+        WPAnalytics.track(event, properties: properties, blog: blog)
+    }
+
+    func editor(
+        _ viewController: GutenbergKit.EditorViewController,
+        didUpdateContentWithState state: GutenbergKit.EditorState
+    ) {
+        // Do nothing
+    }
+
+    func editor(
+        _ viewController: GutenbergKit.EditorViewController,
+        didUpdateHistoryState state: GutenbergKit.EditorState
+    ) {
+        // Do nothing
+    }
+
+    /// Subclasses that override this must call `super`.
+    func editor(
+        _ viewController: GutenbergKit.EditorViewController,
+        didUpdateSaveAvailability availability: GutenbergKit.EditorSaveAvailability
+    ) {
+        isSavingLocked = availability.isSavingLocked
+    }
+
+    func editor(_ viewController: GutenbergKit.EditorViewController, didUpdateFeaturedImage mediaID: Int) {
+        // Do nothing
+    }
+
+    func editor(
+        _ viewController: GutenbergKit.EditorViewController,
+        didLogException exception: GutenbergKit.GutenbergJSException
+    ) {
+        DDLogError("GBK editor exception:\n\(exception)")
+
+        DispatchQueue.main.async {
+            WordPressAppDelegate.crashLogging?
+                .logJavaScriptException(exception) {
+                    // Do nothing
+                }
+        }
+    }
+
+    func editor(
+        _ viewController: GutenbergKit.EditorViewController,
+        didRequestMediaFromSiteMediaLibrary config: OpenMediaLibraryAction
+    ) {
+        let flags = mediaFilterFlags(using: config.allowedTypes ?? [])
+
+        let initialSelectionArray: [Int]
+        switch config.value {
+        case .single(let id):
+            initialSelectionArray = [id]
+        case .multiple(let ids):
+            initialSelectionArray = ids
+        case .none:
+            initialSelectionArray = []
+        }
+
+        mediaPickerHelper.presentSiteMediaPicker(
+            filter: flags,
+            allowMultipleSelection: config.multiple,
+            initialSelection: initialSelectionArray
+        ) { [weak self] assets in
+            guard let self, let media = assets as? [Media], !media.isEmpty else {
+                return
+            }
+            let mediaInfos = media.map { item in
+                var metadata: [String: String] = [:]
+                if let videopressGUID = item.videopressGUID {
+                    metadata["videopressGUID"] = videopressGUID
+                }
+                return MediaInfo(
+                    id: item.mediaID?.int32Value,
+                    url: item.remoteURL,
+                    type: item.mediaTypeString,
+                    caption: item.caption,
+                    title: item.filename,
+                    alt: item.alt,
+                    metadata: metadata
+                )
+            }
+            if let jsonString = convertMediaInfoArrayToJSONString(mediaInfos) {
+                // Escape the string for JavaScript
+                let escapedJsonString = jsonString.replacingOccurrences(of: "'", with: "\\'")
+                editorViewController.setMediaUploadAttachment(escapedJsonString)
+            }
+        }
+    }
+
+    func editor(_ viewController: GutenbergKit.EditorViewController, didTriggerAutocompleter type: String) {
+        switch type {
+        case "at-symbol":
+            showSuggestions(type: .mention) { [weak self] result in
+                switch result {
+                case .success(let suggestion):
+                    // Appended space completes the autocomplete session
+                    self?.editorViewController.appendTextAtCursor(suggestion + " ")
+                case .failure(let error):
+                    DDLogError("Mention selection cancelled or failed: \(error)")
+                }
+            }
+        case "plus-symbol":
+            showSuggestions(type: .xpost) { [weak self] result in
+                switch result {
+                case .success(let suggestion):
+                    // Appended space completes the autocomplete session
+                    self?.editorViewController.appendTextAtCursor(suggestion + " ")
+                case .failure(let error):
+                    DDLogError("Xpost selection cancelled or failed: \(error)")
+                }
+            }
+        default:
+            DDLogError("Unknown autocompleter type: \(type)")
+        }
+    }
+
+    func editor(_ viewController: GutenbergKit.EditorViewController, didOpenModalDialog dialogType: String) {
+        // Do nothing
+    }
+
+    func editor(_ viewController: GutenbergKit.EditorViewController, didCloseModalDialog dialogType: String) {
+        // Do nothing
+    }
+
+    func editorDidRequestLatestContent(
+        _ controller: GutenbergKit.EditorViewController
+    ) -> (title: String, content: String)? {
+        // Do nothing
+        nil
+    }
+
+    private func convertMediaInfoArrayToJSONString(_ mediaInfoArray: [MediaInfo]) -> String? {
+        do {
+            let jsonData = try JSONEncoder().encode(mediaInfoArray)
+            if let jsonString = String(data: jsonData, encoding: .utf8) {
+                return jsonString
+            }
+        } catch {
+            DDLogError("Error encoding MediaInfo array: \(error)")
+        }
+        return nil
+    }
+
+    private func mediaFilterFlags(using filterArray: [OpenMediaLibraryAction.MediaType]) -> GutenbergMediaType {
+        var mediaType: Int = 0
+        for filter in filterArray {
+            switch filter {
+            case .image:
+                mediaType = mediaType | GutenbergMediaType.image.rawValue
+            case .video:
+                mediaType = mediaType | GutenbergMediaType.video.rawValue
+            case .audio:
+                mediaType = mediaType | GutenbergMediaType.audio.rawValue
+            case .other:
+                mediaType = mediaType | GutenbergMediaType.other.rawValue
+            case .any:
+                mediaType = mediaType | GutenbergMediaType.all.rawValue
+            }
+        }
+
+        return GutenbergMediaType(rawValue: mediaType)
+    }
+}
+
+private extension PostGBKEditorViewController {
+
+    func setupEditorView() {
+        view.tintColor = UIAppColor.editorPrimary
+
+        addChild(editorViewController)
+        view.addSubview(editorViewController.view)
+        view.pinSubviewToAllEdges(editorViewController.view)
+        editorViewController.didMove(toParent: self)
+
+        #if DEBUG
+        editorViewController.webView.isInspectable = true
+        #endif
+
+        // Doesn't seem to do anything
+        setContentScrollView(editorViewController.webView.scrollView)
+    }
+
+    func loadAuthenticationCookiesAsync() async -> Bool {
+        guard blog.isPrivate else {
+            return true
+        }
+
+        guard let authenticator = RequestAuthenticator(blog: blog),
+            let blogURL = blog.url,
+            let authURL = URL(string: blogURL)
+        else {
+            return false
+        }
+
+        let cookieJar = WKWebsiteDataStore.default().httpCookieStore
+
+        return await withCheckedContinuation { continuation in
+            // Always call authenticator.request() to ensure cookies are properly loaded into WKWebView
+            authenticator.request(url: authURL, cookieJar: cookieJar) { _ in
+                DDLogInfo("Authentication cookies loaded into shared cookie store for GutenbergKit")
+                continuation.resume(returning: true)
+            }
+        }
+    }
+
+    // MARK: - Suggestions implementation
+
+    func showSuggestions(type: SuggestionType, callback: @escaping (Swift.Result<String, NSError>) -> Void) {
+        // Prevent multiple suggestions UI instances - simply ignore if already showing
+        guard currentSuggestionsController == nil else {
+            return
+        }
+        guard let siteID = blog.dotComID else {
+            callback(.failure(GutenbergSuggestionsViewController.SuggestionError.notAvailable as NSError))
+            return
+        }
+
+        switch type {
+        case .mention:
+            guard SuggestionService.shared.shouldShowSuggestions(for: blog) else { return }
+        case .xpost:
+            guard SiteSuggestionService.shared.shouldShowSuggestions(for: blog) else { return }
+        }
+
+        let previousFirstResponder = view.findFirstResponder()
+        let suggestionsController = GutenbergSuggestionsViewController(siteID: siteID, suggestionType: type)
+        currentSuggestionsController = suggestionsController
+        suggestionsController.onCompletion = { [weak self] result in
+            callback(result)
+
+            if let self {
+                // Clear the current controller reference
+                self.currentSuggestionsController = nil
+
+                // Clean up the UI (should only happen if parent still exists)
+                suggestionsController.view.removeFromSuperview()
+                suggestionsController.removeFromParent()
+
+                previousFirstResponder?.becomeFirstResponder()
+            }
+
+            var analyticsName: String
+            switch type {
+            case .mention:
+                analyticsName = "user"
+            case .xpost:
+                analyticsName = "xpost"
+            }
+
+            var didSelectSuggestion = false
+            if case let .success(text) = result, !text.isEmpty {
+                didSelectSuggestion = true
+            }
+
+            let analyticsProperties: [String: Any] = [
+                "suggestion_type": analyticsName,
+                "did_select_suggestion": didSelectSuggestion
+            ]
+
+            WPAnalytics.track(.gutenbergSuggestionSessionFinished, properties: analyticsProperties)
+        }
+        addChild(suggestionsController)
+        view.addSubview(suggestionsController.view)
+        NSLayoutConstraint.activate([
+            suggestionsController.view.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: 0
+            ),
+            suggestionsController.view.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: 0
+            ),
+            // The keyboard layout guide sits at the bottom safe area edge while the
+            // keyboard is hidden and tracks the keyboard's top while it's shown.
+            suggestionsController.view.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            suggestionsController.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
+        ])
+        suggestionsController.didMove(toParent: self)
+    }
+}

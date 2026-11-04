@@ -1,4 +1,6 @@
 import Foundation
+import WordPressShared
+import WordPressData
 import WordPressKit
 
 class QRLoginService {

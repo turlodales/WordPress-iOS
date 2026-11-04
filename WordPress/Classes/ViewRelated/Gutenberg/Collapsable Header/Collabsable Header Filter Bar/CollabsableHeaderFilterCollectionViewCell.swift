@@ -1,9 +1,9 @@
 import UIKit
+import WordPressUI
 
-class CollabsableHeaderFilterCollectionViewCell: UICollectionViewCell {
+class CollabsableHeaderFilterCollectionViewCell: UICollectionViewCell, NibLoadable {
 
     static let cellReuseIdentifier = "\(CollabsableHeaderFilterCollectionViewCell.self)"
-    static let nib = UINib(nibName: "\(CollabsableHeaderFilterCollectionViewCell.self)", bundle: Bundle.main)
 
     static var font: UIFont {
         return WPStyleGuide.fontForTextStyle(.subheadline, fontWeight: .semibold)
@@ -64,6 +64,10 @@ class CollabsableHeaderFilterCollectionViewCell: UICollectionViewCell {
         filterLabel.isGhostableDisabled = true
         checkmark.isGhostableDisabled = true
         pillBackgroundView.layer.masksToBounds = true
+
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            self.updateSelectedStyle()
+        }
     }
 
     override func prepareForReuse() {
@@ -71,16 +75,9 @@ class CollabsableHeaderFilterCollectionViewCell: UICollectionViewCell {
         filter = nil
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
-            updateSelectedStyle()
-        }
-    }
-
     private func updateSelectedStyle() {
         let oppositeInterfaceStyle: UIUserInterfaceStyle = (traitCollection.userInterfaceStyle == .dark) ? .light : .dark
-        let selectedColor: UIColor = UIColor.systemGray6.color(for: UITraitCollection(userInterfaceStyle: oppositeInterfaceStyle))
+        let selectedColor = UIColor.systemGray6.color(for: UITraitCollection(userInterfaceStyle: oppositeInterfaceStyle))
         pillBackgroundView.backgroundColor = isSelected ? selectedColor : .quaternarySystemFill
 
         if traitCollection.userInterfaceStyle == .dark {

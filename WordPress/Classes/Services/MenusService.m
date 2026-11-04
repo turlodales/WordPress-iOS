@@ -1,15 +1,19 @@
 #import "MenusService.h"
-#import "BasePost.h"
-#import "Blog.h"
-#import "Menu.h"
-#import "MenuItem.h"
-#import "MenuLocation.h"
-#import "CoreDataStack.h"
-#import "PostService.h"
 #import "WordPress-Swift.h"
+@import WordPressData;
 @import WordPressKit;
+@import WordPressKitObjC;
+@import WordPressKitModels;
 
 @implementation MenusService
+
+- (instancetype)initWithManagedObjectContext:(NSManagedObjectContext *)context {
+    self = [super init];
+    if (self) {
+        _managedObjectContext = context;
+    }
+    return self;
+}
 
 #pragma mark - Menus availability
 
@@ -172,7 +176,7 @@
     MenuItem *pageItem = [NSEntityDescription insertNewObjectForEntityForName:[MenuItem entityName] inManagedObjectContext:self.managedObjectContext];
     pageItem.contentID = page.postID;
     pageItem.name = page.titleForDisplay;
-    pageItem.type = MenuItemTypePage;
+    pageItem.type = MenuItemType.page;
     return pageItem;
 }
 
@@ -243,7 +247,7 @@
 
 - (NSError *)unknownErrorForInvalidApiFailure
 {
-    return [NSError errorWithDomain:WordPressComRestApiErrorDomain code:WordPressComRestApiErrorUnknown userInfo:nil];
+    return [NSError errorWithDomain:WordPressComRestApiErrorDomain code:WordPressComRestApiErrorCodeUnknown userInfo:nil];
 }
 
 #pragma mark - Menu managed objects from RemoteMenu objects
@@ -374,9 +378,9 @@
         // Override the type_family param based on the type.
         // This is a weird behavior of the API and is not documented.
         NSString *typeFamily;
-        if ([remoteItem.type isEqualToString:MenuItemTypeCustom]) {
+        if ([remoteItem.type isEqualToString:MenuItemType.custom]) {
             typeFamily = @"custom";
-        } else if ([remoteItem.type isEqualToString:MenuItemTypeTag] || [remoteItem.type isEqualToString:MenuItemTypeCategory]){
+        } else if ([remoteItem.type isEqualToString:MenuItemType.tag] || [remoteItem.type isEqualToString:MenuItemType.category]){
             typeFamily = @"taxonomy";
         } else {
             typeFamily = @"post_type";

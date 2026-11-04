@@ -1,20 +1,28 @@
 import Foundation
-import CocoaLumberjack
+import WordPressData
+import WordPressShared
+import WordPressKit
+import WordPressSharedUI
 
-typealias ReaderSiteSearchSuccessBlock = (_ feeds: [ReaderFeed], _ hasMore: Bool, _ feedCount: Int) -> Void
+typealias ReaderSiteSearchSuccessBlock = (_ feeds: [ReaderFeed], _ hasMore: Bool, _ total: Int?) -> Void
 typealias ReaderSiteSearchFailureBlock = (_ error: Error?) -> Void
 
 /// Allows searching for sites / feeds in the Reader.
 ///
-@objc class ReaderSiteSearchService: CoreDataService {
+class ReaderSiteSearchService {
+
+    let coreDataStack: CoreDataStack
+
+    init(coreDataStack: CoreDataStack) {
+        self.coreDataStack = coreDataStack
+    }
 
     // The size of a single page of results when performing a search.
     static let pageSize = 20
 
     private func apiRequest() -> WordPressComRestApi {
         let api = coreDataStack.performQuery {
-            let defaultAccount = try? WPAccount.lookupDefaultWordPressComAccount(in: $0)
-            return defaultAccount?.wordPressComRestApi
+            try? WPAccount.defaultWordPressComAccountRestAPI(in: $0)
         }
 
         if let api, api.hasCredentials() {
@@ -43,8 +51,8 @@ typealias ReaderSiteSearchFailureBlock = (_ error: Error?) -> Void
         remote.performSearch(query,
                              offset: page * Constants.pageSize,
                              count: Constants.pageSize,
-                             success: { (feeds, hasMore, feedCount) in
-            success(feeds, hasMore, feedCount)
+                             success: { feeds, hasMore, total in
+            success(feeds, hasMore, total)
         }, failure: { error in
             DDLogError("Error while performing Reader site search: \(String(describing: error))")
             failure(error)

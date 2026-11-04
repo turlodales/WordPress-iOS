@@ -1,6 +1,8 @@
-import Gridicons
+import UIKit
 import WebKit
+import WordPressData
 import WordPressShared
+import WordPressUI
 
 /// An augmentation of WebKitViewController to provide Previewing for different devices
 class PreviewWebKitViewController: WebKitViewController {
@@ -24,15 +26,6 @@ class PreviewWebKitViewController: WebKitViewController {
         }
     }
 
-    lazy var publishButton: UIBarButtonItem = {
-        let publishButton = UIBarButtonItem(title: Constants.publishButtonTitle,
-                                            style: .plain,
-                                            target: self,
-                                            action: #selector(PreviewWebKitViewController.publishButtonPressed(_:)))
-        publishButton.setTitleTextAttributes([NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .title2), NSAttributedString.Key.foregroundColor: Constants.publishButtonColor], for: .normal)
-        return publishButton
-    }()
-
     lazy var previewButton: UIBarButtonItem = {
         let button = UIBarButtonItem(image: UIImage(named: "icon-devices"), style: .plain, target: self, action: #selector(PreviewWebKitViewController.previewButtonPressed(_:)))
         button.title = NSLocalizedString("Preview Device", comment: "Title for web preview device switching button")
@@ -44,7 +37,7 @@ class PreviewWebKitViewController: WebKitViewController {
         let label = PreviewDeviceLabel()
         label.insets = Constants.deviceLabelInset
         label.backgroundColor = Constants.deviceLabelBackgroundColor
-        label.textColor = .textInverted
+        label.textColor = .invertedLabel
         return label
     }()
 
@@ -56,10 +49,7 @@ class PreviewWebKitViewController: WebKitViewController {
 
         self.post = post
 
-        let autoUploadInteractor = PostAutoUploadInteractor()
-
-        let isNotCancelableWithFailedToUploadChanges: Bool = post.isFailed && post.hasLocalChanges() && !autoUploadInteractor.canCancelAutoUpload(of: post)
-        canPublish = post.isDraft() || isNotCancelableWithFailedToUploadChanges
+        canPublish = post.status == .draft
 
         guard let url = PreviewNonceHandler.nonceURL(post: post, previewURL: previewURL) else {
             super.init(configuration: WebViewControllerConfiguration(url: Constants.blankURL))
@@ -95,7 +85,7 @@ class PreviewWebKitViewController: WebKitViewController {
     }
 
     func trackOpenEvent() {
-        guard let post = post else { return }
+        guard let post else { return }
 
         let eventProperties: [String: Any] = [
             "post_type": post.analyticsPostType ?? "unsupported",
@@ -112,11 +102,21 @@ class PreviewWebKitViewController: WebKitViewController {
             showNoResults(withTitle: Constants.noPreviewTitle)
         }
         setupDeviceLabel()
+
+        registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]) { (self: Self, _) in
+            self.updatePresentedPopoverIfNeeded()
+        }
     }
 
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         setWidth(selectedDevice.width, viewWidth: size.width)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // A sheet resized along with its window gets no size transition, so fit the width to the new size here.
+        setWidth(selectedDevice.width, viewWidth: view.bounds.width)
     }
 
     // MARK: Toolbar Items
@@ -132,19 +132,23 @@ class PreviewWebKitViewController: WebKitViewController {
     func toolbarItems(linkBehavior: LinkBehavior) -> [UIBarButtonItem] {
         let space = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
 
-        let items: [UIBarButtonItem]
+        var adaptiveSpace: UIBarButtonItem? {
+            if #available(iOS 26, *) { nil } else { space }
+        }
+
+        let items: [UIBarButtonItem?]
 
         switch linkBehavior {
         case .all:
             items = [
                 backButton,
-                space,
+                adaptiveSpace,
                 forwardButton,
                 space,
                 shareButton,
-                space,
+                adaptiveSpace,
                 safariButton,
-                space,
+                adaptiveSpace,
                 previewButton
             ]
         case .withBaseURLOnly:
@@ -153,7 +157,7 @@ class PreviewWebKitViewController: WebKitViewController {
             if canPublish {
                 items = [
                     backButton,
-                    space,
+                    adaptiveSpace,
                     forwardButton,
                     space,
                     previewButton
@@ -161,52 +165,28 @@ class PreviewWebKitViewController: WebKitViewController {
             } else {
                 items = [
                     backButton,
-                    space,
+                    adaptiveSpace,
                     forwardButton,
                     space,
                     shareButton,
-                    space,
+                    adaptiveSpace,
                     safariButton,
-                    space,
+                    adaptiveSpace,
                     previewButton
                 ]
             }
         case .urlOnly:
             if canPublish {
-                items = [publishButton, space, previewButton]
+                items = [space, previewButton]
             } else {
-                items = [shareButton, space, safariButton, space, previewButton]
+                items = [shareButton, adaptiveSpace, safariButton, space, previewButton]
             }
         }
 
-        return items
+        return items.compactMap { $0 }
     }
 
     // MARK: Button Actions
-
-    @objc private func publishButtonPressed(_ sender: UIBarButtonItem) {
-        let title = NSLocalizedString("Are you sure you want to publish?", comment: "Title of the message shown when the user taps Publish in the post list.")
-
-        let cancelTitle = NSLocalizedString("Cancel", comment: "Button shown when the author is asked for publishing confirmation.")
-        let publishTitle = NSLocalizedString("Publish", comment: "Button shown when the author is asked for publishing confirmation.")
-
-        let style: UIAlertController.Style = UIDevice.isPad() ? .alert : .actionSheet
-        let alertController = UIAlertController(title: title, message: nil, preferredStyle: style)
-
-        alertController.addCancelActionWithTitle(cancelTitle)
-        alertController.addDefaultActionWithTitle(publishTitle) { [unowned self] _ in
-            guard let post = self.post else { return }
-            PostCoordinator.shared.publish(post)
-
-            if let editorVC = (self.presentingViewController?.presentingViewController as? EditPostViewController) {
-                editorVC.closeEditor(true, showPostEpilogue: false, from: self)
-            } else {
-                self.dismiss(animated: true, completion: nil)
-            }
-        }
-
-        present(alertController, animated: true)
-    }
 
     @objc private func previewButtonPressed(_ sender: UIBarButtonItem) {
         let popoverContentController = PreviewDeviceSelectionViewController()
@@ -260,13 +240,9 @@ class PreviewWebKitViewController: WebKitViewController {
 
         static let deviceLabelInset = UIEdgeInsets(top: 6, left: 6, bottom: 8, right: 8)
 
-        static let deviceLabelBackgroundColor = UIColor.text.withAlphaComponent(0.8)
+        static let deviceLabelBackgroundColor = UIColor.label.withAlphaComponent(0.8)
 
         static let noPreviewTitle = NSLocalizedString("No Preview URL available", comment: "missing preview URL for blog post preview")
-
-        static let publishButtonTitle = NSLocalizedString("Publish", comment: "Label for the publish (verb) button. Tapping publishes a draft post.")
-
-        static let publishButtonColor = UIColor.primary
 
         static let blankURL = URL(string: "about:blank")
     }
@@ -290,11 +266,9 @@ extension PreviewWebKitViewController {
         return .none
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
+    private func updatePresentedPopoverIfNeeded() {
         guard let popoverPresentationController = presentedViewController?.presentationController as? UIPopoverPresentationController else {
-                return
+            return
         }
 
         prepareForPopoverPresentation(popoverPresentationController)
@@ -309,7 +283,7 @@ extension PreviewWebKitViewController {
         webView.evaluateJavaScript(selectedDevice.viewportScript, completionHandler: nil)
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    override func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         UIView.animate(withDuration: 0.2) {
             self.webView.alpha = 1
         }

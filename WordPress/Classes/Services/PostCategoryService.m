@@ -1,8 +1,6 @@
 #import "PostCategoryService.h"
-#import "PostCategory.h"
-#import "Blog.h"
-#import "CoreDataStack.h"
 #import "WordPress-Swift.h"
+@import WordPressData;
 @import WordPressKit;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -21,6 +19,13 @@ NS_ASSUME_NONNULL_BEGIN
 {
     return [NSError errorWithDomain:NSStringFromClass([self class])
                                code:PostCategoryServiceErrorsBlogNotFound
+                           userInfo:nil];
+}
+
+- (NSError *)serviceErrorCategoryNotFound
+{
+    return [NSError errorWithDomain:NSStringFromClass([self class])
+                               code:PostCategoryServiceErrorsCategoryNotFound
                            userInfo:nil];
 }
 
@@ -90,8 +95,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)createCategoryWithName:(NSString *)name
         parentCategoryObjectID:(nullable NSManagedObjectID *)parentCategoryObjectID
                forBlogObjectID:(NSManagedObjectID *)blogObjectID
-                       success:(nullable void (^)(PostCategory *category))success
-                       failure:(nullable void (^)(NSError *error))failure
+                       success:(void (^)(PostCategory *category))success
+                       failure:(void (^)(NSError *error))failure
 {
     NSParameterAssert(name != nil);
     Blog * __block blog = nil;
@@ -110,12 +115,11 @@ NS_ASSUME_NONNULL_BEGIN
     id<TaxonomyServiceRemote> remote = [self remoteForBlog:blog];
     [remote createCategory:remoteCategory
                    success:^(RemotePostCategory *receivedCategory) {
+                       NSError * __block error = nil;
                        [self.coreDataStack performAndSaveUsingBlock:^(NSManagedObjectContext *context) {
                            Blog *blog = [context existingObjectWithID:blogObjectID error:nil];
                            if (!blog) {
-                               if (failure) {
-                                   failure([self serviceErrorNoBlog]);
-                               }
+                               error = [self serviceErrorNoBlog];
                                return;
                            }
                            PostCategory *newCategory = [PostCategory createWithBlogObjectID:blogObjectID inContext:context];
@@ -131,11 +135,23 @@ NS_ASSUME_NONNULL_BEGIN
                                newCategory.parentID = @0;
                            }
                        } completion:^{
-                           if (success) {
+                           // Deliver exactly one callback. `failure` is invoked from the
+                           // main-queue completion (not the background save block) so the
+                           // no-blog path matches the threading of the success path.
+                           if (error) {
+                               failure(error);
+                           } else {
                                PostCategory *newCategory = [PostCategory lookupWithBlogObjectID:blogObjectID
                                                                            categoryID:receivedCategory.categoryID
                                                                             inContext:[self.coreDataStack mainContext]];
-                               success(newCategory);
+                               if (newCategory) {
+                                   success(newCategory);
+                               } else {
+                                   // The category was created remotely but couldn't be
+                                   // resolved locally (e.g. the response had no usable ID).
+                                   // Report failure rather than dropping the callback.
+                                   failure([self serviceErrorCategoryNotFound]);
+                               }
                            }
                            if ([remote isKindOfClass:[TaxonomyServiceRemoteXMLRPC class]]) {
                                // XML-RPC only returns ID, let's fetch the new category as
@@ -165,25 +181,37 @@ NS_ASSUME_NONNULL_BEGIN
     NSMutableArray *categories = [NSMutableArray arrayWithCapacity:remoteCategories.count];
 
     for (RemotePostCategory *remoteCategory in remoteCategories) {
-        PostCategory *category = [PostCategory lookupWithBlogObjectID:blog.objectID categoryID:remoteCategory.categoryID inContext:context];
-        if (!category) {
-            category = [PostCategory createWithBlogObjectID:blog.objectID inContext:context];
-            category.categoryID = remoteCategory.categoryID;
-        }
-        category.categoryName = remoteCategory.name;
-        category.parentID = remoteCategory.parentID;
+        if (remoteCategory.categoryID) {
+            PostCategory *category = [PostCategory lookupWithBlogObjectID:blog.objectID categoryID:remoteCategory.categoryID inContext:context];
+            if (!category) {
+                category = [PostCategory createWithBlogObjectID:blog.objectID inContext:context];
+                category.categoryID = remoteCategory.categoryID;
+            }
+            category.categoryName = remoteCategory.name;
+            if (remoteCategory.parentID) {
+                category.parentID = remoteCategory.parentID;
+            }
 
-        [categories addObject:category];
+            [categories addObject:category];
+        }
     }
 }
 
 - (nullable id<TaxonomyServiceRemote>)remoteForBlog:(Blog *)blog {
-    if ([blog supports:BlogFeatureWPComRESTAPI]) {
+    if ([blog supports:BlogFeatureWpComRESTAPI]) {
         if (blog.wordPressComRestApi) {
             return [[TaxonomyServiceRemoteREST alloc] initWithWordPressComRestApi:blog.wordPressComRestApi siteID:blog.dotComID];
         }
-    } else if (blog.xmlrpcApi) {
-        return [[TaxonomyServiceRemoteXMLRPC alloc] initWithApi:blog.xmlrpcApi username:blog.username password:blog.password];
+    } else {
+        // Prefer the core REST API (wp/v2) for self-hosted sites. Some hosts
+        // block the XML-RPC term methods, which breaks categories (#25758).
+        TaxonomyServiceRemoteCoreREST *coreREST = [[TaxonomyServiceRemoteCoreREST alloc] initWithBlog:blog];
+        if (coreREST) {
+            return coreREST;
+        }
+        if (blog.xmlrpcApi) {
+            return [[TaxonomyServiceRemoteXMLRPC alloc] initWithApi:blog.xmlrpcApi username:blog.username password:blog.password];
+        }
     }
     return nil;
 }

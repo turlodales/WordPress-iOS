@@ -1,5 +1,7 @@
-
-import Foundation
+import UIKit
+import WordPressUI
+import WebKit
+import WordPressSharedUI
 
 protocol TemplatePreviewViewDelegate: AnyObject {
     typealias PreviewDevice = PreviewDeviceSelectionViewController.PreviewDevice
@@ -40,9 +42,9 @@ class TemplatePreviewViewController: UIViewController, NoResultsViewHost, UIPopo
     private var accentColor: UIColor {
         return UIColor { (traitCollection: UITraitCollection) -> UIColor in
             if traitCollection.userInterfaceStyle == .dark {
-                return UIColor.muriel(color: .primary, .shade40)
+                return UIAppColor.primary(.shade40)
             } else {
-                return UIColor.muriel(color: .primary, .shade50)
+                return UIAppColor.primary(.shade50)
             }
         }
     }
@@ -51,7 +53,7 @@ class TemplatePreviewViewController: UIViewController, NoResultsViewHost, UIPopo
         self.demoURL = demoURL
         self.selectedPreviewDevice = selectedPreviewDevice ?? PreviewDevice.default
         self.onDismissWithDeviceSelected = onDismissWithDeviceSelected
-        super.init(nibName: "\(TemplatePreviewViewController.self)", bundle: .main)
+        super.init(nibName: "\(TemplatePreviewViewController.self)", bundle: .keystone)
     }
 
     required init?(coder: NSCoder) {
@@ -68,10 +70,22 @@ class TemplatePreviewViewController: UIViewController, NoResultsViewHost, UIPopo
         styleButtons()
         webView.scrollView.contentInset.bottom = footerView.frame.height
         webView.navigationDelegate = self
-        webView.backgroundColor = .basicBackground
+        webView.backgroundColor = .systemBackground
         delegate?.previewViewed()
         observeProgressEstimations()
         configurePreviewDeviceButton()
+
+        registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]) { (self: Self, _) in
+            self.updatePresentedPopoverIfNeeded()
+        }
+    }
+
+    private func updatePresentedPopoverIfNeeded() {
+        guard let popoverPresentationController = presentedViewController?.presentationController as? UIPopoverPresentationController else {
+            return
+        }
+
+        prepareForPopoverPresentation(popoverPresentationController)
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -105,7 +119,7 @@ class TemplatePreviewViewController: UIViewController, NoResultsViewHost, UIPopo
     }
 
     private func observeProgressEstimations() {
-        estimatedProgressObserver = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] (webView, _) in
+        estimatedProgressObserver = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
             self?.progressBar.progress = Float(webView.estimatedProgress)
         }
     }
@@ -119,7 +133,7 @@ class TemplatePreviewViewController: UIViewController, NoResultsViewHost, UIPopo
         let popoverContentController = PreviewDeviceSelectionViewController()
         popoverContentController.selectedOption = selectedPreviewDevice
         popoverContentController.onDeviceChange = { [weak self] device in
-            guard let self = self else { return }
+            guard let self else { return }
             self.delegate?.deviceModeChanged(device)
             self.selectedPreviewDevice = device
         }
@@ -185,15 +199,5 @@ extension TemplatePreviewViewController {
 
     func adaptivePresentationStyle(for controller: UIPresentationController, traitCollection: UITraitCollection) -> UIModalPresentationStyle {
         return .none
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        guard let popoverPresentationController = presentedViewController?.presentationController as? UIPopoverPresentationController else {
-                return
-        }
-
-        prepareForPopoverPresentation(popoverPresentationController)
     }
 }

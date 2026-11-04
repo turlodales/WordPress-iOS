@@ -1,6 +1,7 @@
-import Foundation
+import UIKit
+import WordPressData
 
-enum MySitesRoute {
+enum MySitesRoute: CaseIterable {
     case pages
     case posts
     case media
@@ -9,6 +10,9 @@ enum MySitesRoute {
     case people
     case plugins
     case managePlugins
+    case siteMonitoring
+    case phpLogs
+    case webServerLogs
 }
 
 extension MySitesRoute: Route {
@@ -38,6 +42,12 @@ extension MySitesRoute: Route {
             return "/plugins/:domain"
         case .managePlugins:
             return "/plugins/manage/:domain"
+        case .siteMonitoring:
+            return "/site-monitoring/:domain"
+        case .phpLogs:
+            return "/site-monitoring/:domain/php"
+        case .webServerLogs:
+            return "/site-monitoring/:domain/web"
         }
     }
 
@@ -53,6 +63,12 @@ extension MySitesRoute: Route {
             return false
         case .sharing:
             return true
+        case .siteMonitoring:
+            return true
+        case .phpLogs:
+            return true
+        case .webServerLogs:
+            return true
         case .people:
             return true
         case .plugins:
@@ -65,7 +81,6 @@ extension MySitesRoute: Route {
 
 extension MySitesRoute: NavigationAction {
     func perform(_ values: [String: String], source: UIViewController? = nil, router: LinkRouter) {
-        let coordinator = RootViewCoordinator.sharedPresenter.mySitesCoordinator
         let campaign = AppBannerCampaign.getCampaign(from: values)
 
         guard let blog = blog(from: values) else {
@@ -78,35 +93,76 @@ extension MySitesRoute: NavigationAction {
             }
             WPAppAnalytics.track(.deepLinkFailed, withProperties: properties)
 
+            if campaign.flatMap(AppBannerCampaign.init) == .qrCodeMedia {
+                postFailureNotice(title: Strings.siteNotFound, message: Strings.checkAccount)
+                return
+            }
+
             if failAndBounce(values) == false {
-                coordinator.showRootViewController()
                 postFailureNotice(title: NSLocalizedString("Site not found",
                                                            comment: "Error notice shown if the app can't find a specific site belonging to the user"))
             }
             return
         }
 
+        let presenter = RootViewCoordinator.sharedPresenter
+
         switch self {
         case .pages:
-            coordinator.showPages(for: blog)
+            presenter.showBlogDetails(for: blog, then: .pages)
         case .posts:
-            coordinator.showPosts(for: blog)
+            presenter.showBlogDetails(for: blog, then: .posts)
         case .media:
             if campaign.flatMap(AppBannerCampaign.init) == .qrCodeMedia {
-                coordinator.showMediaPicker(for: blog)
+                presenter.showMediaPicker(for: blog)
             } else {
-                coordinator.showMedia(for: blog)
+                presenter.showBlogDetails(for: blog, then: .media)
             }
         case .comments:
-            coordinator.showComments(for: blog)
+            presenter.showBlogDetails(for: blog, then: .comments)
         case .sharing:
-            coordinator.showSharing(for: blog)
+            presenter.showBlogDetails(for: blog, then: .sharing)
         case .people:
-            coordinator.showPeople(for: blog)
+            presenter.showBlogDetails(for: blog, then: .people)
         case .plugins:
-            coordinator.showPlugins(for: blog)
+            presenter.showBlogDetails(for: blog, then: .plugins)
         case .managePlugins:
-            coordinator.showManagePlugins(for: blog)
+            presenter.showBlogDetails(for: blog, then: .plugins, userInfo: [
+                BlogDetailsUserInfoKeys.showManagePlugins: true
+            ])
+        case .siteMonitoring:
+            presenter.showSiteMonitoring(for: blog, selectedTab: .metrics)
+        case .phpLogs:
+            presenter.showSiteMonitoring(for: blog, selectedTab: .phpLogs)
+        case .webServerLogs:
+            presenter.showSiteMonitoring(for: blog, selectedTab: .webServerLogs)
         }
     }
+}
+
+private extension RootViewPresenter {
+    func showMediaPicker(for blog: Blog) {
+        showBlogDetails(for: blog, then: .media, userInfo: [
+            BlogDetailsUserInfoKeys.showPicker: true
+        ])
+    }
+
+    func showSiteMonitoring(for blog: Blog, selectedTab: SiteMonitoringTab) {
+        showBlogDetails(for: blog, then: .siteMonitoring, userInfo: [
+            BlogDetailsUserInfoKeys.siteMonitoringTab: selectedTab.rawValue
+        ])
+    }
+}
+
+private enum Strings {
+    static let siteNotFound = NSLocalizedString(
+        "universalLink.qrCodeMedia.error.title",
+        value: "Site not found",
+        comment: "Title for error notice shown if the app can't find a specific site belonging to the user"
+    )
+    static let checkAccount = NSLocalizedString(
+        "universalLink.qrCodeMedia.error.message",
+        value: "Check that you are logged into the correct account",
+        comment: "Message for error notice shown if the app can't find a specific site belonging to the user"
+    )
 }

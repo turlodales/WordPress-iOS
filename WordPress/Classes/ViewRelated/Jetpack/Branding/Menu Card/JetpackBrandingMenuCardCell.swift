@@ -1,7 +1,8 @@
 import UIKit
 import Lottie
+import WordPressUI
 
-class JetpackBrandingMenuCardCell: UITableViewCell {
+public class JetpackBrandingMenuCardCell: UITableViewCell {
 
     // MARK: Private Variables
 
@@ -10,10 +11,10 @@ class JetpackBrandingMenuCardCell: UITableViewCell {
     private var config: JetpackBrandingMenuCardPresenter.Config?
 
     /// Sets the animation based on the language orientation
-    private var animation: Animation? {
+    private var animation: LottieAnimation? {
         traitCollection.layoutDirection == .leftToRight ?
-        Animation.named(Constants.animationLtr) :
-        Animation.named(Constants.animationRtl)
+        LottieAnimation.named(Constants.animationLtr) :
+        LottieAnimation.named(Constants.animationRtl)
     }
 
     private var cardType: JetpackBrandingMenuCardPresenter.Config.CardType {
@@ -52,8 +53,8 @@ class JetpackBrandingMenuCardCell: UITableViewCell {
         return view
     }()
 
-    private lazy var logosAnimationView: AnimationView = {
-        let view = AnimationView()
+    private lazy var logosAnimationView: LottieAnimationView = {
+        let view = LottieAnimationView()
         view.translatesAutoresizingMaskIntoConstraints = false
         view.animation = animation
 
@@ -118,8 +119,11 @@ class JetpackBrandingMenuCardCell: UITableViewCell {
 
     private lazy var ellipsisButton: UIButton = {
         let button = UIButton(type: .custom)
-        button.setImage(UIImage.gridicon(.ellipsis).imageWithTintColor(Metrics.Compact.ellipsisButtonColor), for: .normal)
-        button.contentEdgeInsets = Metrics.Compact.ellipsisButtonPadding
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage.gridicon(.ellipsis)
+        configuration.baseForegroundColor = Metrics.Compact.ellipsisButtonColor
+        configuration.contentInsets = Metrics.Compact.ellipsisButtonPadding
+        button.configuration = configuration
         button.isAccessibilityElement = true
         button.accessibilityLabel = Strings.ellipsisButtonAccessibilityLabel
         button.accessibilityTraits = .button
@@ -134,12 +138,12 @@ class JetpackBrandingMenuCardCell: UITableViewCell {
 
     // MARK: Initializers
 
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+    public override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         commonInit()
     }
 
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         super.init(coder: coder)
         commonInit()
     }
@@ -150,7 +154,7 @@ class JetpackBrandingMenuCardCell: UITableViewCell {
 
     // MARK: Cell Lifecycle
 
-    override func prepareForReuse() {
+    public override func prepareForReuse() {
         super.prepareForReuse()
 
         containerStackView.removeAllSubviews()
@@ -310,7 +314,6 @@ private extension JetpackBrandingMenuCardCell {
             return 0
         }
     }
-
 }
 
 private extension JetpackBrandingMenuCardCell {
@@ -334,22 +337,22 @@ private extension JetpackBrandingMenuCardCell {
             static let spacing: CGFloat = 15
             static let containerMargins = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 7, trailing: 12)
             static let logoImageViewSize: CGFloat = 24
-            static let ellipsisButtonPadding = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
-            static let ellipsisButtonColor = UIColor.muriel(color: .gray, .shade20)
+            static let ellipsisButtonPadding = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8)
+            static let ellipsisButtonColor = UIAppColor.gray(.shade20)
             static var labelFont: UIFont {
                 let maximumFontPointSize: CGFloat = 17
                 let fontDescriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
                 let font = UIFont(descriptor: fontDescriptor, size: min(fontDescriptor.pointSize, maximumFontPointSize))
                 return UIFontMetrics.default.scaledFont(for: font)
             }
-            static let labelTextColor: UIColor = UIColor.muriel(color: .jetpackGreen, .shade40)
+            static let labelTextColor: UIColor = UIAppColor.jetpackGreen(.shade40)
         }
 
         static let cardFrameConstraintPriority = UILayoutPriority(999)
 
         // Learn more button
         static let learnMoreButtonContentInsets = NSDirectionalEdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 24)
-        static let learnMoreButtonTextColor: UIColor = UIColor.muriel(color: .jetpackGreen, .shade40)
+        static let learnMoreButtonTextColor: UIColor = UIAppColor.jetpackGreen(.shade40)
     }
 
     enum Constants {
@@ -413,7 +416,7 @@ private extension JetpackBrandingMenuCardCell {
 extension JetpackBrandingMenuCardCell {
 
     @objc(configureWithViewController:)
-    func configure(with viewController: BlogDetailsViewController) {
+    public func configure(with viewController: BlogDetailsViewController) {
         self.viewController = viewController
         presenter = JetpackBrandingMenuCardPresenter(blog: viewController.blog)
         config = presenter?.cardConfig()

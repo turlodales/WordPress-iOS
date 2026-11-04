@@ -1,11 +1,18 @@
 import UIKit
 import Gridicons
+import DesignSystem
+import AsyncImageKit
+import WordPressData
+import WordPressShared
+import WordPressKit
 
+protocol LatestPostSummaryConfigurable {
+    func configure(withInsightData lastPostInsight: StatsLastPostInsight?, andDelegate delegate: SiteStatsInsightsDelegate?)
+}
 
 class StatsLatestPostSummaryInsightsCell: StatsBaseCell, LatestPostSummaryConfigurable {
     private weak var siteStatsInsightsDelegate: SiteStatsInsightsDelegate?
     private typealias Style = WPStyleGuide.Stats
-    private var lastPostInsight: StatsLastPostInsight?
 
     private let outerStackView = UIStackView()
     private let postStackView = UIStackView()
@@ -15,14 +22,10 @@ class StatsLatestPostSummaryInsightsCell: StatsBaseCell, LatestPostSummaryConfig
     private let viewCountLabel = UILabel()
     private let likeCountLabel = UILabel()
     private let commentCountLabel = UILabel()
-    private let postImageView = CachedAnimatedImageView()
+    private let postImageView = AsyncImageView()
 
     private let noDataLabel = UILabel()
     private let createPostButton = UIButton(type: .system)
-
-    lazy var imageLoader: ImageLoader = {
-        return ImageLoader(imageView: postImageView, gifStrategy: .mediumGIFs)
-    }()
 
     // MARK: - Initialization
 
@@ -58,7 +61,7 @@ class StatsLatestPostSummaryInsightsCell: StatsBaseCell, LatestPostSummaryConfig
         topConstraint = outerStackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: StatsBaseCell.Metrics.padding)
 
         NSLayoutConstraint.activate([
-            topConstraint,
+            topConstraint!,
             outerStackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -StatsBaseCell.Metrics.padding),
             outerStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: StatsBaseCell.Metrics.padding),
             outerStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -StatsBaseCell.Metrics.padding),
@@ -84,11 +87,11 @@ class StatsLatestPostSummaryInsightsCell: StatsBaseCell, LatestPostSummaryConfig
         postInfoStackView.axis = .vertical
         postInfoStackView.spacing = Metrics.postStackViewVerticalSpacing
 
-        postTitleLabel.textColor = .text
+        postTitleLabel.textColor = .label
         postTitleLabel.numberOfLines = 2
         postTitleLabel.font = .preferredFont(forTextStyle: .headline)
 
-        postTimestampLabel.textColor = .textSubtle
+        postTimestampLabel.textColor = .secondaryLabel
         postTimestampLabel.font = .preferredFont(forTextStyle: .subheadline)
         postTimestampLabel.adjustsFontSizeToFitWidth = true
 
@@ -141,19 +144,18 @@ class StatsLatestPostSummaryInsightsCell: StatsBaseCell, LatestPostSummaryConfig
         let stackView = UIStackView()
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .vertical
-        stackView.spacing = Metrics.statsStackViewVerticalSpacing
+        stackView.spacing = 0
 
         let topLabel = UILabel()
-        topLabel.font = UIFont.preferredFont(forTextStyle: .subheadline)
-        topLabel.textColor = .text
         topLabel.text = title
         topLabel.adjustsFontSizeToFitWidth = true
+        topLabel.adjustsFontForContentSizeCategory = true
+        Style.configureLabelAsCellValueTitle(topLabel)
 
-        countLabel.font = Style.insightsCountFont
-        countLabel.textColor = .text
         countLabel.adjustsFontSizeToFitWidth = true
         countLabel.adjustsFontForContentSizeCategory = true
         countLabel.text = "0"
+        Style.configureLabelAsCellValue(countLabel)
 
         stackView.addArrangedSubviews([topLabel, countLabel])
 
@@ -172,27 +174,30 @@ class StatsLatestPostSummaryInsightsCell: StatsBaseCell, LatestPostSummaryConfig
 
     private func configureNoDataViews() {
         noDataLabel.font = .preferredFont(forTextStyle: .body)
-        noDataLabel.textColor = .textSubtle
+        noDataLabel.textColor = .secondaryLabel
         noDataLabel.numberOfLines = 0
         noDataLabel.text = TextContent.noData
 
-        createPostButton.setImage(.gridicon(.create), for: .normal)
-        createPostButton.setTitle(TextContent.createPost, for: .normal)
-
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = .gridicon(.create)
+        configuration.title = TextContent.createPost
         // Increase the padding between the image and title of the button
-        createPostButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: Metrics.createPostButtonInset, bottom: 0, right: -Metrics.createPostButtonInset)
-        createPostButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: Metrics.createPostButtonInset)
+        configuration.imagePadding = Metrics.createPostButtonInset
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: Metrics.createPostButtonInset)
+        createPostButton.configuration = configuration
 
         createPostButton.addTarget(self, action: #selector(createPostTapped), for: .touchUpInside)
     }
 
     // MARK: - Public Configuration
 
-    func configure(withInsightData lastPostInsight: StatsLastPostInsight?, chartData: StatsPostDetails?, andDelegate delegate: SiteStatsInsightsDelegate?) {
+    func configure(withInsightData lastPostInsight: StatsLastPostInsight?, andDelegate delegate: SiteStatsInsightsDelegate?) {
         siteStatsInsightsDelegate = delegate
         statSection = .insightsLatestPostSummary
+        selectionStyle = lastPostInsight == nil ? .none : .default
 
-        guard let lastPostInsight = lastPostInsight else {
+        guard let lastPostInsight else {
+            isAccessibilityElement = false
             toggleNoData(show: true)
             return
         }
@@ -208,6 +213,23 @@ class StatsLatestPostSummaryInsightsCell: StatsBaseCell, LatestPostSummaryConfig
         viewCountLabel.text = lastPostInsight.viewsCount.abbreviatedString()
         likeCountLabel.text = lastPostInsight.likesCount.abbreviatedString()
         commentCountLabel.text = lastPostInsight.commentsCount.abbreviatedString()
+
+        configureAccessibility(with: lastPostInsight)
+    }
+
+    // Present the card as a single button so VoiceOver announces the whole card
+    // and its tap action.
+    private func configureAccessibility(with lastPostInsight: StatsLastPostInsight) {
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = [
+            postTitleLabel.text,
+            postTimestampLabel.text,
+            "\(lastPostInsight.viewsCount.abbreviatedString()) \(TextContent.views)",
+            "\(lastPostInsight.likesCount.abbreviatedString()) \(TextContent.likes)",
+            "\(lastPostInsight.commentsCount.abbreviatedString()) \(TextContent.comments)"
+        ].compactMap { $0 }.joined(separator: ", ")
+        accessibilityHint = TextContent.cardAccessibilityHint
     }
 
     // Switches out the no data views into the main stack view if we have no data.
@@ -227,16 +249,14 @@ class StatsLatestPostSummaryInsightsCell: StatsBaseCell, LatestPostSummaryConfig
     }
 
     private func configureFeaturedImage(url: URL?) {
-        if let url = url,
+        if let url,
            let siteID = SiteStatsInformation.sharedInstance.siteID?.intValue,
            let blog = try? Blog.lookup(withID: siteID, in: ContextManager.shared.mainContext) {
             postImageView.isHidden = false
 
-            let host = MediaHost(with: blog, failure: { error in
-                DDLogError("Failed to create media host: \(error.localizedDescription)")
-            })
-
-            imageLoader.loadImage(with: url, from: host, preferredSize: CGSize(width: Metrics.thumbnailSize, height: Metrics.thumbnailSize))
+            let host = MediaHost(blog)
+            let targetSize = CGSize(width: Metrics.thumbnailSize, height: Metrics.thumbnailSize)
+            postImageView.setImage(with: url, host: host, size: ImageSize(scaling: targetSize, in: self))
         } else {
             postImageView.isHidden = true
         }
@@ -251,13 +271,12 @@ class StatsLatestPostSummaryInsightsCell: StatsBaseCell, LatestPostSummaryConfig
     // MARK: - Constants
 
     private enum Metrics {
-        static let outerStackViewSpacing: CGFloat = 16.0
-        static let postStackViewHorizontalSpacing: CGFloat = 16.0
-        static let postStackViewVerticalSpacing: CGFloat = 8.0
-        static let statsStackViewVerticalSpacing: CGFloat = 8.0
-        static let createPostButtonInset: CGFloat = 8.0
+        static let outerStackViewSpacing: CGFloat = .DS.Padding.double
+        static let postStackViewHorizontalSpacing: CGFloat = .DS.Padding.double
+        static let postStackViewVerticalSpacing: CGFloat = .DS.Padding.single
+        static let createPostButtonInset: CGFloat = .DS.Padding.single
         static let thumbnailSize: CGFloat = 68.0
-        static let thumbnailCornerRadius: CGFloat = 4.0
+        static let thumbnailCornerRadius: CGFloat = .DS.Padding.half
         static let dividerWidth: CGFloat = 1.0
     }
 
@@ -268,5 +287,6 @@ class StatsLatestPostSummaryInsightsCell: StatsBaseCell, LatestPostSummaryConfig
         static let views = NSLocalizedString("stats.insights.latestPostSummary.views", value: "Views", comment: "Title for Views count in Latest Post Summary stats card.")
         static let likes = NSLocalizedString("stats.insights.latestPostSummary.likes", value: "Likes", comment: "Title for Likes count in Latest Post Summary stats card.")
         static let comments = NSLocalizedString("stats.insights.latestPostSummary.comments", value: "Comments", comment: "Title for Comments count in Latest Post Summary stats card.")
+        static let cardAccessibilityHint = NSLocalizedString("stats.insights.latestPostSummary.card.accessibilityHint", value: "Opens the post", comment: "VoiceOver accessibility hint for the Latest Post Summary stats card, informing the user that tapping opens the post.")
     }
 }

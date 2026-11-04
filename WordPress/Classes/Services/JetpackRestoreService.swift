@@ -1,6 +1,14 @@
 import Foundation
+import WordPressData
+import WordPressKit
 
-@objc class JetpackRestoreService: CoreDataService {
+class JetpackRestoreService {
+
+    let coreDataStack: CoreDataStack
+
+    init(coreDataStack: CoreDataStack) {
+        self.coreDataStack = coreDataStack
+    }
 
     private lazy var serviceV1: ActivityServiceRemote_ApiVersion1_0 = {
         let api = coreDataStack.performQuery {
@@ -23,7 +31,7 @@ import Foundation
                      restoreTypes: JetpackRestoreTypes? = nil,
                      success: @escaping (String, Int) -> Void,
                      failure: @escaping (Error) -> Void) {
-        guard let rewindID = rewindID else {
+        guard let rewindID else {
             return
         }
         serviceV1.restoreSite(site.siteID, rewindID: rewindID, types: restoreTypes, success: success, failure: failure)
@@ -32,5 +40,4 @@ import Foundation
     func getRewindStatus(for site: JetpackSiteRef, success: @escaping (RewindStatus) -> Void, failure: @escaping (Error) -> Void) {
         service.getRewindStatus(site.siteID, success: success, failure: failure)
     }
-
 }

@@ -1,4 +1,5 @@
-import Gridicons
+import UIKit
+import WordPressUI
 
 // Revisions browser view controller
 //
@@ -18,28 +19,7 @@ class RevisionDiffsBrowserViewController: UIViewController {
     @IBOutlet private var previousButton: UIButton!
     @IBOutlet private var nextButton: UIButton!
 
-    private lazy var doneBarButtonItem: UIBarButtonItem = {
-        let doneItem = UIBarButtonItem(barButtonSystemItem: .done, target: nil, action: nil)
-        doneItem.title = NSLocalizedString("Done", comment: "Label on button to dismiss revisions view")
-        doneItem.on() { [weak self] _ in
-            WPAnalytics.track(.postRevisionsDetailCancelled)
-            self?.dismiss(animated: true)
-        }
-        return doneItem
-    }()
-
-    private lazy var moreBarButtonItem: UIBarButtonItem = {
-        let image = UIImage.gridicon(.ellipsis)
-        let button = UIButton(type: .system)
-        button.setImage(image, for: .normal)
-        button.frame = CGRect(origin: .zero, size: image.size)
-        button.accessibilityLabel = NSLocalizedString("More", comment: "Action button to display more available options")
-        button.on(.touchUpInside) { [weak self] _ in
-            self?.moreWasPressed()
-        }
-        button.setContentHuggingPriority(.required, for: .horizontal)
-        return UIBarButtonItem(customView: button)
-    }()
+    private lazy var moreBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: makeMoreMenu())
 
     private lazy var loadBarButtonItem: UIBarButtonItem = {
         let title = NSLocalizedString("Load", comment: "Title of the screen that load selected the revisions.")
@@ -111,12 +91,18 @@ class RevisionDiffsBrowserViewController: UIViewController {
             }
         }
     }
-}
 
+    // MARK: - Actions
+
+    @objc private func buttonCloseTapped() {
+        WPAnalytics.track(.postRevisionsDetailCancelled)
+        dismiss(animated: true)
+    }
+}
 
 private extension RevisionDiffsBrowserViewController {
     private func showRevision() {
-        guard let revisionState = revisionState else {
+        guard let revisionState else {
             return
         }
 
@@ -128,29 +114,29 @@ private extension RevisionDiffsBrowserViewController {
     }
 
     private func setNextPreviousButtons() {
-        previousButton.setImage(.gridicon(.chevronLeft), for: .normal)
-        previousButton.tintColor = .neutral(.shade70)
+        previousButton.setImage(UIImage(systemName: "chevron.backward"), for: .normal)
+        previousButton.tintColor = UIAppColor.tint
         previousButton.on(.touchUpInside) { [weak self] _ in
             self?.showPrevious()
         }
 
-        nextButton.setImage(.gridicon(.chevronRight), for: .normal)
-        nextButton.tintColor = .neutral(.shade70)
+        nextButton.setImage(UIImage(systemName: "chevron.forward"), for: .normal)
+        nextButton.tintColor = UIAppColor.tint
         nextButton.on(.touchUpInside) { [weak self] _ in
             self?.showNext()
         }
     }
 
     private func setupNavbarItems() {
-        navigationItem.leftBarButtonItems = [doneBarButtonItem]
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: SharedStrings.Button.close, style: .plain, target: self, action: #selector(buttonCloseTapped))
         navigationItem.rightBarButtonItems = [moreBarButtonItem, loadBarButtonItem]
         navigationItem.title = NSLocalizedString("Revision", comment: "Title of the screen that shows the revisions.")
-        strokeView.backgroundColor = .divider
-        revisionContainer.backgroundColor = .listForeground
+        strokeView.backgroundColor = .separator
+        revisionContainer.backgroundColor = .secondarySystemGroupedBackground
     }
 
     private func updateNextPreviousButtons() {
-        guard let revisionState = revisionState else {
+        guard let revisionState else {
             return
         }
         previousButton.isHidden = revisionState.currentIndex == 0
@@ -172,8 +158,8 @@ private extension RevisionDiffsBrowserViewController {
     }
 
     private func scroll(_ direction: UIPageViewController.NavigationDirection, animated: Bool = false, completion: ((Bool) -> Void)? = nil) {
-        guard let revisionState = revisionState,
-            let pageManager = pageManager,
+        guard let revisionState,
+            let pageManager,
             !pageManager.viewControllers.isEmpty else {
                 return
         }
@@ -235,14 +221,19 @@ private extension RevisionDiffsBrowserViewController {
         })
     }
 
-    private func moreWasPressed() {
-        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        alert.addDefaultActionWithTitle(contentPreviewState.toggle().title) { [unowned self] _ in
-            self.triggerPreviewState()
+    private func makeMoreMenu() -> UIMenu {
+        UIMenu(options: .displayInline, children: [
+            UIDeferredMenuElement.uncached { [weak self] in
+                $0(self?.makeMoreMenuActions() ?? [])
+            }
+        ])
+    }
+
+    private func makeMoreMenuActions() -> [UIAction] {
+        let toggleMode = UIAction(title: contentPreviewState.toggle().title) { [weak self] _ in
+            self?.triggerPreviewState()
         }
-        alert.addCancelActionWithTitle(NSLocalizedString("Not Now", comment: "Nicer dialog answer for \"No\"."))
-        alert.popoverPresentationController?.barButtonItem = moreBarButtonItem
-        present(alert, animated: true)
+        return [toggleMode]
     }
 
     private func trackRevisionsDetailViewed(with source: ShowRevisionSource) {
@@ -250,7 +241,6 @@ private extension RevisionDiffsBrowserViewController {
                           withProperties: [WPAppAnalyticsKeySource: source.rawValue])
     }
 }
-
 
 extension RevisionDiffsBrowserViewController: RevisionDiffsPageManagerDelegate {
     func pageWillScroll(to direction: UIPageViewController.NavigationDirection) {

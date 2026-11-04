@@ -1,12 +1,12 @@
 import Foundation
-
+import WordPressData
+import WordPressShared
 
 /// Recent Sites Notifications
 ///
 extension NSNotification.Name {
     static let WPRecentSitesChanged = NSNotification.Name(rawValue: "RecentSitesChanged")
 }
-
 
 /// Keep track of recently used sites
 ///
@@ -21,7 +21,7 @@ class RecentSitesService: NSObject {
 
     /// The maximum number of recent sites (read only)
     ///
-    @objc let maxSiteCount = 3
+    @objc let maxSiteCount = 4
 
     // MARK: - Initialization
 

@@ -1,6 +1,9 @@
 import UIKit
-import WordPressAuthenticator
 import SwiftUI
+import SVProgressHUD
+import WordPressData
+import WordPressKit
+import WordPressShared
 
 enum DomainSelectionType: Int, Identifiable {
     var id: Int { rawValue }
@@ -14,13 +17,11 @@ enum DomainSelectionType: Int, Identifiable {
 /// Contains the UI corresponding to the list of Domain suggestions.
 ///
 final class DomainSelectionViewController: CollapsableHeaderViewController {
-    static let noMatchCellReuseIdentifier = "noMatchCellReuseIdentifier"
-
     // MARK: Properties
     private struct Metrics {
-        static let maxLabelWidth            = CGFloat(290)
-        static let noResultsTopInset        = CGFloat(64)
-        static let sitePromptTopMargin      = CGFloat(4)
+        static let maxLabelWidth = CGFloat(290)
+        static let noResultsTopInset = CGFloat(64)
+        static let sitePromptTopMargin = CGFloat(4)
     }
 
     override var separatorStyle: SeparatorStyle {
@@ -59,20 +60,6 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
         didSet {
             contentSizeWillChange()
             table.reloadData()
-        }
-    }
-    private var _hasExactMatch: Bool = false
-    var hasExactMatch: Bool {
-        get {
-            guard (lastSearchQuery ?? "").count > 0 else {
-                // Forces the no match cell to hide when the results are empty.
-                return true
-            }
-            // Return true if there is no data to supress the no match cell
-            return data.count > 0 ? _hasExactMatch : true
-        }
-        set {
-            _hasExactMatch = newValue
         }
     }
 
@@ -155,7 +142,7 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
 
             label.font = WPStyleGuide.fontForTextStyle(.body)
             label.textAlignment = .center
-            label.textColor = .text
+            label.textColor = .label
             label.text = Strings.noResults
 
             label.sizeToFit()
@@ -208,7 +195,7 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
         searchBar.layer.borderWidth = 0
         searchHeader.addSubview(searchBar)
         searchBar.delegate = self
-        headerView.backgroundColor = .basicBackground
+        headerView.backgroundColor = .systemBackground
 
         NSLayoutConstraint.activate([
             searchBar.leadingAnchor.constraint(equalTo: searchHeader.leadingAnchor, constant: 8),
@@ -243,9 +230,7 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
 
-        updateNoResultsLabelTopInset()
-
-        coordinator.animate(alongsideTransition: nil) { [weak self] (_) in
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
             guard let self else { return }
 
             if !self.siteTemplateHostingController.view.isHidden {
@@ -256,9 +241,9 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
 
     override func estimatedContentSize() -> CGSize {
         guard !isShowingError else { return CGSize(width: view.frame.width, height: 44) }
-        guard data.count > 0 else { return .zero }
+        guard !data.isEmpty else { return .zero }
         let estimatedSectionHeaderHeight: CGFloat = 85
-        let cellCount = hasExactMatch ? data.count : data.count + 1
+        let cellCount = data.count
         let height = estimatedSectionHeaderHeight + (CGFloat(cellCount) * AddressTableViewCell.estimatedSize.height)
         return CGSize(width: view.frame.width, height: height)
     }
@@ -281,7 +266,7 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
         let type: DomainsServiceRemote.DomainSuggestionType
         switch domainSelectionType {
         case .siteCreation:
-            type = RemoteFeatureFlag.plansInSiteCreation.enabled() ? .freeAndPaid : .wordPressDotComAndDotBlogSubdomains
+            type = siteCreationType
         default:
             if coordinator?.site?.hasBloggerPlan == true {
                 type = .allowlistedTopLevelDomains(["blog"])
@@ -297,13 +282,18 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
         }
     }
 
+    private var siteCreationType: DomainsServiceRemote.DomainSuggestionType {
+        (RemoteFeatureFlag.plansInSiteCreation.enabled() && AppConfiguration.isJetpack) ?
+            .freeAndPaid :
+            .wordPressDotComAndDotBlogSubdomains
+    }
+
     private func handleResult(_ results: Result<SiteAddressServiceResult, Error>) {
         updateIcon(isLoading: false)
         switch results {
         case .failure(let error):
             handleError(error)
         case .success(let data):
-            hasExactMatch = data.hasExactMatch
             handleData(data.domainSuggestions, data.invalidQuery)
         }
     }
@@ -312,7 +302,7 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
         let data = sortFreeAndPaidSuggestions(data)
 
         setAddressHintVisibility(isHidden: true)
-        let resultsHavePreviousSelection = data.contains { (suggestion) -> Bool in self.selectedDomain?.domainName == suggestion.domainName }
+        let resultsHavePreviousSelection = data.contains { suggestion -> Bool in self.selectedDomain?.domainName == suggestion.domainName }
         if !resultsHavePreviousSelection {
             clearSelectionAndCreateSiteButton()
         }
@@ -350,16 +340,15 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
         }
 
         throttle.debounce { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             self.fetchAddresses(query)
         }
     }
 
     override func primaryActionSelected(_ sender: Any) {
-        guard let selectedDomain = selectedDomain else {
+        guard let selectedDomain else {
             return
         }
-
 
         trackDomainsSelection(selectedDomain)
 
@@ -428,10 +417,7 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
         searchTextField.delegate = self
         searchTextField.accessibilityTraits = .searchField
 
-        let placeholderText = Strings.searchPlaceholder
-        let attributes = WPStyleGuide.defaultSearchBarTextAttributesSwifted(.textPlaceholder)
-        let attributedPlaceholder = NSAttributedString(string: placeholderText, attributes: attributes)
-        searchTextField.attributedPlaceholder = attributedPlaceholder
+        searchBar.placeholder = Strings.searchPlaceholder
         searchTextField.accessibilityHint = Strings.searchAccessibility
 
         view.addSubview(noResultsLabel)
@@ -446,11 +432,15 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
         ])
 
         updateNoResultsLabelTopInset()
+
+        registerForTraitChanges([UITraitVerticalSizeClass.self]) { (self: Self, _: UITraitCollection) in
+            self.updateNoResultsLabelTopInset()
+        }
     }
 
-    /// Sets the top inset for the noResultsLabel based on layout orientation
+    /// Sets the top inset for the noResultsLabel, dropping it when vertical space is constrained
     private func updateNoResultsLabelTopInset() {
-        noResultsLabelTopAnchor?.constant = UIDevice.current.orientation.isPortrait ? Metrics.noResultsTopInset : 0
+        noResultsLabelTopAnchor?.constant = traitCollection.verticalSizeClass != .compact ? Metrics.noResultsTopInset : 0
     }
 
     private func setupTable() {
@@ -465,11 +455,11 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
     }
 
     private func setupTableBackground() {
-        table.backgroundColor = .basicBackground
+        table.backgroundColor = .systemBackground
     }
 
     private func setupTableSeparator() {
-        table.separatorColor = .divider
+        table.separatorColor = .separator
         table.separatorInset.left = AddressTableViewCell.Appearance.contentMargins.leading
     }
 
@@ -560,8 +550,6 @@ final class DomainSelectionViewController: CollapsableHeaderViewController {
                                                                    comment: "Accessibility hint for the domains search field in Site Creation.")
         static let suggestions: String = NSLocalizedString("Suggestions",
                                                            comment: "Suggested domains")
-        static let noMatch: String = NSLocalizedString("This domain is unavailable",
-                                                       comment: "Notifies the user that the a domain matching the search term wasn't returned in the results")
         static let backButtonTitle = NSLocalizedString("siteCreation.domain.backButton.title",
                                                        value: "Domains",
                                                        comment: "Back button title shown in Site Creation flow to come back from Plan selection to Domain selection"
@@ -676,7 +664,7 @@ extension DomainSelectionViewController: UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        guard data.count > 0 else { return nil }
+        guard !data.isEmpty else { return nil }
         return Strings.suggestions
     }
 
@@ -698,21 +686,6 @@ extension DomainSelectionViewController: UITableViewDataSource {
         } else {
             return configureAddressCell(tableView, cellForRowAt: indexPath)
         }
-    }
-
-    func configureNoMatchCell(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: DomainSelectionViewController.noMatchCellReuseIdentifier) ?? {
-            // Create and configure a new TableView cell if one hasn't been queued yet
-            let newCell = UITableViewCell(style: .subtitle, reuseIdentifier: DomainSelectionViewController.noMatchCellReuseIdentifier)
-            newCell.detailTextLabel?.text = Strings.noMatch
-            newCell.detailTextLabel?.font = WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular)
-            newCell.detailTextLabel?.textColor = .textSubtle
-            newCell.addBottomBorder(withColor: .divider)
-            return newCell
-        }()
-
-        cell.textLabel?.attributedText = AddressTableViewCell.processName("\(lastSearchQuery ?? "").wordpress.com")
-        return cell
     }
 
     func configureAddressCell(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -785,7 +758,7 @@ private extension DomainSelectionViewController {
         }
 
         let constraints = transferFooterViewConstraints
-        let duration = animated ? WPAnimationDurationDefault : 0
+        let duration = animated ? 0.33 : 0
 
         NSLayoutConstraint.deactivate(hidden ? constraints.visible : constraints.hidden)
         NSLayoutConstraint.activate(hidden ? constraints.hidden : constraints.visible)
@@ -845,7 +818,7 @@ private extension DomainSelectionViewController {
 
         let controller = RegisterDomainDetailsViewController()
         controller.viewModel = RegisterDomainDetailsViewModel(siteID: siteID, domain: domain) { [weak self] name in
-            guard let self = self, let coordinator else {
+            guard let self, let coordinator else {
                 return
             }
             coordinator.domainPurchasedCallback?(self, name)

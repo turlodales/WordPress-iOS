@@ -1,9 +1,8 @@
 import Foundation
-import WordPressAuthenticator
 
 final class SupportCoordinator {
     private weak var controllerToShowFrom: UIViewController?
-    private var tag: WordPressSupportSourceTag?
+    private var tag: SupportSourceTag?
 
     private var navigationController: UINavigationController? {
         guard let navigationController = (controllerToShowFrom as? UINavigationController) ?? controllerToShowFrom?.navigationController else {
@@ -19,17 +18,17 @@ final class SupportCoordinator {
     }
 
     init(controllerToShowFrom: UIViewController?,
-         tag: WordPressSupportSourceTag? = nil) {
+         tag: SupportSourceTag? = nil) {
         self.controllerToShowFrom = controllerToShowFrom
         self.tag = tag
     }
 
     func showSupport(onIdentityUpdated: (() -> ())? = nil) {
-        guard let controllerToShowFrom = controllerToShowFrom else { return }
+        guard let controllerToShowFrom else { return }
 
         if AppConfiguration.isJetpack && RemoteFeatureFlag.contactSupportChatbot.enabled() {
             let chatBotViewController = SupportChatBotViewController(viewModel: .init(), delegate: self)
-            if let navigationController = navigationController {
+            if let navigationController {
                 navigationController.pushViewController(chatBotViewController, animated: true)
             } else {
                 let navigationController = UINavigationController(rootViewController: chatBotViewController)
@@ -47,7 +46,7 @@ final class SupportCoordinator {
     }
 
     func showTicketView(onIdentityUpdated: (() -> ())? = nil) {
-        guard let controllerToShowFrom = controllerToShowFrom else { return }
+        guard let controllerToShowFrom else { return }
 
         ZendeskUtils.pushNotificationRead()
         ZendeskUtils.sharedInstance.showTicketListIfPossible(from: controllerToShowFrom, with: tag) { identityUpdated in
@@ -60,7 +59,7 @@ final class SupportCoordinator {
 
 extension SupportCoordinator: SupportChatBotCreatedTicketDelegate {
     func onTicketCreated() {
-        if let navigationController = navigationController {
+        if let navigationController {
             navigationController.popViewController(animated: true)
             showTicketView()
         } else {

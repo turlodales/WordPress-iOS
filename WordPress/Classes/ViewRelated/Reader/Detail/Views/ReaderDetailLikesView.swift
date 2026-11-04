@@ -1,110 +1,66 @@
 import UIKit
+import WordPressReader
+import WordPressUI
 
 protocol ReaderDetailLikesViewDelegate: AnyObject {
     func didTapLikesView()
 }
 
-class ReaderDetailLikesView: UIView, NibLoadable {
-
-    @IBOutlet weak var avatarStackView: UIStackView!
-    @IBOutlet weak var summaryLabel: UILabel!
-
-    /// The UIImageView used to display the current user's avatar image. This view is hidden by default.
+final class ReaderDetailLikesView: UIView, NibLoadable {
+    @IBOutlet private weak var avatarStackView: UIStackView!
+    @IBOutlet private weak var summaryLabel: UILabel!
     @IBOutlet private weak var selfAvatarImageView: CircularImageView!
 
+    var displaySetting: ReaderDisplaySettings = .standard {
+        didSet {
+            applyStyles()
+            if let viewModel {
+                configure(with: viewModel)
+            }
+        }
+    }
+
+    private var preferredBorderColor: UIColor {
+        displaySetting.color == .system ? .systemBackground : displaySetting.color.background
+    }
+
     static let maxAvatarsDisplayed = 5
+
     weak var delegate: ReaderDetailLikesViewDelegate?
 
-    /// Stores the number of total likes _without_ adding the like from self.
-    private var totalLikes: Int = 0
-
-    /// Convenience property that adds up the total likes and self like for display purposes.
-    var totalLikesForDisplay: Int {
-        return displaysSelfAvatar ? totalLikes + 1 : totalLikes
-    }
-
-    /// Convenience property that checks whether or not the self avatar image view is being displayed.
-    private var displaysSelfAvatar: Bool {
-        !selfAvatarImageView.isHidden
-    }
+    private var viewModel: ReaderDetailLikesViewModel?
 
     override func awakeFromNib() {
         super.awakeFromNib()
-        applyStyles()
-    }
 
-    func configure(with avatarURLStrings: [String], totalLikes: Int) {
-        self.totalLikes = totalLikes
-        updateSummaryLabel()
-        updateAvatars(with: avatarURLStrings)
+        applyStyles()
         addTapGesture()
-    }
 
-    func addSelfAvatar(with urlString: String, animated: Bool = false) {
-        downloadGravatar(for: selfAvatarImageView, withURL: urlString)
-
-        // pre-animation state
-        // set initial position from the left in LTR, or from the right in RTL.
-        selfAvatarImageView.alpha = 0
-        let directionalMultiplier: CGFloat = userInterfaceLayoutDirection() == .leftToRight ? -1.0 : 1.0
-        selfAvatarImageView.transform = CGAffineTransform(translationX: Constants.animationDeltaX * directionalMultiplier, y: 0)
-
-        UIView.animate(withDuration: animated ? Constants.animationDuration : 0) {
-            // post-animation state
-            self.selfAvatarImageView.alpha = 1
-            self.selfAvatarImageView.isHidden = false
-            self.selfAvatarImageView.transform = .identity
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            self.applyStyles()
         }
-
-        updateSummaryLabel()
     }
 
-    func removeSelfAvatar(animated: Bool = false) {
-        // pre-animation state
-        selfAvatarImageView.alpha = 1
-        self.selfAvatarImageView.transform = .identity
+    func configure(with viewModel: ReaderDetailLikesViewModel) {
+        self.viewModel = viewModel
 
-        UIView.animate(withDuration: animated ? Constants.animationDuration : 0) {
-            // post-animation state
-            // moves to the left in LTR, or to the right in RTL.
-            self.selfAvatarImageView.alpha = 0
-            self.selfAvatarImageView.isHidden = true
-            let directionalMultiplier: CGFloat = self.userInterfaceLayoutDirection() == .leftToRight ? -1.0 : 1.0
-            self.selfAvatarImageView.transform = CGAffineTransform(translationX: Constants.animationDeltaX * directionalMultiplier, y: 0)
+        summaryLabel.attributedText = makeHighlightedText(Strings.formattedLikeCount(viewModel.likeCount), displaySetting: displaySetting)
+
+        updateAvatars(with: viewModel.avatarURLs)
+
+        selfAvatarImageView.isHidden = viewModel.selfLikeAvatarURL == nil
+        if let avatarURL = viewModel.selfLikeAvatarURL {
+            downloadGravatar(for: selfAvatarImageView, withURL: avatarURL)
         }
-
-        updateSummaryLabel()
     }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        applyStyles()
-    }
-
 }
 
 private extension ReaderDetailLikesView {
-
+    @MainActor
     func applyStyles() {
-        // Set border on all the avatar views
         for subView in avatarStackView.subviews {
             subView.layer.borderWidth = 1
-            subView.layer.borderColor = UIColor.basicBackground.cgColor
-        }
-    }
-
-    func updateSummaryLabel() {
-        switch (displaysSelfAvatar, totalLikes) {
-        case (true, 0):
-            summaryLabel.attributedText = highlightedText(SummaryLabelFormats.onlySelf)
-        case (true, 1):
-            summaryLabel.attributedText = highlightedText(SummaryLabelFormats.singularWithSelf)
-        case (true, _) where totalLikes > 1:
-            summaryLabel.attributedText = highlightedText(String(format: SummaryLabelFormats.pluralWithSelf, totalLikes))
-        case (false, 1):
-            summaryLabel.attributedText = highlightedText(SummaryLabelFormats.singular)
-        default:
-            summaryLabel.attributedText = highlightedText(String(format: SummaryLabelFormats.plural, totalLikes))
+            subView.layer.borderColor = preferredBorderColor.cgColor
         }
     }
 
@@ -113,11 +69,9 @@ private extension ReaderDetailLikesView {
             guard let avatarImageView = subView as? UIImageView else {
                 return
             }
-
             if avatarImageView == selfAvatarImageView {
                 continue
             }
-
             if let urlString = urlStrings[safe: index] {
                 downloadGravatar(for: avatarImageView, withURL: urlString)
             } else {
@@ -127,70 +81,64 @@ private extension ReaderDetailLikesView {
     }
 
     func downloadGravatar(for avatarImageView: UIImageView, withURL url: String?) {
-        // Always reset gravatar
-        avatarImageView.cancelImageDownload()
+        avatarImageView.wp.prepareForReuse()
         avatarImageView.image = .gravatarPlaceholderImage
-
-        guard let url = url,
-              let gravatarURL = URL(string: url) else {
-            return
+        if let url, let gravatarURL = URL(string: url) {
+            avatarImageView.wp.setImage(with: gravatarURL)
         }
-
-        avatarImageView.downloadImage(from: gravatarURL, placeholderImage: .gravatarPlaceholderImage)
     }
 
     func addTapGesture() {
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(didTapView(_:))))
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(didTapView)))
     }
 
     @objc func didTapView(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended else {
-            return
-        }
-
         delegate?.didTapLikesView()
     }
+}
 
-    struct Constants {
-        static let animationDuration: TimeInterval = 0.3
-        static let animationDeltaX: CGFloat = 16.0
+private func makeHighlightedText(_ text: String, displaySetting: ReaderDisplaySettings) -> NSAttributedString {
+    let labelParts = text.components(separatedBy: "_")
+
+    let firstPart = labelParts.first ?? ""
+    let countPart = labelParts[safe: 1] ?? ""
+    let lastPart = labelParts.last ?? ""
+
+    let foregroundColor = displaySetting.color.secondaryForeground
+    let highlightedColor = displaySetting.color == .system ? UIAppColor.primary : displaySetting.color.foreground
+
+    let foregroundAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: foregroundColor]
+    var highlightedAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: highlightedColor]
+
+    if displaySetting.color != .system {
+        // apply underline and semibold weight for color themes other than `.system`.
+        highlightedAttributes[.font] = displaySetting.font(with: .footnote, weight: .semibold)
+        highlightedAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
     }
 
-    struct SummaryLabelFormats {
-        static let onlySelf = NSLocalizedString("_You_ like this.",
-                                                comment: "Describes that the current user is the only one liking a post."
-                                                    + " The underscores denote underline and is not displayed.")
-        static let singularWithSelf = NSLocalizedString("_You and another blogger_ like this.",
-                                                        comment: "Describes that the current user and one other user like a post."
-                                                            + " The underscores denote underline and is not displayed.")
-        static let pluralWithSelf = NSLocalizedString("_You and %1$d bloggers_ like this.",
-                                                      comment: "Plural format string for displaying the number of post likes, including the like from the current user."
-                                                        + " %1$d is the number of likes, excluding the like by current user."
-                                                        + " The underscores denote underline and is not displayed.")
-        static let singular = NSLocalizedString("_One blogger_ likes this.",
-                                                comment: "Describes that only one user likes a post. "
-                                                    + " The underscores denote underline and is not displayed.")
-        static let plural = NSLocalizedString("_%1$d bloggers_ like this.",
-                                              comment: "Plural format string for displaying the number of post likes."
-                                                + " %1$d is the number of likes. The underscores denote underline and is not displayed.")
+    let attributedString = NSMutableAttributedString(string: firstPart, attributes: foregroundAttributes)
+    attributedString.append(NSAttributedString(string: countPart, attributes: highlightedAttributes))
+    attributedString.append(NSAttributedString(string: lastPart, attributes: foregroundAttributes))
+
+    return attributedString
+}
+
+struct ReaderDetailLikesViewModel {
+    /// A total like count, including your likes.
+    var likeCount: Int
+    /// Avatar URLs excluding self-like view.
+    var avatarURLs: [String]
+    var selfLikeAvatarURL: String?
+}
+
+private enum Strings {
+    static let likeCountSingular = NSLocalizedString("reader.detail.likes.single", value: "_1 like_", comment: "Describes that only one user likes a post. The underscores denote underline and is not displayed.")
+    static let likeCountPlural = NSLocalizedString("reader.detail.likes.plural", value: "_%1$d likes_", comment: "Plural format string for displaying the number of post likes. %1$d is the number of likes. The underscores denote underline and is not displayed.")
+
+    static func formattedLikeCount(_ likeCount: Int) -> String {
+        switch likeCount {
+        case 1: Strings.likeCountSingular
+        default: String(format: Strings.likeCountPlural, likeCount)
+        }
     }
-
-    func highlightedText(_ text: String) -> NSAttributedString {
-        let labelParts = text.components(separatedBy: "_")
-
-        let firstPart = labelParts.first ?? ""
-        let countPart = labelParts[safe: 1] ?? ""
-        let lastPart = labelParts.last ?? ""
-
-        let foregroundAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.secondaryLabel]
-        let underlineAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.primary,
-                                                                  .underlineStyle: NSUnderlineStyle.single.rawValue]
-
-        let attributedString = NSMutableAttributedString(string: firstPart, attributes: foregroundAttributes)
-        attributedString.append(NSAttributedString(string: countPart, attributes: underlineAttributes))
-        attributedString.append(NSAttributedString(string: lastPart, attributes: foregroundAttributes))
-
-        return attributedString
-    }
-
 }

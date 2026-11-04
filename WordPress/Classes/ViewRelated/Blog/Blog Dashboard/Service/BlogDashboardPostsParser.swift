@@ -1,5 +1,6 @@
 import Foundation
 import CoreData
+import WordPressData
 
 class BlogDashboardPostsParser {
     private let managedObjectContext: NSManagedObjectContext
@@ -18,7 +19,6 @@ class BlogDashboardPostsParser {
         guard let posts = postsDictionary.mutableCopy() as? NSMutableDictionary else {
             return postsDictionary
         }
-
 
         if let localDraftsCount = numberOfPosts(for: blog, filter: PostListFilter.draftFilter()) {
             // If drafts are synced OR

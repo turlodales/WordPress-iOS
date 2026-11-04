@@ -1,9 +1,20 @@
 import Foundation
+import WordPressData
+import WordPressKit
 import WordPressFlux
+import WordPressShared
 
 enum StatsSummaryTimeIntervalDataAsAWeek {
     case thisWeek(data: StatsSummaryTimeIntervalData)
     case prevWeek(data: StatsSummaryTimeIntervalData)
+}
+
+struct StatsInsightsSection: Hashable {
+    let insightType: InsightType?
+
+    init(insightType: InsightType?) {
+        self.insightType = insightType
+    }
 }
 
 /// The view model used by Stats Insights.
@@ -22,26 +33,25 @@ class SiteStatsInsightsViewModel: Observable {
     private var insightsReceipt: Receipt?
     private var insightsChangeReceipt: Receipt?
     private var insightsToShow = [InsightType]()
-    private var lastRequestedDate: Date
-    private var lastRequestedPeriod: StatsPeriodUnit
+    private(set) var lastRequestedDate: Date
+    private(set) var lastRequestedPeriod: StatsPeriodUnit
 
     private let pinnedItemStore: SiteStatsPinnedItemStore?
     private let itemToDisplay: SiteStatsPinnable?
     private var isNudgeCompleted: Bool {
-        guard let pinnedItemStore = pinnedItemStore, let item = itemToDisplay, item is GrowAudienceCell.HintType else {
+        guard let pinnedItemStore, let item = itemToDisplay, item is GrowAudienceCell.HintType else {
             return false
         }
         return !pinnedItemStore.shouldShow(item)
     }
 
-    private var periodReceipt: Receipt?
     private var periodChangeReceipt: Receipt?
 
     private typealias Style = WPStyleGuide.Stats
 
-    weak var statsLineChartViewDelegate: StatsLineChartViewDelegate?
-
-    private var mostRecentChartData: StatsSummaryTimeIntervalData?
+    private var mostRecentChartData: StatsSummaryTimeIntervalData? {
+        periodStore.getSummary()
+    }
 
     private var selectedViewsVisitorsSegment: StatsSegmentedControlData.Segment = .views
 
@@ -52,7 +62,7 @@ class SiteStatsInsightsViewModel: Observable {
          viewsAndVisitorsDelegate: StatsInsightsViewsAndVisitorsDelegate?,
          insightsStore: StatsInsightsStore,
          pinnedItemStore: SiteStatsPinnedItemStore?,
-         periodStore: StatsPeriodStore = StoreContainer.shared.statsPeriod) {
+         periodStore: StatsPeriodStore = StatsPeriodStore()) {
         self.siteStatsInsightsDelegate = insightsDelegate
         self.viewsAndVisitorsDelegate = viewsAndVisitorsDelegate
         self.insightsToShow = insightsToShow
@@ -65,31 +75,7 @@ class SiteStatsInsightsViewModel: Observable {
         // Exclude today's data for weekly insights
         self.lastRequestedDate = StatsDataHelper.yesterdayDateForSite()
         self.lastRequestedPeriod = StatsPeriodUnit.day
-
-        insightsChangeReceipt = self.insightsStore.onChange { [weak self] in
-            self?.emitChange()
-        }
-
-        if AppConfiguration.statsRevampV2Enabled {
-            periodChangeReceipt = self.periodStore.onChange { [weak self] in
-                self?.updateMostRecentChartData(self?.periodStore.getSummary())
-                self?.emitChange()
-            }
-        }
     }
-
-    func fetchInsights() {
-        insightsReceipt = insightsStore.query(.insights)
-    }
-
-    func startFetchingPeriodOverview() {
-        periodReceipt = periodStore.query(.periods(date: lastRequestedDate, period: lastRequestedPeriod))
-        periodStore.actionDispatcher.dispatch(PeriodAction.refreshPeriodOverviewData(date: lastRequestedDate,
-                period: lastRequestedPeriod,
-                forceRefresh: true))
-    }
-
-    // MARK: - Refresh Data
 
     /// This method will trigger a refresh of insights data, provided that we're not already
     /// performing a refresh and that we haven't refreshed within the last 5 minutes.
@@ -97,290 +83,333 @@ class SiteStatsInsightsViewModel: Observable {
     /// of a pull to refresh action), you can pass a `forceRefresh` value of `true` here.
     ///
     func refreshInsights(forceRefresh: Bool = false) {
+        loadCachedInsights()
+
+        /// Refresh Insights data if needed
         ActionDispatcher.dispatch(InsightAction.refreshInsights(forceRefresh: forceRefresh))
+
         startFetchingPeriodOverview()
+    }
+
+    private func loadCachedInsights() {
+        insightsReceipt = nil
+        insightsReceipt = insightsStore.query(.insights)
+    }
+
+    private func startFetchingPeriodOverview() {
+        periodStore.actionDispatcher.dispatch(PeriodAction.refreshPeriodOverviewData(date: lastRequestedDate,
+                period: lastRequestedPeriod,
+                forceRefresh: true))
+    }
+
+    // MARK: - Listeners
+
+    func addListeners() {
+        insightsChangeReceipt = self.insightsStore.onChange { [weak self] in
+            self?.emitChange()
+        }
+
+        periodChangeReceipt = self.periodStore.onChange { [weak self] in
+            self?.emitChange()
+        }
+    }
+
+    func removeListeners() {
+        periodChangeReceipt = nil
+        insightsChangeReceipt = nil
+        insightsReceipt = nil
     }
 
     // MARK: - Table Model
 
-    func tableViewModel() -> ImmuTable {
-
-        var tableRows = [ImmuTableRow]()
+    func tableViewSnapshot() -> ImmuTableDiffableDataSourceSnapshot {
+        var snapshot = ImmuTableDiffableDataSourceSnapshot()
 
         if insightsToShow.isEmpty ||
             (fetchingFailed() && !containsCachedData()) {
-            return ImmuTable.Empty
+            return snapshot
         }
 
-        insightsToShow.forEach { insightType in
+        for insightType in insightsToShow {
             let errorBlock = { statSection in
                 return StatsErrorRow(rowStatus: .error, statType: .insights, statSection: statSection)
             }
 
             switch insightType {
             case .viewsVisitors:
-                tableRows.append(contentsOf: blocks(for: .viewsVisitors,
-                        type: .period,
-                        status: periodStore.summaryStatus,
-                        checkingCache: { [weak self] in
-                            return self?.mostRecentChartData != nil
-                        },
-                        block: { [weak self] in
-                            return self?.overviewTableRows() ?? [errorBlock(.insightsViewsVisitors)]
-                        }, loading: {
-                            return [StatsGhostChartImmutableRow()]
-                        }, error: {
-                            return [errorBlock(.insightsViewsVisitors)]
-                        }))
+                let viewsVisitorsSection = StatsInsightsSection(insightType: .viewsVisitors)
+                let viewsVisitorsRows = blocks(for: .viewsVisitors,
+                                               type: .period,
+                                               status: periodStore.timeIntervalsSummaryStatus,
+                                               checkingCache: { [weak self] in
+                    return self?.mostRecentChartData != nil
+                },
+                                               block: { [weak self] in
+                    return self?.overviewTableRows() ?? [errorBlock(.insightsViewsVisitors)]
+                }, loading: {
+                    return [StatsGhostChartImmutableRow(statSection: .insightsViewsVisitors)]
+                }, error: {
+                    return [errorBlock(.insightsViewsVisitors)]
+                })
+                    .map { AnyHashableImmuTableRow(immuTableRow: $0) }
+                snapshot.appendSections([viewsVisitorsSection])
+                snapshot.appendItems(viewsVisitorsRows, toSection: viewsVisitorsSection)
             case .growAudience:
                 /// Grow Audience is an additional informational card that is not added by the user, no need to show it if fails to load
                 guard insightsStore.allTimeStatus != . error else {
-                    return
+                    break
                 }
 
-                tableRows.append(blocks(for: .growAudience,
-                                        type: .insights,
-                                        status: insightsStore.allTimeStatus,
-                                        block: {
-                                            let nudge = itemToDisplay as? GrowAudienceCell.HintType ?? GrowAudienceCell.HintType.social
-                                            let viewsCount = insightsStore.getAllTimeStats()?.viewsCount ?? 0
-                                            return GrowAudienceRow(hintType: nudge,
-                                                                   allTimeViewsCount: viewsCount,
-                                                                   isNudgeCompleted: isNudgeCompleted,
-                                                                   siteStatsInsightsDelegate: siteStatsInsightsDelegate)
+                let growAudienceSection = StatsInsightsSection(insightType: .growAudience)
+                let growAudienceRows: [any StatsHashableImmuTableRow] = blocks(for: .growAudience,
+                                                                          type: .insights,
+                                                                          status: insightsStore.allTimeStatus,
+                                                                          block: {
+                    let nudge = itemToDisplay as? GrowAudienceCell.HintType ?? GrowAudienceCell.HintType.social
+                    let viewsCount = insightsStore.getAllTimeStats()?.viewsCount ?? 0
+                    return [GrowAudienceRow(hintType: nudge,
+                                            allTimeViewsCount: viewsCount,
+                                            isNudgeCompleted: isNudgeCompleted,
+                                            siteStatsInsightsDelegate: siteStatsInsightsDelegate,
+                                            statSection: nil)]
                 }, loading: {
-                    return StatsGhostGrowAudienceImmutableRow()
+                    return [StatsGhostGrowAudienceImmutableRow(statSection: InsightType.growAudience.statSection)]
                 }, error: {
-                    errorBlock(nil)
-                }))
+                    [errorBlock(nil)]
+                })
+                snapshot.appendSections([growAudienceSection])
+                snapshot.appendItems(growAudienceRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: growAudienceSection)
             case .latestPostSummary:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsLatestPostSummary,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .latestPostSummary,
-                                        type: .insights,
-                                        status: insightsStore.lastPostSummaryStatus,
-                                        block: {
-                                            return LatestPostSummaryRow(summaryData: insightsStore.getLastPostInsight(),
-                                                                        chartData: insightsStore.getPostStats(),
-                                                                        siteStatsInsightsDelegate: siteStatsInsightsDelegate)
+                let latestPostSummarySection = StatsInsightsSection(insightType: .latestPostSummary)
+                let latestPostSummaryRows: [any StatsHashableImmuTableRow] = blocks(for: .latestPostSummary,
+                                                                               type: .insights,
+                                                                               status: insightsStore.lastPostSummaryStatus,
+                                                                               block: {
+                    return [LatestPostSummaryRow(summaryData: insightsStore.getLastPostInsight(),
+                                                chartData: insightsStore.getPostStats(),
+                                                siteStatsInsightsDelegate: siteStatsInsightsDelegate,
+                                                statSection: .insightsLatestPostSummary)]
                 }, loading: {
-                    return StatsGhostChartImmutableRow()
+                    return [StatsGhostChartImmutableRow(statSection: .insightsLatestPostSummary)]
                 }, error: {
-                    errorBlock(.insightsLatestPostSummary)
-                }))
+                    [errorBlock(.insightsLatestPostSummary)]
+                })
+                snapshot.appendSections([latestPostSummarySection])
+                snapshot.appendItems(latestPostSummaryRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: latestPostSummarySection)
             case .allTimeStats:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsAllTime,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .allTimeStats,
-                                        type: .insights,
-                                        status: insightsStore.allTimeStatus,
-                                        block: {
-                                            return TwoColumnStatsRow(dataRows: createAllTimeStatsRows(),
-                                                                     statSection: .insightsAllTime,
-                                                                     siteStatsInsightsDelegate: nil)
+                let allTimeStatsSection = StatsInsightsSection(insightType: .allTimeStats)
+                let allTimeStatsRows: [any StatsHashableImmuTableRow] = blocks(for: .allTimeStats,
+                                              type: .insights,
+                                              status: insightsStore.allTimeStatus,
+                                              block: {
+                    return [TwoColumnStatsRow(dataRows: createAllTimeStatsRows(),
+                                             statSection: .insightsAllTime,
+                                             siteStatsInsightsDelegate: nil)]
                 }, loading: {
-                    return StatsGhostTwoColumnImmutableRow()
+                    return [StatsGhostTwoColumnImmutableRow(statSection: .insightsAllTime)]
                 }, error: {
-                    errorBlock(.insightsAllTime)
-                }))
+                    [errorBlock(.insightsAllTime)]
+                })
+
+                snapshot.appendSections([allTimeStatsSection])
+                snapshot.appendItems(allTimeStatsRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: allTimeStatsSection)
             case .likesTotals:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsLikesTotals,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .likesTotals,
-                                        type: .period,
-                                        status: periodStore.summaryStatus,
-                                        checkingCache: { [weak self] in
-                                            return self?.mostRecentChartData != nil
-                                        },
-                                        block: {
-                    return TotalInsightStatsRow(dataRow: createLikesTotalInsightsRow(), statSection: .insightsLikesTotals, siteStatsInsightsDelegate: siteStatsInsightsDelegate)
+                let likesTotalsSection = StatsInsightsSection(insightType: .likesTotals)
+                let likesTotalsRows: [any StatsHashableImmuTableRow] = blocks(for: .likesTotals,
+                                             type: .period,
+                                             status: periodStore.timeIntervalsSummaryStatus,
+                                             checkingCache: { [weak self] in
+                    return self?.mostRecentChartData != nil
+                },
+                                             block: {
+                    return [TotalInsightStatsRow(dataRow: createLikesTotalInsightsRow(), statSection: .insightsLikesTotals, siteStatsInsightsDelegate: siteStatsInsightsDelegate)]
                 }, loading: {
-                    return StatsGhostTwoColumnImmutableRow()
+                    return [StatsGhostTwoColumnImmutableRow(statSection: .insightsLikesTotals)]
                 }, error: {
-                    errorBlock(.insightsLikesTotals)
-                }))
+                    [errorBlock(.insightsLikesTotals)]
+                })
+
+                snapshot.appendSections([likesTotalsSection])
+                snapshot.appendItems(likesTotalsRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: likesTotalsSection)
             case .commentsTotals:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsCommentsTotals,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .commentsTotals,
-                                        type: .period,
-                                        status: periodStore.summaryStatus,
-                                        checkingCache: { [weak self] in
-                                            return self?.mostRecentChartData != nil
-                                        },
-                                        block: {
-                    return TotalInsightStatsRow(dataRow: createCommentsTotalInsightsRow(), statSection: .insightsCommentsTotals, siteStatsInsightsDelegate: siteStatsInsightsDelegate)
+                let commentsTotalsSection = StatsInsightsSection(insightType: .commentsTotals)
+                let commentsTotalsRows: [any StatsHashableImmuTableRow] = blocks(for: .commentsTotals,
+                                                type: .period,
+                                                status: periodStore.timeIntervalsSummaryStatus,
+                                                checkingCache: { [weak self] in
+                    return self?.mostRecentChartData != nil
+                },
+                                                block: {
+                    return [TotalInsightStatsRow(dataRow: createCommentsTotalInsightsRow(), statSection: .insightsCommentsTotals, siteStatsInsightsDelegate: siteStatsInsightsDelegate)]
                 }, loading: {
-                    return StatsGhostTwoColumnImmutableRow()
+                    return [StatsGhostTwoColumnImmutableRow(statSection: .insightsCommentsTotals)]
                 }, error: {
-                    errorBlock(.insightsCommentsTotals)
-                }))
+                    [errorBlock(.insightsCommentsTotals)]
+                })
+
+                snapshot.appendSections([commentsTotalsSection])
+                snapshot.appendItems(commentsTotalsRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: commentsTotalsSection)
             case .followersTotals:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsFollowerTotals,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .followersTotals,
-                                        type: .insights,
-                                        status: insightsStore.followersTotalsStatus,
-                                        block: {
-                    if AppConfiguration.statsRevampV2Enabled {
-                        return TotalInsightStatsRow(dataRow: createFollowerTotalInsightsRow(), statSection: .insightsFollowerTotals, siteStatsInsightsDelegate: siteStatsInsightsDelegate)
-                    } else {
-                                            return TwoColumnStatsRow(dataRows: createTotalFollowersRows(),
-                                                                     statSection: .insightsFollowerTotals,
-                                                                     siteStatsInsightsDelegate: nil)
-                    }
+                let followersTotalsSection = StatsInsightsSection(insightType: .followersTotals)
+                let followersTotalsRows: [any StatsHashableImmuTableRow] = blocks(for: .followersTotals,
+                                                 type: .insights,
+                                                 status: insightsStore.followersTotalsStatus,
+                                                 block: {
+                    return [TotalInsightStatsRow(dataRow: createFollowerTotalInsightsRow(), statSection: .insightsFollowerTotals, siteStatsInsightsDelegate: siteStatsInsightsDelegate)]
                 }, loading: {
-                    return StatsGhostTwoColumnImmutableRow()
+                    return [StatsGhostTwoColumnImmutableRow(statSection: .insightsFollowerTotals)]
                 }, error: {
-                    errorBlock(.insightsFollowerTotals)
-                }))
+                    [errorBlock(.insightsFollowerTotals)]
+                })
+
+                snapshot.appendSections([followersTotalsSection])
+                snapshot.appendItems(followersTotalsRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: followersTotalsSection)
             case .mostPopularTime:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsMostPopularTime,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .mostPopularTime,
-                                        type: .insights,
-                                        status: insightsStore.annualAndMostPopularTimeStatus,
-                                        block: {
-                    if AppConfiguration.statsRevampV2Enabled {
-                        return MostPopularTimeInsightStatsRow(data: createMostPopularStatsRowData(),
-                                                 siteStatsInsightsDelegate: nil)
-                    } else {
-                        return TwoColumnStatsRow(dataRows: createMostPopularStatsRows(),
-                                                 statSection: .insightsMostPopularTime,
-                                                 siteStatsInsightsDelegate: nil)
-                    }
+                let mostPopularTimeSection = StatsInsightsSection(insightType: .mostPopularTime)
+                let mostPopularTimeRows: [any StatsHashableImmuTableRow] = blocks(for: .mostPopularTime,
+                                                 type: .insights,
+                                                 status: insightsStore.annualAndMostPopularTimeStatus,
+                                                 block: {
+                    return [MostPopularTimeInsightStatsRow(data: createMostPopularStatsRowData(),
+                                                          siteStatsInsightsDelegate: nil,
+                                                          statSection: .insightsMostPopularTime)]
                 }, loading: {
-                    return StatsGhostTwoColumnImmutableRow()
+                    return [StatsGhostTwoColumnImmutableRow(statSection: .insightsMostPopularTime)]
                 }, error: {
-                    errorBlock(.insightsMostPopularTime)
-                }))
+                    [errorBlock(.insightsMostPopularTime)]
+                })
+
+                snapshot.appendSections([mostPopularTimeSection])
+                snapshot.appendItems(mostPopularTimeRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: mostPopularTimeSection)
             case .tagsAndCategories:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsTagsAndCategories,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .tagsAndCategories,
-                                        type: .insights,
-                                        status: insightsStore.tagsAndCategoriesStatus,
-                                        block: {
-                                            return TopTotalsInsightStatsRow(itemSubtitle: StatSection.insightsTagsAndCategories.itemSubtitle,
-                                                                            dataSubtitle: StatSection.insightsTagsAndCategories.dataSubtitle,
-                                                                            dataRows: createTagsAndCategoriesRows(),
-                                                                            statSection: .insightsTagsAndCategories,
-                                                                            siteStatsInsightsDelegate: siteStatsInsightsDelegate)
+                let tagsAndCategoriesSection = StatsInsightsSection(insightType: .tagsAndCategories)
+                let tagsAndCategoriesRows: [any StatsHashableImmuTableRow] = blocks(for: .tagsAndCategories,
+                                                   type: .insights,
+                                                   status: insightsStore.tagsAndCategoriesStatus,
+                                                   block: {
+                    return [TopTotalsInsightStatsRow(itemSubtitle: StatSection.insightsTagsAndCategories.itemSubtitle,
+                                                    dataSubtitle: StatSection.insightsTagsAndCategories.dataSubtitle,
+                                                    dataRows: createTagsAndCategoriesRows(),
+                                                    statSection: .insightsTagsAndCategories,
+                                                    siteStatsInsightsDelegate: siteStatsInsightsDelegate)]
                 }, loading: {
-                    return StatsGhostTopImmutableRow()
+                    return [StatsGhostTopImmutableRow(statSection: .insightsTagsAndCategories)]
                 }, error: {
-                    errorBlock(.insightsTagsAndCategories)
-                }))
+                    [errorBlock(.insightsTagsAndCategories)]
+                })
+
+                snapshot.appendSections([tagsAndCategoriesSection])
+                snapshot.appendItems(tagsAndCategoriesRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: tagsAndCategoriesSection)
             case .annualSiteStats:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsAnnualSiteStats,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .annualSiteStats,
-                                        type: .insights,
-                                        status: insightsStore.annualAndMostPopularTimeStatus,
-                                        block: {
-                                            return TwoColumnStatsRow(dataRows: createAnnualRows(),
-                                                                     statSection: .insightsAnnualSiteStats,
-                                                                     siteStatsInsightsDelegate: siteStatsInsightsDelegate)
+                let annualSiteStatsSection = StatsInsightsSection(insightType: .annualSiteStats)
+                let annualSiteStatsRows: [any StatsHashableImmuTableRow] = blocks(for: .annualSiteStats,
+                                                 type: .insights,
+                                                 status: insightsStore.annualAndMostPopularTimeStatus,
+                                                 block: {
+                    return [TwoColumnStatsRow(dataRows: createAnnualRows(),
+                                             statSection: .insightsAnnualSiteStats,
+                                             siteStatsInsightsDelegate: siteStatsInsightsDelegate)]
                 }, loading: {
-                    return StatsGhostTwoColumnImmutableRow()
+                    return [StatsGhostTwoColumnImmutableRow(statSection: .insightsAnnualSiteStats)]
                 }, error: {
-                    errorBlock(.insightsAnnualSiteStats)
-                }))
+                    [errorBlock(.insightsAnnualSiteStats)]
+                })
+
+                snapshot.appendSections([annualSiteStatsSection])
+                snapshot.appendItems(annualSiteStatsRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: annualSiteStatsSection)
             case .comments:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsCommentsPosts,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .comments,
-                                        type: .insights,
-                                        status: insightsStore.commentsInsightStatus,
-                                        block: {
-                                            return createCommentsRow()
+                let commentsSection = StatsInsightsSection(insightType: .comments)
+                let commentsRows: [any StatsHashableImmuTableRow] = blocks(for: .comments,
+                                          type: .insights,
+                                          status: insightsStore.commentsInsightStatus,
+                                          block: {
+                    return [createCommentsRow()]
                 }, loading: {
-                    return StatsGhostTabbedImmutableRow()
+                    return [StatsGhostTabbedImmutableRow(statSection: .insightsCommentsAuthors)]
                 }, error: {
-                    errorBlock(.insightsCommentsPosts)
-                }))
+                    [errorBlock(.insightsCommentsPosts)]
+                })
+
+                snapshot.appendSections([commentsSection])
+                snapshot.appendItems(commentsRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: commentsSection)
             case .followers:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsFollowersWordPress,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .followers,
-                                        type: .insights,
-                                        status: insightsStore.followersTotalsStatus,
-                                        block: {
-                                            return createFollowersRow()
+                let followersSection = StatsInsightsSection(insightType: .followers)
+                let followersRows: [any StatsHashableImmuTableRow] = blocks(for: .followers,
+                                           type: .insights,
+                                           status: insightsStore.followersTotalsStatus,
+                                           block: {
+                    return [createFollowersRow()]
                 }, loading: {
-                    return StatsGhostTabbedImmutableRow()
+                    return [StatsGhostTabbedImmutableRow(statSection: .insightsFollowersWordPress)]
                 }, error: {
-                    errorBlock(.insightsFollowersWordPress)
-                }))
+                    [errorBlock(.insightsFollowersWordPress)]
+                })
+
+                snapshot.appendSections([followersSection])
+                snapshot.appendItems(followersRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: followersSection)
             case .todaysStats:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsTodaysStats,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .todaysStats,
-                                        type: .insights,
-                                        status: insightsStore.todaysStatsStatus,
-                                        block: {
-                                            return TwoColumnStatsRow(dataRows: createTodaysStatsRows(),
-                                                                     statSection: .insightsTodaysStats,
-                                                                     siteStatsInsightsDelegate: nil)
+                let todaysStatsSection = StatsInsightsSection(insightType: .todaysStats)
+                let todaysStatsRows: [any StatsHashableImmuTableRow] = blocks(for: .todaysStats,
+                                             type: .insights,
+                                             status: insightsStore.todaysStatsStatus,
+                                             block: {
+                    return [TwoColumnStatsRow(dataRows: createTodaysStatsRows(),
+                                             statSection: .insightsTodaysStats,
+                                             siteStatsInsightsDelegate: nil)]
                 }, loading: {
-                    return StatsGhostTwoColumnImmutableRow()
+                    return [StatsGhostTwoColumnImmutableRow(statSection: .insightsTodaysStats)]
                 }, error: {
-                    errorBlock(.insightsTodaysStats)
-                }))
+                    [errorBlock(.insightsTodaysStats)]
+                })
+
+                snapshot.appendSections([todaysStatsSection])
+                snapshot.appendItems(todaysStatsRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: todaysStatsSection)
             case .postingActivity:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsPostingActivity,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .postingActivity,
-                                        type: .insights,
-                                        status: insightsStore.postingActivityStatus,
-                                        block: {
-                                            return createPostingActivityRow()
+                let postingActivitySection = StatsInsightsSection(insightType: .postingActivity)
+                let postingActivityRows: [any StatsHashableImmuTableRow] = blocks(for: .postingActivity,
+                                                 type: .insights,
+                                                 status: insightsStore.postingActivityStatus,
+                                                 block: {
+                    return [createPostingActivityRow()]
                 }, loading: {
-                    return StatsGhostPostingActivitiesImmutableRow()
+                    return [StatsGhostPostingActivitiesImmutableRow(statSection: .insightsPostingActivity)]
                 }, error: {
-                    errorBlock(.insightsPostingActivity)
-                }))
+                    [errorBlock(.insightsPostingActivity)]
+                })
+
+                snapshot.appendSections([postingActivitySection])
+                snapshot.appendItems(postingActivityRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: postingActivitySection)
             case .publicize:
-                tableRows.append(InsightCellHeaderRow(statSection: StatSection.insightsPublicize,
-                                                      siteStatsInsightsDelegate: siteStatsInsightsDelegate))
-                tableRows.append(blocks(for: .publicize,
-                                        type: .insights,
-                                        status: insightsStore.publicizeFollowersStatus,
-                                        block: {
-                                            return TopTotalsInsightStatsRow(itemSubtitle: StatSection.insightsPublicize.itemSubtitle,
-                                                                            dataSubtitle: StatSection.insightsPublicize.dataSubtitle,
-                                                                            dataRows: createPublicizeRows(),
-                                                                            statSection: .insightsPublicize,
-                                                                            siteStatsInsightsDelegate: nil)
+                let publicizeSection = StatsInsightsSection(insightType: .publicize)
+                let publicizeRows: [any StatsHashableImmuTableRow] = blocks(for: .publicize,
+                                           type: .insights,
+                                           status: insightsStore.publicizeFollowersStatus,
+                                           block: {
+                    return [TopTotalsInsightStatsRow(itemSubtitle: StatSection.insightsPublicize.itemSubtitle,
+                                                    dataSubtitle: StatSection.insightsPublicize.dataSubtitle,
+                                                    dataRows: createPublicizeRows(),
+                                                    statSection: .insightsPublicize,
+                                                    siteStatsInsightsDelegate: nil)]
                 }, loading: {
-                    return StatsGhostTopImmutableRow()
+                    return [StatsGhostTopImmutableRow(statSection: .insightsPublicize)]
                 }, error: {
-                    errorBlock(.insightsPublicize)
-                }))
+                    [errorBlock(.insightsPublicize)]
+                })
+                snapshot.appendSections([publicizeSection])
+                snapshot.appendItems(publicizeRows.map { AnyHashableImmuTableRow(immuTableRow: $0) }, toSection: publicizeSection)
             default:
                 break
             }
         }
 
-        tableRows.append(TableFooterRow())
-        tableRows.append(AddInsightRow(action: { [weak self] _ in
+        let addInsightSection = StatsInsightsSection(insightType: nil)
+        let addInsightRow = AddInsightRow(action: { [weak self] _ in
             self?.siteStatsInsightsDelegate?.showAddInsight?()
-        }))
+        }, statSection: .insightsAddInsight)
+        snapshot.appendSections([addInsightSection])
+        snapshot.appendItems([AnyHashableImmuTableRow(immuTableRow: addInsightRow)], toSection: addInsightSection)
 
-        tableRows.append(TableFooterRow())
-
-        if AppConfiguration.statsRevampV2Enabled {
-            // Remove any header rows for the new appearance
-            tableRows = tableRows.filter({ !($0 is InsightCellHeaderRow || $0 is TableFooterRow) })
-
-            let sections = tableRows.map({ ImmuTableSection(rows: [$0]) })
-            return ImmuTable(sections: sections)
-        }
-
-        return ImmuTable(sections: [
-            ImmuTableSection(
-                rows: tableRows)
-            ])
+        return snapshot
     }
 
     func fetchingFailed() -> Bool {
@@ -391,8 +420,8 @@ class SiteStatsInsightsViewModel: Observable {
         return insightsStore.containsCachedData(for: insightsToShow)
     }
 
-    func annualInsightsYear() -> Int? {
-        return insightsStore.getAnnualAndMostPopularTime()?.annualInsightsYear
+    func annualInsightsYear() -> String? {
+        return insightsStore.getAnnualAndMostPopularTime()?.years?.last?.year
     }
 
     func updateInsightsToShow(insights: [InsightType]) {
@@ -411,7 +440,7 @@ class SiteStatsInsightsViewModel: Observable {
     }
 
     static func intervalData(_ statsSummaryTimeIntervalData: StatsSummaryTimeIntervalData?, summaryType: StatsSummaryType, periodEndDate: Date? = nil) -> (count: Int, prevCount: Int, difference: Int, percentage: Int) {
-        guard let statsSummaryTimeIntervalData = statsSummaryTimeIntervalData else {
+        guard let statsSummaryTimeIntervalData else {
             return (0, 0, 0, 0)
         }
 
@@ -465,7 +494,7 @@ class SiteStatsInsightsViewModel: Observable {
                                                                loading: NSLocalizedString("Following new topics...", comment: "Label displayed to the user while loading their selected interests")
         )
 
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
         let topics: [ReaderTagTopic]
         if let fetchRequest = ReaderTagTopic.tagsFetchRequest as? NSFetchRequest<ReaderTagTopic>,
            let fetchedTopics = try? context.fetch(fetchRequest) {
@@ -493,17 +522,10 @@ private extension SiteStatsInsightsViewModel {
         static let bestDay = NSLocalizedString("Best Day", comment: "'Best Day' label for Most Popular stat.")
         static let bestHour = NSLocalizedString("Best Hour", comment: "'Best Hour' label for Most Popular stat.")
         static let viewPercentage = NSLocalizedString(
-            "stats.insights.mostPopularCard.viewPercentage",
-            value: "%d%% of views",
+            "stats.insights.mostPopularCard.viewsNumber",
+            value: "%1$@ of views",
             comment: "Label showing the percentage of views to a user's site which fall on a particular day."
         )
-    }
-
-    struct FollowerTotals {
-        static let total = NSLocalizedString("Total", comment: "Label for total followers")
-        static let wordPress = NSLocalizedString("WordPress.com", comment: "Label for WordPress.com followers")
-        static let email = NSLocalizedString("Email", comment: "Label for email followers")
-        static let social = NSLocalizedString("Social", comment: "Follower Totals label for social media followers")
     }
 
     struct TodaysStats {
@@ -515,13 +537,12 @@ private extension SiteStatsInsightsViewModel {
 
     // MARK: - Create Table Rows
 
-    func overviewTableRows() -> [ImmuTableRow] {
+    func overviewTableRows() -> [any StatsHashableImmuTableRow] {
         let periodDate = self.lastRequestedDate
 
         return SiteStatsImmuTableRows.viewVisitorsImmuTableRows(mostRecentChartData,
                                                                 selectedSegment: selectedViewsVisitorsSegment,
                                                                 periodDate: periodDate,
-                                                                statsLineChartViewDelegate: statsLineChartViewDelegate,
                                                                 siteStatsInsightsDelegate: siteStatsInsightsDelegate,
                                                                 viewsAndVisitorsDelegate: viewsAndVisitorsDelegate)
     }
@@ -542,19 +563,18 @@ private extension SiteStatsInsightsViewModel {
 
         var dataRows = [StatsTwoColumnRowData]()
 
-        dataRows.append(StatsTwoColumnRowData.init(leftColumnName: AllTimeStats.viewsTitle,
+        dataRows.append(StatsTwoColumnRowData(leftColumnName: AllTimeStats.viewsTitle,
                                                    leftColumnData: allTimeInsight.viewsCount.abbreviatedString(),
                                                    rightColumnName: AllTimeStats.visitorsTitle,
                                                    rightColumnData: allTimeInsight.visitorsCount.abbreviatedString()))
 
-        dataRows.append(StatsTwoColumnRowData.init(leftColumnName: AllTimeStats.postsTitle,
+        dataRows.append(StatsTwoColumnRowData(leftColumnName: AllTimeStats.postsTitle,
                                                    leftColumnData: allTimeInsight.postsCount.abbreviatedString(),
                                                    rightColumnName: AllTimeStats.bestViewsEverTitle,
                                                    rightColumnData: allTimeInsight.bestViewsPerDayCount.abbreviatedString()))
 
         return dataRows
     }
-
 
     func createMostPopularStatsRowData() -> StatsMostPopularTimeData? {
         guard let mostPopularStats = insightsStore.getAnnualAndMostPopularTime(),
@@ -565,56 +585,10 @@ private extension SiteStatsInsightsViewModel {
             return nil
         }
 
-        let dayPercentage = String(format: MostPopularStats.viewPercentage, mostPopularStats.mostPopularDayOfWeekPercentage)
-        let hourPercentage = String(format: MostPopularStats.viewPercentage, mostPopularStats.mostPopularHourPercentage)
+        let dayPercentage = String(format: MostPopularStats.viewPercentage, mostPopularStats.mostPopularDayOfWeekPercentage.percentageString())
+        let hourPercentage = String(format: MostPopularStats.viewPercentage, mostPopularStats.mostPopularHourPercentage.percentageString())
 
         return StatsMostPopularTimeData(mostPopularDayTitle: MostPopularStats.bestDay, mostPopularTimeTitle: MostPopularStats.bestHour, mostPopularDay: dayString, mostPopularTime: timeString.uppercased(), dayPercentage: dayPercentage, timePercentage: hourPercentage)
-    }
-
-    func createMostPopularStatsRows() -> [StatsTwoColumnRowData] {
-        guard let mostPopularStats = insightsStore.getAnnualAndMostPopularTime(),
-              let dayString = mostPopularStats.formattedMostPopularDay(),
-              let timeString = mostPopularStats.formattedMostPopularTime(),
-              mostPopularStats.mostPopularDayOfWeekPercentage > 0
-        else {
-            return []
-        }
-
-        return [StatsTwoColumnRowData.init(leftColumnName: MostPopularStats.bestDay,
-                                           leftColumnData: dayString,
-                                           rightColumnName: MostPopularStats.bestHour,
-                                           rightColumnData: timeString)]
-
-    }
-
-    func createTotalFollowersRows() -> [StatsTwoColumnRowData] {
-        let totalDotComFollowers = insightsStore.getDotComFollowers()?.dotComFollowersCount ?? 0
-        let totalEmailFollowers = insightsStore.getEmailFollowers()?.emailFollowersCount ?? 0
-
-        var totalPublicize = 0
-        if let publicize = insightsStore.getPublicize(),
-           !publicize.publicizeServices.isEmpty {
-            totalPublicize = publicize.publicizeServices.compactMap({$0.followers}).reduce(0, +)
-        }
-
-        let totalFollowers = insightsStore.getTotalFollowerCount()
-        guard totalFollowers > 0 else {
-            return []
-        }
-
-        var dataRows = [StatsTwoColumnRowData]()
-
-        dataRows.append(StatsTwoColumnRowData.init(leftColumnName: FollowerTotals.total,
-                                                   leftColumnData: totalFollowers.abbreviatedString(),
-                                                   rightColumnName: FollowerTotals.wordPress,
-                                                   rightColumnData: totalDotComFollowers.abbreviatedString()))
-
-        dataRows.append(StatsTwoColumnRowData.init(leftColumnName: FollowerTotals.email,
-                                                   leftColumnData: totalEmailFollowers.abbreviatedString(),
-                                                   rightColumnName: FollowerTotals.social,
-                                                   rightColumnData: totalPublicize.abbreviatedString()))
-
-        return dataRows
     }
 
     func createLikesTotalInsightsRow() -> StatsTotalInsightsData {
@@ -626,7 +600,7 @@ private extension SiteStatsInsightsViewModel {
     }
 
     func createFollowerTotalInsightsRow() -> StatsTotalInsightsData {
-        var data =  StatsTotalInsightsData.followersCount(insightsStore: insightsStore)
+        var data = StatsTotalInsightsData.followersCount(insightsStore: insightsStore)
         if data.count < Constants.followersGuideLimit {
             let guideText = NSLocalizedString("Commenting on other blogs is a great way to build attention and followers for your new site.",
                                               comment: "A tip displayed to the user in the stats section to help them gain more followers.")
@@ -664,12 +638,12 @@ private extension SiteStatsInsightsViewModel {
 
         var dataRows = [StatsTwoColumnRowData]()
 
-        dataRows.append(StatsTwoColumnRowData.init(leftColumnName: TodaysStats.viewsTitle,
+        dataRows.append(StatsTwoColumnRowData(leftColumnName: TodaysStats.viewsTitle,
                                                    leftColumnData: todaysStats.viewsCount.abbreviatedString(),
                                                    rightColumnName: TodaysStats.visitorsTitle,
                                                    rightColumnData: todaysStats.visitorsCount.abbreviatedString()))
 
-        dataRows.append(StatsTwoColumnRowData.init(leftColumnName: TodaysStats.likesTitle,
+        dataRows.append(StatsTwoColumnRowData(leftColumnName: TodaysStats.likesTitle,
                                                    leftColumnData: todaysStats.likesCount.abbreviatedString(),
                                                    rightColumnName: TodaysStats.commentsTitle,
                                                    rightColumnData: todaysStats.commentsCount.abbreviatedString()))
@@ -680,7 +654,7 @@ private extension SiteStatsInsightsViewModel {
     func createPostingActivityRow() -> PostingActivityRow {
         let monthsData = insightsStore.getQuarterlyPostingActivity(from: Date())
 
-        return PostingActivityRow(monthsData: monthsData, siteStatsInsightsDelegate: siteStatsInsightsDelegate)
+        return PostingActivityRow(monthsData: monthsData, siteStatsInsightsDelegate: siteStatsInsightsDelegate, statSection: .insightsPostingActivity)
     }
 
     func createTagsAndCategoriesRows() -> [StatsTotalRowData] {
@@ -703,36 +677,34 @@ private extension SiteStatsInsightsViewModel {
     }
 
     func createAnnualRows() -> [StatsTwoColumnRowData] {
-
-        guard let annualInsights = insightsStore.getAnnualAndMostPopularTime(),
-            annualInsights.annualInsightsTotalPostsCount > 0 else {
-                return []
+        guard let annualInsights = insightsStore.getAnnualAndMostPopularTime()?.years?.last,
+              annualInsights.totalPosts > 0 else {
+            return []
         }
 
         var dataRows = [StatsTwoColumnRowData]()
 
-        dataRows.append(StatsTwoColumnRowData.init(leftColumnName: AnnualSiteStats.year,
-                                                   leftColumnData: String(annualInsights.annualInsightsYear),
+        dataRows.append(StatsTwoColumnRowData(leftColumnName: AnnualSiteStats.year,
+                                                   leftColumnData: annualInsights.year,
                                                    rightColumnName: AnnualSiteStats.totalPosts,
-                                                   rightColumnData: annualInsights.annualInsightsTotalPostsCount.abbreviatedString()))
+                                                   rightColumnData: annualInsights.totalPosts.abbreviatedString()))
 
-        dataRows.append(StatsTwoColumnRowData.init(leftColumnName: AnnualSiteStats.totalComments,
-                                                   leftColumnData: annualInsights.annualInsightsTotalCommentsCount.abbreviatedString(),
+        dataRows.append(StatsTwoColumnRowData(leftColumnName: AnnualSiteStats.totalComments,
+                                                   leftColumnData: annualInsights.totalComments.abbreviatedString(),
                                                    rightColumnName: AnnualSiteStats.commentsPerPost,
-                                                   rightColumnData: annualInsights.annualInsightsAverageCommentsCount.abbreviatedString()))
+                                                   rightColumnData: annualInsights.averageComments.abbreviatedString()))
 
-        dataRows.append(StatsTwoColumnRowData.init(leftColumnName: AnnualSiteStats.totalLikes,
-                                                   leftColumnData: annualInsights.annualInsightsTotalLikesCount.abbreviatedString(),
+        dataRows.append(StatsTwoColumnRowData(leftColumnName: AnnualSiteStats.totalLikes,
+                                                   leftColumnData: annualInsights.totalLikes.abbreviatedString(),
                                                    rightColumnName: AnnualSiteStats.likesPerPost,
-                                                   rightColumnData: annualInsights.annualInsightsAverageLikesCount.abbreviatedString()))
+                                                   rightColumnData: annualInsights.averageLikes.abbreviatedString()))
 
-        dataRows.append(StatsTwoColumnRowData.init(leftColumnName: AnnualSiteStats.totalWords,
-                                                   leftColumnData: annualInsights.annualInsightsTotalWordsCount.abbreviatedString(),
+        dataRows.append(StatsTwoColumnRowData(leftColumnName: AnnualSiteStats.totalWords,
+                                                   leftColumnData: annualInsights.totalWords.abbreviatedString(),
                                                    rightColumnName: AnnualSiteStats.wordsPerPost,
-                                                   rightColumnData: annualInsights.annualInsightsAverageWordsCount.abbreviatedString()))
+                                                   rightColumnData: annualInsights.averageWords.abbreviatedString()))
 
         return dataRows
-
     }
 
     func createCommentsRow() -> TabbedTotalsStatsRow {
@@ -787,7 +759,7 @@ private extension SiteStatsInsightsViewModel {
                                                tabDataForFollowerType(.insightsFollowersEmail)],
                                     statSection: .insightsFollowersWordPress,
                                     siteStatsInsightsDelegate: siteStatsInsightsDelegate,
-                                    showTotalCount: AppConfiguration.statsRevampV2Enabled ? false : true)
+                                    showTotalCount: false)
     }
 
     func tabDataForFollowerType(_ followerType: StatSection) -> TabData {
@@ -816,24 +788,10 @@ private extension SiteStatsInsightsViewModel {
         }
 
         return TabData(tabTitle: tabTitle,
-                       itemSubtitle: AppConfiguration.statsRevampV2Enabled ? "" : followerType.itemSubtitle,
-                       dataSubtitle: AppConfiguration.statsRevampV2Enabled ? "" : followerType.dataSubtitle,
+                       itemSubtitle: "",
+                       dataSubtitle: "",
                        totalCount: totalCount,
                        dataRows: followersData ?? [])
-    }
-
-    func updateMostRecentChartData(_ periodSummary: StatsSummaryTimeIntervalData?) {
-        if mostRecentChartData == nil,
-           let periodSummary = periodSummary,
-           periodSummary.periodEndDate >= lastRequestedDate.normalizedDate() {
-            mostRecentChartData = periodSummary
-        } else if let mostRecentChartData = mostRecentChartData,
-                  let periodSummary = periodSummary,
-                  mostRecentChartData.periodEndDate == periodSummary.periodEndDate {
-            self.mostRecentChartData = periodSummary
-        } else if let periodSummary = periodSummary, let chartData = mostRecentChartData, periodSummary.periodEndDate > chartData.periodEndDate {
-            mostRecentChartData = chartData
-        }
     }
 }
 
@@ -843,7 +801,6 @@ extension SiteStatsInsightsViewModel: AsyncBlocksLoadable {
     var currentStore: StatsInsightsStore {
         return insightsStore
     }
-
 
     /// Splits the SummaryData into an array of 2 weeks, one for the current week and one for the previous week
     ///
@@ -857,7 +814,7 @@ extension SiteStatsInsightsViewModel: AsyncBlocksLoadable {
 
         var summaryData = statsSummaryTimeIntervalData.summaryData
 
-        if let periodEndDate = periodEndDate {
+        if let periodEndDate {
             summaryData = splitStatsSummaryTimeIntervalDataPadForward(statsSummaryTimeIntervalData, periodEndDate: periodEndDate)
         }
 
@@ -895,9 +852,9 @@ extension SiteStatsInsightsViewModel: AsyncBlocksLoadable {
             return createStatsSummaryTimeIntervalDataAsAWeeks(summaryData: Array(summaryData[0..<Constants.fourteenDays]))
         case let count where count > Constants.fourteenDays:
             // when more than 14 rows we take the last 14 rows for most recent data
-            return createStatsSummaryTimeIntervalDataAsAWeeks(summaryData: Array(summaryData[count-Constants.fourteenDays..<count]))
+            return createStatsSummaryTimeIntervalDataAsAWeeks(summaryData: Array(summaryData[count - Constants.fourteenDays..<count]))
         case let count where count < Constants.fourteenDays:
-            // when 0 to 14 rows presume the user could be new / doesn't have enough data.  Pad 0's to prev week
+            // when 0 to 14 rows presume the user could be new / doesn't have enough data. Pad 0's to prev week
             summaryData.reverse()
 
             guard var date = summaryData.last?.periodStartDate else {
@@ -926,15 +883,20 @@ extension SiteStatsInsightsViewModel: AsyncBlocksLoadable {
     public static func createStatsSummaryTimeIntervalDataAsAWeeks(summaryData: [StatsSummaryData]) -> [StatsSummaryTimeIntervalDataAsAWeek] {
         let half = 7
         let prevWeekData = summaryData[0 ..< half]
-        let prevWeekTimeIntervalData = StatsSummaryTimeIntervalData(period: .day,
-                periodEndDate: prevWeekData.last!.periodStartDate,
-                summaryData: Array(prevWeekData))
-
+        let prevWeekTimeIntervalData = StatsSummaryTimeIntervalData(
+            period: .day,
+            unit: .day,
+            periodEndDate: prevWeekData.last!.periodStartDate,
+            summaryData: Array(prevWeekData)
+        )
 
         let thisWeekData = summaryData[half ..< Constants.fourteenDays]
-        let thisWeekTimeIntervalData = StatsSummaryTimeIntervalData(period: .day,
-                periodEndDate: thisWeekData.last!.periodStartDate,
-                summaryData: Array(thisWeekData))
+        let thisWeekTimeIntervalData = StatsSummaryTimeIntervalData(
+            period: .day,
+            unit: .day,
+            periodEndDate: thisWeekData.last!.periodStartDate,
+            summaryData: Array(thisWeekData)
+        )
 
         return [StatsSummaryTimeIntervalDataAsAWeek.thisWeek(data: thisWeekTimeIntervalData),
                 StatsSummaryTimeIntervalDataAsAWeek.prevWeek(data: prevWeekTimeIntervalData)]

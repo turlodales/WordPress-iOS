@@ -1,8 +1,11 @@
+import UIKit
+import WordPressUI
+
 /// A rounded button with a shadow intended for use as a "Floating Action Button"
-class FloatingActionButton: UIButton {
+final class FloatingActionButton: UIButton {
 
     private enum Constants {
-        static let shadowColor: UIColor = UIColor.gray(.shade20)
+        static let shadowColor: UIColor = UIAppColor.gray(.shade20)
         static let shadowRadius: CGFloat = 3
     }
 
@@ -17,6 +20,10 @@ class FloatingActionButton: UIButton {
 
         tintColor = .white
         refreshShadow()
+
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _: UITraitCollection) in
+            self.refreshShadow()
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -35,10 +42,5 @@ class FloatingActionButton: UIButton {
         layer.shadowOffset = .zero
         layer.shadowRadius = Constants.shadowRadius
         layer.shadowOpacity = traitCollection.userInterfaceStyle == .light ? 1 : 0
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        refreshShadow()
     }
 }

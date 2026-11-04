@@ -1,5 +1,5 @@
 import UIKit
-import CocoaLumberjack
+import WordPressKit
 import WordPressShared
 import WordPressUI
 
@@ -11,7 +11,7 @@ class JetpackRestoreFailedViewController: BaseRestoreCompleteViewController {
         let restoreCompleteConfiguration = JetpackRestoreCompleteConfiguration(
             title: NSLocalizedString("Restore Failed", comment: "Title for Jetpack Restore Failed screen"),
             iconImage: .gridicon(.notice),
-            iconImageColor: .error,
+            iconImageColor: UIAppColor.error,
             messageTitle: NSLocalizedString("Unable to restore your site", comment: "Title for the Jetpack Restore Failed message."),
             messageDescription: NSLocalizedString("Please try again later or contact support.", comment: "Description for the Jetpack Restore Failed message."),
             primaryButtonTitle: NSLocalizedString("Done", comment: "Title for the button that will dismiss this view."),
@@ -36,5 +36,4 @@ class JetpackRestoreFailedViewController: BaseRestoreCompleteViewController {
     override func primaryButtonTapped() {
         self.dismiss(animated: true)
     }
-
 }

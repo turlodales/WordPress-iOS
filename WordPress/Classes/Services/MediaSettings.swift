@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import WordPressShared
 
 class MediaSettings: NSObject {
     // MARK: - Constants
@@ -8,7 +9,6 @@ class MediaSettings: NSObject {
     fileprivate let imageQualityKey = "SavedImageQualitySetting"
     fileprivate let removeLocationKey = "SavedRemoveLocationSetting"
     fileprivate let maxVideoSizeKey = "SavedMaxVideoSizeSetting"
-    fileprivate let advertiseImageOptimizationKey = "SavedAdvertiseImageOptimization"
 
     fileprivate let defaultImageOptimization = true
     fileprivate let defaultMaxImageDimension = 2000
@@ -152,7 +152,7 @@ class MediaSettings: NSObject {
     /// be resized on upload.
     /// If you set this to `minImageDimension` or lower, it will be set to `minImageDimension`.
     ///
-    /// - Important: don't access this propery directly to check what size to resize an image, use
+    /// - Important: don't access this property directly to check what size to resize an image, use
     ///             `imageSizeForUpload` instead.
     ///
     @objc var maxImageSizeSetting: Int {
@@ -209,11 +209,6 @@ class MediaSettings: NSObject {
         }
         set {
             database.set(newValue, forKey: imageOptimizationKey)
-
-            // If the user changes this setting manually, we disable the image optimization popup.
-            if advertiseImageOptimization {
-                advertiseImageOptimization = false
-            }
         }
     }
 
@@ -227,19 +222,6 @@ class MediaSettings: NSObject {
         }
         set {
             database.set(newValue.rawValue, forKey: imageQualityKey)
-        }
-    }
-
-    var advertiseImageOptimization: Bool {
-        get {
-            if let savedAdvertiseImageOptimization = database.object(forKey: advertiseImageOptimizationKey) as? Bool {
-                return savedAdvertiseImageOptimization
-            } else {
-                return true
-            }
-        }
-        set {
-            database.set(newValue, forKey: advertiseImageOptimizationKey)
         }
     }
 }

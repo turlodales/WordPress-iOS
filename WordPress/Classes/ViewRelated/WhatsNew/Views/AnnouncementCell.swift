@@ -1,3 +1,5 @@
+import UIKit
+import WordPressKit
 
 class AnnouncementCell: AnnouncementTableViewCell {
 
@@ -7,7 +9,7 @@ class AnnouncementCell: AnnouncementTableViewCell {
     }()
 
     private lazy var subHeadingLabel: UILabel = {
-        return makeLabel(font: Appearance.subHeadingFont, color: .textSubtle)
+        return makeLabel(font: Appearance.subHeadingFont, color: .secondaryLabel)
     }()
 
     private lazy var descriptionStackView: UIStackView = {
@@ -29,7 +31,6 @@ class AnnouncementCell: AnnouncementTableViewCell {
         stackView.setCustomSpacing(Appearance.imageTextSpacing, after: announcementImageView)
         return stackView
     }()
-
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -60,7 +61,7 @@ class AnnouncementCell: AnnouncementTableViewCell {
         }
 
         else if let url = URL(string: feature.iconUrl) {
-            announcementImageView.af_setImage(withURL: url)
+            announcementImageView.wp.setImage(with: url)
         }
         headingLabel.text = feature.title
         subHeadingLabel.text = feature.subtitle
@@ -80,7 +81,6 @@ class AnnouncementCell: AnnouncementTableViewCell {
     }
 }
 
-
 // MARK: Helpers
 private extension AnnouncementCell {
 
@@ -89,13 +89,12 @@ private extension AnnouncementCell {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.numberOfLines = 0
         label.font = font
-        if let color = color {
+        if let color {
             label.textColor = color
         }
         return label
     }
 }
-
 
 // MARK: - Appearance
 private extension AnnouncementCell {

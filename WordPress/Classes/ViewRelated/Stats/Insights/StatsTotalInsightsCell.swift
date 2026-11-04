@@ -1,8 +1,9 @@
 import UIKit
+import WordPressKit
+import WordPressUI
 import WordPressShared
 
-
-struct StatsTotalInsightsData {
+struct StatsTotalInsightsData: Equatable {
     var count: Int
     var difference: Int? = nil
     var percentage: Int? = nil
@@ -15,16 +16,16 @@ struct StatsTotalInsightsData {
     var lastPostInsight: StatsLastPostInsight? = nil
     var statsSummaryType: StatsSummaryType? = nil
 
-    public static func followersCount(insightsStore: StatsInsightsStore) -> StatsTotalInsightsData {
+    static func followersCount(insightsStore: StatsInsightsStore) -> StatsTotalInsightsData {
         return StatsTotalInsightsData(count: insightsStore.getTotalFollowerCount())
     }
 
-    public static func createTotalInsightsData(periodSummary: StatsSummaryTimeIntervalData?,
+    static func createTotalInsightsData(periodSummary: StatsSummaryTimeIntervalData?,
                                                insightsStore: StatsInsightsStore,
                                                statsSummaryType: StatsSummaryType,
                                                periodEndDate: Date? = nil) -> StatsTotalInsightsData {
 
-        guard let periodSummary = periodSummary else {
+        guard let periodSummary else {
             return StatsTotalInsightsData(count: 0)
         }
 
@@ -72,11 +73,7 @@ struct StatsTotalInsightsData {
                 return nil
             }
 
-            if summary.likesCount == 1 {
-                return totalInsightsGuideAttributedString(text: TextContent.likesTotalGuideTextSingular, title: summary.title, count: 1)
-            } else {
-                return totalInsightsGuideAttributedString(text: TextContent.likesTotalGuideTextPlural, title: summary.title, count: summary.likesCount)
-            }
+            return totalInsightsGuideAttributedString(text: TextContent.likesTotalGuideText, title: summary.title, count: summary.likesCount)
         case .comments:
             return NSAttributedString(string: TextContent.commentsTotalGuideText)
         default:
@@ -90,31 +87,28 @@ struct StatsTotalInsightsData {
 
         let attributedString = NSMutableAttributedString(string: formattedString)
 
-        let textRange = NSMakeRange(0, formattedString.count)
-        attributedString.addAttribute(.font, value: UIFont.preferredFont(forTextStyle: .subheadline), range: textRange)
-        attributedString.addAttribute(.foregroundColor, value: UIColor.text, range: textRange)
+        attributedString.addAttributes([
+            .font: UIFont.preferredFont(forTextStyle: .subheadline),
+            .foregroundColor: UIColor.label
+        ])
 
         let titlePlaceholderRange = (text as NSString).range(of: "%1$@")
-        let titleRange = NSMakeRange(titlePlaceholderRange.location, title.count)
-        attributedString.addAttribute(.foregroundColor, value: UIColor.primary, range: titleRange)
+        let titleRange = NSMakeRange(titlePlaceholderRange.location, title.utf16.count)
+        attributedString.addAttribute(.foregroundColor, value: UIAppColor.primary, range: titleRange)
 
         let formattedTitleString = String.localizedStringWithFormat(text, title, "%2$@")
         let countPlaceholderRange = (formattedTitleString as NSString).range(of: "%2$@")
-        let countRange = NSMakeRange(countPlaceholderRange.location, countString.count)
+        let countRange = NSMakeRange(countPlaceholderRange.location, countString.utf16.count)
         attributedString.addAttribute(.font, value: UIFont.preferredFont(forTextStyle: .subheadline).bold(), range: countRange)
 
         return attributedString
     }
 
     private enum TextContent {
-        static let likesTotalGuideTextSingular = NSLocalizedString(
-            "stats.insights.totalLikes.guideText.singular",
-            value: "Your latest post %1$@ has received %2$@ like.",
-            comment: "A hint shown to the user in stats informing the user that one of their posts has received a like. The %1$@ placeholder will be replaced with the title of a post, and the %2$@ will be replaced by the numeral one.")
-        static let likesTotalGuideTextPlural = NSLocalizedString(
-            "stats.insights.totalLikes.guideText.plural",
-            value: "Your latest post %1$@ has received %2$@ likes.",
-            comment: "A hint shown to the user in stats informing the user how many likes one of their posts has received. The %1$@ placeholder will be replaced with the title of a post, the %2$@ with the number of likes.")
+        static let likesTotalGuideText = NSLocalizedString(
+            "stats.insights.totalLikes.guideText.latestPostCount",
+            value: "Likes on the latest post %1$@: %2$@",
+            comment: "A hint shown in site stats with the number of likes the site's latest post has received. The %1$@ placeholder is the post title, and %2$@ is the number of likes, which can be any number including 0 and 1. Keep %2$@ on its own, not next to a word that would have to change with the number.")
         static let commentsTotalGuideText = NSLocalizedString("Tap \"View more\" to see your top commenters.", comment: "A hint shown to the user in stats telling them how to navigate to the Comments detail view.")
     }
 }
@@ -140,6 +134,10 @@ class StatsTotalInsightsCell: StatsBaseCell {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
 
         configureView()
+
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
+            self.rebuildGuideViewIfNeeded()
+        }
     }
 
     required init(coder: NSCoder) {
@@ -155,12 +153,6 @@ class StatsTotalInsightsCell: StatsBaseCell {
 
         guideViewLabel.text = ""
         guideView.removeFromSuperview()
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        rebuildGuideViewIfNeeded()
     }
 
     private func configureView() {
@@ -210,19 +202,20 @@ class StatsTotalInsightsCell: StatsBaseCell {
 
     private func configureLabels() {
         countLabel.font = WPStyleGuide.Stats.insightsCountFont
-        countLabel.textColor = .text
+        countLabel.textColor = .label
         countLabel.text = "0"
         countLabel.adjustsFontForContentSizeCategory = true
         countLabel.adjustsFontSizeToFitWidth = true
         countLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         countLabel.setContentHuggingPriority(.required, for: .vertical)
+        countLabel.maximumContentSizeCategory = .accessibilityLarge
 
         comparisonLabel.font = .preferredFont(forTextStyle: .subheadline)
-        comparisonLabel.textColor = .textSubtle
+        comparisonLabel.textColor = .secondaryLabel
         comparisonLabel.numberOfLines = 0
 
         guideViewLabel.font = .preferredFont(forTextStyle: .subheadline)
-        guideViewLabel.textColor = .text
+        guideViewLabel.textColor = .label
         guideViewLabel.numberOfLines = 0
         guideViewLabel.lineBreakMode = .byWordWrapping
     }
@@ -231,7 +224,7 @@ class StatsTotalInsightsCell: StatsBaseCell {
         topConstraint = outerStackView.topAnchor.constraint(equalTo: contentView.topAnchor)
 
         NSLayoutConstraint.activate([
-            topConstraint,
+            topConstraint!,
             outerStackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -StatsBaseCell.Metrics.padding),
             outerStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: StatsBaseCell.Metrics.padding),
             outerStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -StatsBaseCell.Metrics.padding),
@@ -239,7 +232,7 @@ class StatsTotalInsightsCell: StatsBaseCell {
             graphView.heightAnchor.constraint(equalTo: countLabel.heightAnchor)
         ])
 
-        guideView.pinSubviewToAllEdges(guideViewLabel, insets: UIEdgeInsets(allEdges: 16.0), priority: .required)
+        guideView.pinSubviewToAllEdges(guideViewLabel, insets: UIEdgeInsets(.all, 16), priority: .required)
     }
 
     func configure(dataRow: StatsTotalInsightsData, statSection: StatSection, siteStatsInsightsDelegate: SiteStatsInsightsDelegate?) {
@@ -259,10 +252,11 @@ class StatsTotalInsightsCell: StatsBaseCell {
 
         updateGuideView(withGuideText: dataRow.guideText)
         updateComparisonLabel(withCount: dataRow.count, difference: dataRow.difference, percentage: dataRow.percentage)
+        rebuildGuideViewIfNeeded()
     }
 
     private func updateGuideView(withGuideText guideText: NSAttributedString?) {
-        if let guideText = guideText,
+        if let guideText,
             guideText.string.isEmpty == false {
             outerStackView.addArrangedSubview(guideView)
 
@@ -270,7 +264,6 @@ class StatsTotalInsightsCell: StatsBaseCell {
             // Setting this here appears to help with updating the layout
             guideViewLabel.lineBreakMode = .byWordWrapping
             invalidateIntrinsicContentSize()
-
         } else if guideView.superview != nil {
             guideView.removeFromSuperview()
         }
@@ -285,7 +278,7 @@ class StatsTotalInsightsCell: StatsBaseCell {
         }
 
         if guideText != nil,
-           let statsSummaryType = statsSummaryType,
+           let statsSummaryType,
            let guideText = StatsTotalInsightsData.makeTotalInsightsGuideText(lastPostInsight: lastPostInsight, statsSummaryType: statsSummaryType) {
             self.guideText = guideText
             updateGuideView(withGuideText: guideText)
@@ -293,8 +286,8 @@ class StatsTotalInsightsCell: StatsBaseCell {
     }
 
     private func updateComparisonLabel(withCount count: Int, difference: Int?, percentage: Int?) {
-        guard let difference = difference,
-              let percentage = percentage,
+        guard let difference,
+              let percentage,
               difference != 0 || count > 0 else {
             comparisonLabel.isHidden = true
             return
@@ -305,9 +298,9 @@ class StatsTotalInsightsCell: StatsBaseCell {
 
         let differenceText: String = {
             if difference > 0 {
-                return String(format: TextContent.differenceHigher, differencePrefix, difference.abbreviatedString(), percentage.abbreviatedString())
+                return String(format: TextContent.differenceHigher, differencePrefix, difference.abbreviatedString(), percentage.percentageString())
             } else if difference < 0 {
-                return String(format: TextContent.differenceLower, differencePrefix, difference.abbreviatedString(), percentage.abbreviatedString())
+                return String(format: TextContent.differenceLower, differencePrefix, difference.abbreviatedString(), percentage.percentageString())
             } else {
                 return TextContent.differenceSame
             }
@@ -342,7 +335,7 @@ class StatsTotalInsightsCell: StatsBaseCell {
     }
 
     private func attributedDifferenceString(_ string: String, highlightAttributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
-        let defaultAttributes = [NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .subheadline), NSAttributedString.Key.foregroundColor: UIColor.textSubtle]
+        let defaultAttributes = [NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .subheadline), NSAttributedString.Key.foregroundColor: UIColor.secondaryLabel]
 
         guard let range = StatsTotalInsightsCell.rangeOfDifferenceSubstring(string) else {
             return NSAttributedString(string: string, attributes: defaultAttributes)
@@ -370,11 +363,11 @@ class StatsTotalInsightsCell: StatsBaseCell {
     }
 
     @objc private func guideTapped() {
-        if let guideURL = guideURL {
+        if let guideURL {
             siteStatsInsightsDelegate?.displayWebViewWithURL?(guideURL)
         }
 
-        guard let statSection = statSection else {
+        guard let statSection else {
             return
         }
 
@@ -398,11 +391,11 @@ class StatsTotalInsightsCell: StatsBaseCell {
 
     private enum TextContent {
         static let differenceDelimiter = Character("*")
-        static let differenceHigher = NSLocalizedString("stats.insights.label.totalLikes.higher",
-                                                        value: "*%@%@ (%@%%)* higher than the previous 7-days",
+        static let differenceHigher = NSLocalizedString("stats.insights.label.totalLikes.higherNumber",
+                                                        value: "*%1$@%2$@ (%3$@)* higher than the previous 7-days",
                                                         comment: "Label shown on some metrics in the Stats Insights section, such as Comments count. The placeholders will be populated with a change and a percentage – e.g. '+17 (40%) higher than the previous 7-days'. The *s mark the numerical values, which will be highlighted differently from the rest of the text.")
-        static let differenceLower = NSLocalizedString("stats.insights.label.totalLikes.lower",
-                                                       value: "*%@%@ (%@%%)* lower than the previous 7-days",
+        static let differenceLower = NSLocalizedString("stats.insights.label.totalLikes.lowerNumber",
+                                                       value: "*%1$@%2$@ (%3$@)* lower than the previous 7-days",
                                                        comment: "Label shown on some metrics in the Stats Insights section, such as Comments count. The placeholders will be populated with a change and a percentage – e.g. '-17 (40%) lower than the previous 7-days'. The *s mark the numerical values, which will be highlighted differently from the rest of the text.")
         static let differenceSame = NSLocalizedString("stats.insights.label.totalLikes.same",
                                                       value: "The same as the previous 7-days",

@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import WordPressUI
 
 /// A "Jetpack powered" button with two different styles (`badge` or    `banner`)
 class JetpackButton: CircularImageButton {
@@ -30,20 +31,19 @@ class JetpackButton: CircularImageButton {
     private var buttonBackgroundColor: UIColor {
         switch style {
         case .badge:
-            return UIColor(light: .muriel(color: .jetpackGreen, .shade40),
-                           dark: .muriel(color: .jetpackGreen, .shade90))
+            return UIColor(
+                light: UIAppColor.jetpackGreen(.shade40),
+                dark: UIAppColor.jetpackGreen(.shade90)
+            )
         case .banner:
             return .clear
         }
     }
 
     private var buttonTintColor: UIColor {
-        switch style {
-        case .badge:
-            return UIColor(light: .white,
-                           dark: .muriel(color: .jetpackGreen, .shade40))
-        case .banner:
-            return .muriel(color: .jetpackGreen, .shade40)
+        return switch style {
+        case .badge: UIColor(light: .white, dark: UIAppColor.jetpackGreen(.shade40))
+        case .banner: UIAppColor.jetpackGreen(.shade40)
         }
     }
 
@@ -57,12 +57,9 @@ class JetpackButton: CircularImageButton {
     }
 
     private var imageBackgroundColor: UIColor {
-        switch style {
-        case .badge:
-            return UIColor(light: .muriel(color: .jetpackGreen, .shade40),
-                           dark: .white)
-        case .banner:
-            return .white
+        return switch style {
+        case .badge: UIColor(light: UIAppColor.jetpackGreen(.shade40), dark: .white)
+        case .banner: .white
         }
     }
 
@@ -71,25 +68,33 @@ class JetpackButton: CircularImageButton {
         setTitle(title, for: .normal)
         tintColor = buttonTintColor
         backgroundColor = buttonBackgroundColor
-        setTitleColor(buttonTitleColor, for: .normal)
-        titleLabel?.font = Appearance.titleFont
         titleLabel?.adjustsFontForContentSizeCategory = true
         titleLabel?.minimumScaleFactor = Appearance.minimumScaleFactor
         titleLabel?.adjustsFontSizeToFitWidth = true
-        setImage(.gridicon(.plans), for: .normal)
-        contentVerticalAlignment = .fill
         contentMode = .scaleAspectFit
-        imageEdgeInsets = Appearance.iconInsets
-        contentEdgeInsets = Appearance.contentInsets
+
+        let iconColor = buttonTintColor
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = .gridicon(.plans)
+        configuration.imagePadding = Appearance.iconPadding
+        configuration.contentInsets = Appearance.contentInsets
+        configuration.baseForegroundColor = buttonTitleColor
+        configuration.imageColorTransformer = UIConfigurationColorTransformer { _ in iconColor }
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            attributes.font = Appearance.titleFont
+            return attributes
+        }
+        self.configuration = configuration
+
         imageView?.contentMode = .scaleAspectFit
-        flipInsetsForRightToLeftLayoutDirection()
         setImageBackgroundColor(imageBackgroundColor)
     }
 
     private enum Appearance {
         static let minimumScaleFactor: CGFloat = 0.6
-        static let iconInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 10)
-        static let contentInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 10)
+        static let iconPadding: CGFloat = 10
+        static let contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 10)
         static let maximumFontPointSize: CGFloat = 22
         static var titleFont: UIFont {
             let fontDescriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .callout)
@@ -132,7 +137,7 @@ extension JetpackButton {
             badge.topAnchor.constraint(equalTo: view.topAnchor, constant: topPadding),
             badge.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -bottomPadding)
         ])
-        if let target = target, let selector = selector {
+        if let target, let selector {
             badge.addTarget(target, action: selector, for: .touchUpInside)
         }
         return view

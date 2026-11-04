@@ -1,4 +1,6 @@
 import Foundation
+import BuildSettingsKit
+import WordPressShared
 
 protocol LinkRouter {
     init(routes: [Route])
@@ -12,7 +14,7 @@ protocol LinkRouter {
 struct UniversalLinkRouter: LinkRouter {
     private let matcher: RouteMatcher
 
-    private static let extraLoggingEnabled = BuildConfiguration.current == .localDeveloper
+    private static let extraLoggingEnabled = BuildConfiguration.current == .debug
 
     init(routes: [Route]) {
         matcher = RouteMatcher(routes: routes)
@@ -39,8 +41,7 @@ struct UniversalLinkRouter: LinkRouter {
         readerRoutes +
         statsRoutes +
         mySitesRoutes +
-        appBannerRoutes +
-        startRoutes
+        appBannerRoutes
 
     static let meRoutes: [Route] = [
         MeRoute(),
@@ -94,26 +95,15 @@ struct UniversalLinkRouter: LinkRouter {
         StatsRoute.insights,
         StatsRoute.dayCategory,
         StatsRoute.annualStats,
-        StatsRoute.activityLog
+        StatsRoute.activityLog,
+        StatsRoute.subscribers,
+        StatsRoute.daySubscribers
     ]
 
-    static let mySitesRoutes: [Route] = [
-        MySitesRoute.pages,
-        MySitesRoute.posts,
-        MySitesRoute.media,
-        MySitesRoute.comments,
-        MySitesRoute.sharing,
-        MySitesRoute.people,
-        MySitesRoute.plugins,
-        MySitesRoute.managePlugins
-    ]
+    static let mySitesRoutes: [Route] = MySitesRoute.allCases
 
     static let appBannerRoutes: [Route] = [
         AppBannerRoute()
-    ]
-
-    static let startRoutes: [Route] = [
-        StartRoute()
     ]
 
     static let redirects: [Route] = [
@@ -124,15 +114,15 @@ struct UniversalLinkRouter: LinkRouter {
     ///            but does not perform any actions or tracking.
     ///
     func canHandle(url: URL) -> Bool {
-        let matcherCanHandle = matcher.routesMatching(url).count > 0
+        let matcherCanHandle = !matcher.routesMatching(url).isEmpty
 
         guard let host = url.host, let scheme = url.scheme else {
             return matcherCanHandle
         }
 
         // If there's a hostname, check if it's WordPress.com or jetpack.com/app.
-        return scheme == "https"
-        && (host == "wordpress.com" || host == "jetpack.com")
+        return (scheme == "https" || scheme == "http")
+        && (host == "wordpress.com" || host == "jetpack.com" || host.hasSuffix(".wordpress.com") || host.hasSuffix(".jetpack.com"))
         && matcherCanHandle
     }
 
@@ -173,7 +163,7 @@ struct UniversalLinkRouter: LinkRouter {
         for matchedRoute in matches {
             if matchedRoute.jetpackPowered && !JetpackFeaturesRemovalCoordinator.shouldShowJetpackFeatures() {
                 // Display overlay
-                RootViewCoordinator.sharedPresenter.mySitesCoordinator.displayJetpackOverlayForDisabledEntryPoint()
+                RootViewCoordinator.sharedPresenter.showJetpackOverlayForDisabledEntryPoint()
 
                 // Track incorrect access
                 let properties = ["calling_function": "deep_link", TracksPropertyKeys.url: url.absoluteString]

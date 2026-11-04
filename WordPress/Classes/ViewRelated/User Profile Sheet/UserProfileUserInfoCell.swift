@@ -1,3 +1,7 @@
+import UIKit
+import WordPressData
+import WordPressShared
+
 class UserProfileUserInfoCell: UITableViewCell, NibReusable {
 
     // MARK: - Properties
@@ -27,7 +31,6 @@ class UserProfileUserInfoCell: UITableViewCell, NibReusable {
 
         downloadGravatarWithURL(user.avatarUrl)
     }
-
 }
 
 // MARK: - Private Extension
@@ -35,10 +38,10 @@ class UserProfileUserInfoCell: UITableViewCell, NibReusable {
 private extension UserProfileUserInfoCell {
 
     func configureCell() {
-        nameLabel.textColor = .text
+        nameLabel.textColor = .label
         nameLabel.font = WPStyleGuide.serifFontForTextStyle(.title3, fontWeight: .semibold)
-        usernameLabel.textColor = .textSubtle
-        userBioLabel.textColor = .text
+        usernameLabel.textColor = .secondaryLabel
+        userBioLabel.textColor = .label
     }
 
     func downloadGravatarWithURL(_ url: String?) {
@@ -46,7 +49,7 @@ private extension UserProfileUserInfoCell {
         gravatarImageView.cancelImageDownload()
         gravatarImageView.image = .gravatarPlaceholderImage
 
-        guard let url = url,
+        guard let url,
               let gravatarURL = URL(string: url) else {
             return
         }
@@ -55,7 +58,6 @@ private extension UserProfileUserInfoCell {
     }
 
     struct Constants {
-        static let usernameFormat = NSLocalizedString("@%1$@", comment: "Label displaying the user's username preceeded by an '@' symbol. %1$@ is a placeholder for the username.")
+        static let usernameFormat = NSLocalizedString("@%1$@", comment: "Label displaying the user's username preceded by an '@' symbol. %1$@ is a placeholder for the username.")
     }
-
 }

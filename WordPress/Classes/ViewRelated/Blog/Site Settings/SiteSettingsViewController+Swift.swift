@@ -1,39 +1,38 @@
 import Foundation
 import SwiftUI
+import WordPressData
 import WordPressFlux
-import SwiftUI
-
-// This is just a wrapper for the receipts, since Receipt isn't exposed to Obj-C
-@objc class TimeZoneObserver: NSObject {
-    let storeReceipt: Receipt
-    let queryReceipt: Receipt
-
-    init(onStateChange callback: @escaping (TimeZoneStoreState, TimeZoneStoreState) -> Void) {
-        let store = StoreContainer.shared.timezone
-        storeReceipt = store.onStateChange(callback)
-        queryReceipt = store.query(TimeZoneQuery())
-        super.init()
-    }
-}
+import WordPressKit
+import WordPressShared
+import WordPressAPI
+import WordPressAPIInternal
+import WordPressCore
 
 extension SiteSettingsViewController {
     // MARK: - General
 
-    @objc func showPrivacySelector() {
+    @objc public func showPrivacySelector() {
         struct SiteSettingsPrivacyPicker: View {
             let blog: Blog
-            @State var selection: SiteVisibility
-            let onChange: (SiteVisibility) -> Void
+            @State var selection: WordPress.SiteVisibility
+            let onChange: (WordPress.SiteVisibility) -> Void
 
             var body: some View {
-                SettingsPickerListView(selection: $selection, values: SiteVisibility.eligiblePickerValues(for: blog))
-                    .onChange(of: selection, perform: onChange)
+                SettingsPickerListView(
+                    selection: $selection,
+                    values: WordPress.SiteVisibility.eligiblePickerValues(for: blog)
+                )
+                .onChange(of: selection) { _, newValue in
+                    self.onChange(newValue)
+                }
             }
         }
         let view = SiteSettingsPrivacyPicker(blog: blog, selection: blog.siteVisibility) { [weak self] in
-            guard let self = self, self.blog.siteVisibility != $0 else { return }
+            guard let self, self.blog.siteVisibility != $0 else { return }
             self.blog.siteVisibility = $0
-            self.saveSettings()
+            let changes = BlogSettingsChanges()
+            changes.privacy = NSNumber(value: $0.rawValue)
+            self.saveSettings(with: changes)
             self.trackSettingsChange(fieldName: "site_settings", value: $0.rawValue)
         }
         let viewController = UIHostingController(rootView: view)
@@ -41,39 +40,94 @@ extension SiteSettingsViewController {
         navigationController?.pushViewController(viewController, animated: true)
     }
 
-    // MARK: - Timezone
+    @objc(showStartOverForBlog:)
+    public func showStartOver(for blog: Blog) {
+        wpAssert(blog.supports(.siteManagement))
 
-    @objc func observeTimeZoneStore() {
-        timeZoneObserver = TimeZoneObserver() { [weak self] (oldState, newState) in
-            guard let controller = self else {
-                return
-            }
-            let oldLabel = controller.timezoneLabel(state: oldState)
-            let newLabel = controller.timezoneLabel(state: newState)
-            guard newLabel != oldLabel else {
-                return
-            }
+        WPAppAnalytics.track(.siteSettingsStartOverAccessed, blog: blog)
 
-            // If this were ImmuTable-based, I'd reload the specific row
-            // But it could silently break if we change the order of rows in the future
-            // @koke 2018-01-17
-            controller.tableView.reloadData()
+        if SupportConfiguration.isStartOverSupportEnabled && blog.hasPaidPlan {
+            let startOverVC = StartOverViewController(blog: blog)
+            navigationController?.pushViewController(startOverVC, animated: true)
+        } else {
+            guard let targetURL = Constants.emptySiteSupportURL else { return }
+
+            let webVC = WebViewControllerFactory.controller(url: targetURL, source: "site_settings_start_over")
+            let navigationVC = UINavigationController(rootViewController: webVC)
+            present(navigationVC, animated: true, completion: nil)
         }
     }
 
-    @objc func timezoneLabel() -> String? {
-        return timezoneLabel(state: StoreContainer.shared.timezone.state)
+    @objc public func showTagList() {
+        let tagsVC = SiteTagsViewController(blog: blog)
+        navigationController?.pushViewController(tagsVC, animated: true)
     }
 
-    func timezoneLabel(state: TimeZoneStoreState) -> String? {
+    @objc public func showCustomTaxonomies() {
+        let viewController: UIViewController
+        if let client = try? WordPressClientFactory.shared.instance(for: .init(blog: blog)) {
+            let rootView = SiteCustomTaxonomiesView(client: client)
+            viewController = UIHostingController(rootView: rootView)
+        } else {
+            let feature = NSLocalizedString(
+                "applicationPasswordRequired.feature.customTaxonomies",
+                value: "Taxonomies Management",
+                comment: "Feature name for managing terms and taxonomies in the app"
+            )
+            let rootView = ApplicationPasswordRequiredView(
+                blog: self.blog,
+                localizedFeatureName: feature,
+                source: "taxonomies",
+                presentingViewController: self
+            ) { client in
+                SiteCustomTaxonomiesView(client: client)
+            }
+            viewController = UIHostingController(rootView: rootView)
+        }
+
+        self.navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    @objc public func swiftRefreshSettings() {
+        // Refresh editor capabilities
+        guard RemoteFeatureFlag.newGutenberg.enabled() else {
+            return
+        }
+
+        // The probe is asynchronous, and the editor rows are built from its results. Without
+        // reloading when it lands, the rows keep whatever state they were built with — which,
+        // on first load, is before any capability is known.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            try? await EditorDependencyManager.shared.fetchEditorCapabilities(for: self.blog)
+
+            self.reloadSections()
+        }
+    }
+
+    // MARK: - Timezone
+
+    func formattedTimezoneValue() -> String? {
         guard let settings = blog.settings else {
             return nil
         }
-        if let timezone = state.findTimezone(gmtOffset: settings.gmtOffset?.floatValue, timezoneString: settings.timezoneString) {
-            return timezone.label
-        } else {
-            return timezoneValue
+        if let timezoneString = settings.timezoneString?.nonEmptyString() {
+            // Try to get a localized name from the system
+            if let timeZone = TimeZone(identifier: timezoneString),
+                let name = timeZone.localizedName(for: .generic, locale: .current)
+            {
+
+                let formatter = DateFormatter()
+                formatter.timeZone = timeZone
+                formatter.dateFormat = "ZZZZ" // "GMT-05:00"
+                let offsetString = formatter.string(from: Date())
+
+                return "\(name) (\(offsetString))"
+            }
+            return timezoneString
         }
+        return timezoneValue
     }
 
     var timezoneValue: String? {
@@ -88,42 +142,55 @@ extension SiteSettingsViewController {
 
     // MARK: - Homepage Settings
 
-    @objc var homepageSettingsCell: SettingTableViewCell? {
-        let cell = SettingTableViewCell(label: NSLocalizedString("Homepage Settings", comment: "Label for Homepage Settings site settings section"), editable: true, reuseIdentifier: nil)
+    @objc public var homepageSettingsCell: SettingTableViewCell? {
+        let cell = SettingTableViewCell(
+            label: NSLocalizedString("Homepage Settings", comment: "Label for Homepage Settings site settings section"),
+            editable: true,
+            reuseIdentifier: nil
+        )
         cell?.textValue = blog.homepageType?.title
         return cell
     }
 
     // MARK: - Navigation
 
-    @objc(showHomepageSettingsForBlog:) func showHomepageSettings(for blog: Blog) {
+    @objc(showHomepageSettingsForBlog:)
+    public func showHomepageSettings(for blog: Blog) {
         let settingsViewController = HomepageSettingsViewController(blog: blog)
         navigationController?.pushViewController(settingsViewController, animated: true)
     }
 
-    @objc func showTimezoneSelector() {
-        let controller = TimeZoneSelectorViewController(selectedValue: timezoneValue) { [weak self] (newValue) in
-            self?.navigationController?.popViewController(animated: true)
+    @objc public func showTimezoneSelector() {
+        let view = TimeZoneSelectorView(selectedValue: timezoneValue) { [weak self] newValue in
             self?.blog.settings?.gmtOffset = newValue.gmtOffset as NSNumber?
             self?.blog.settings?.timezoneString = newValue.timezoneString
-            self?.saveSettings()
-            self?.trackSettingsChange(fieldName: "timezone",
-                                      value: newValue.value as Any)
+            let changes = BlogSettingsChanges()
+            changes.gmtOffset = newValue.gmtOffset as NSNumber?
+            changes.timezoneString = newValue.timezoneString
+            self?.saveSettings(with: changes)
+            self?
+                .trackSettingsChange(
+                    fieldName: "timezone",
+                    value: newValue.value as Any
+                )
         }
+        let controller = UIHostingController(rootView: view)
         navigationController?.pushViewController(controller, animated: true)
     }
 
-    @objc func showDateAndTimeFormatSettings() {
+    @objc public func showDateAndTimeFormatSettings() {
         let dateAndTimeFormatViewController = DateAndTimeFormatSettingsViewController(blog: blog)
         navigationController?.pushViewController(dateAndTimeFormatViewController, animated: true)
     }
 
-    @objc func showPostPerPageSetting() {
+    @objc public func showPostPerPageSetting() {
         let pickerViewController = SettingsPickerViewController(style: .insetGrouped)
         pickerViewController.title = NSLocalizedString("Posts per Page", comment: "Posts per Page Title")
         pickerViewController.switchVisible = false
-        pickerViewController.selectionText = NSLocalizedString("The number of posts to show per page.",
-                                                               comment: "Text above the selection of the number of posts to show per blog page")
+        pickerViewController.selectionText = NSLocalizedString(
+            "The number of posts to show per page.",
+            comment: "Text above the selection of the number of posts to show per blog page"
+        )
         pickerViewController.pickerFormat = NSLocalizedString("%d posts", comment: "Number of posts")
         pickerViewController.pickerMinimumValue = minNumberOfPostPerPage
         if let currentValue = blog.settings?.postsPerPage as? Int {
@@ -132,21 +199,23 @@ extension SiteSettingsViewController {
         } else {
             pickerViewController.pickerMaximumValue = maxNumberOfPostPerPage
         }
-        pickerViewController.onChange           = { [weak self] (enabled: Bool, newValue: Int) in
+        pickerViewController.onChange = { [weak self] (_: Bool, newValue: Int) in
             self?.blog.settings?.postsPerPage = newValue as NSNumber?
-            self?.saveSettings()
+            let changes = BlogSettingsChanges()
+            changes.postsPerPage = newValue as NSNumber
+            self?.saveSettings(with: changes)
             self?.trackSettingsChange(fieldName: "posts_per_page", value: newValue as Any)
         }
 
         navigationController?.pushViewController(pickerViewController, animated: true)
     }
 
-    @objc func showSpeedUpYourSiteSettings() {
+    @objc public func showSpeedUpYourSiteSettings() {
         let speedUpSiteSettingsViewController = JetpackSpeedUpSiteSettingsViewController(blog: blog)
         navigationController?.pushViewController(speedUpSiteSettingsViewController, animated: true)
     }
 
-    @objc func showRelatedPostsSettings() {
+    @objc public func showRelatedPostsSettings() {
         let view = RelatedPostsSettingsView(blog: blog)
         let host = UIHostingController(rootView: view)
         host.title = view.title // Make sure title is available before push
@@ -156,10 +225,12 @@ extension SiteSettingsViewController {
     // MARK: Footers
 
     @objc(getTrafficSettingsSectionFooterView)
-    func trafficSettingsSectionFooterView() -> UIView {
+    public func trafficSettingsSectionFooterView() -> UIView {
         let footer = makeFooterView()
-        footer.textLabel?.text = NSLocalizedString("Your WordPress.com site supports the use of Accelerated Mobile Pages, a Google-led initiative that dramatically speeds up loading times on mobile devices.",
-                                                   comment: "Footer for AMP Traffic Site Setting, should match Calypso.")
+        footer.textLabel?.text = NSLocalizedString(
+            "Your WordPress.com site supports the use of Accelerated Mobile Pages, a Google-led initiative that dramatically speeds up loading times on mobile devices.",
+            comment: "Footer for AMP Traffic Site Setting, should match Calypso."
+        )
         footer.textLabel?.isUserInteractionEnabled = true
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleAMPFooterTap(_:)))
@@ -167,10 +238,46 @@ extension SiteSettingsViewController {
         return footer
     }
 
-    @objc(getEditorSettingsSectionFooterView)
-    func editorSettingsSectionFooterView() -> UIView {
+    @objc(getBlockEditorSectionFooterView)
+    public func blockEditorSectionFooterView() -> UIView {
         let footer = makeFooterView()
-        footer.textLabel?.text = NSLocalizedString("Edit new posts and pages with the block editor.", comment: "Explanation for the option to enable the block editor")
+        footer.textLabel?.text = NSLocalizedString(
+            "Edit new posts and pages with the block editor.",
+            comment: "Explanation for the option to enable the block editor"
+        )
+        return footer
+    }
+
+    @objc(getThemeStylesSectionFooterView)
+    public func themeStylesSectionFooterView() -> UIView {
+        let footer = makeFooterView()
+        let settings = GutenbergSettings()
+
+        var text = Strings.themeStylesFooterEnabled
+        // Ordered to match what gates the row: missing block editor settings is what disables the
+        // toggle, so it has to be the reason shown. A non-block theme only means the styles may
+        // not match, which is advice for a site whose toggle still works — a site failing both
+        // would otherwise be told to check its theme while the switch sat greyed out.
+        if !settings.getSupports(.blockEditorSettings, for: self.blog) {
+            text += "\n\n" + Strings.themeStylesFooterGutenbergRequired
+        } else if !settings.getSupports(.blockTheme, for: self.blog) {
+            text += "\n\n" + Strings.themeStylesFooterBlockThemeSuggested
+        }
+        footer.textLabel?.text = text
+
+        return footer
+    }
+
+    @objc(getThirdPartyBlocksSectionFooterView)
+    public func thirdPartyBlocksSectionFooterView() -> UIView {
+        let footer = makeFooterView()
+
+        var text = Strings.thirdPartyBlocksFooterEnabled
+        if GutenbergSettingsBridge.CapabilityValue(rawValue: self.thirdPartyBlocksCapabilityValue()) == .unsupported {
+            text += "\n\n" + Strings.thirdPartyBlocksFooterUnsupported
+        }
+        footer.textLabel?.text = text
+
         return footer
     }
 
@@ -182,7 +289,7 @@ extension SiteSettingsViewController {
     }
 
     @objc fileprivate func handleAMPFooterTap(_ sender: UITapGestureRecognizer) {
-        guard let url =  URL(string: self.ampSupportURL) else {
+        guard let url = URL(string: self.ampSupportURL) else {
             return
         }
         let webViewController = WebViewControllerFactory.controller(url: url, source: "site_settings_amp_footer")
@@ -195,16 +302,19 @@ extension SiteSettingsViewController {
         }
     }
 
-    override open func tableView(_ tableView: UITableView, willDisplayFooterView view: UIView, forSection section: Int) {
+    override open func tableView(
+        _ tableView: UITableView,
+        willDisplayFooterView view: UIView,
+        forSection section: Int
+    ) {
         WPStyleGuide.configureTableViewSectionFooter(view)
     }
 
     // MARK: Private Properties
 
-    fileprivate var minNumberOfPostPerPage: Int { return 1 }
-    fileprivate var maxNumberOfPostPerPage: Int { return 1000 }
-    fileprivate var ampSupportURL: String { return "https://support.wordpress.com/amp-accelerated-mobile-pages/" }
-
+    fileprivate var minNumberOfPostPerPage: Int { 1 }
+    fileprivate var maxNumberOfPostPerPage: Int { 1000 }
+    fileprivate var ampSupportURL: String { "https://support.wordpress.com/amp-accelerated-mobile-pages/" }
 }
 
 // MARK: - General Settings Table Section Management
@@ -223,7 +333,7 @@ extension SiteSettingsViewController {
     var generalSettingsRows: [GeneralSettingsRow] {
         var rows: [GeneralSettingsRow] = [.title, .tagline, .url]
 
-        if blog.supportsSiteManagementServices() {
+        if blog.supports(.siteManagement) {
             rows.append(contentsOf: [.privacy, .language])
         }
 
@@ -235,13 +345,14 @@ extension SiteSettingsViewController {
     }
 
     @objc
-    var generalSettingsRowCount: Int {
+    public var generalSettingsRowCount: Int {
         generalSettingsRows.count
     }
 
     @objc
-    func tableView(_ tableView: UITableView, cellForGeneralSettingsInRow row: Int) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: SettingsTableViewCellReuseIdentifier) as! SettingTableViewCell
+    public func tableView(_ tableView: UITableView, cellForGeneralSettingsInRow row: Int) -> UITableViewCell {
+        let cell =
+            tableView.dequeueReusableCell(withIdentifier: SettingsTableViewCellReuseIdentifier) as! SettingTableViewCell
 
         switch generalSettingsRows[row] {
         case .title:
@@ -262,7 +373,7 @@ extension SiteSettingsViewController {
     }
 
     @objc
-    func tableView(_ tableView: UITableView, didSelectInGeneralSettingsAt indexPath: IndexPath) {
+    public func tableView(_ tableView: UITableView, didSelectInGeneralSettingsAt indexPath: IndexPath) {
         switch generalSettingsRows[indexPath.row] {
         case .title where blog.isAdmin:
             showEditSiteTitleController(indexPath: indexPath)
@@ -282,7 +393,9 @@ extension SiteSettingsViewController {
     // MARK: - Cell Configuration
 
     private func configureCellForTitle(_ cell: SettingTableViewCell) {
-        let name = blog.settings?.name ?? NSLocalizedString("A title for the site", comment: "Placeholder text for the title of a site")
+        let name =
+            blog.settings?.name
+            ?? NSLocalizedString("A title for the site", comment: "Placeholder text for the title of a site")
 
         cell.editable = blog.isAdmin
         cell.textLabel?.text = NSLocalizedString("Site Title", comment: "Label for site title blog setting")
@@ -290,7 +403,12 @@ extension SiteSettingsViewController {
     }
 
     private func configureCellForTagline(_ cell: SettingTableViewCell) {
-        let tagline = blog.settings?.tagline ?? NSLocalizedString("Explain what this site is about.", comment: "Placeholder text for the tagline of a site")
+        let tagline =
+            blog.settings?.tagline
+            ?? NSLocalizedString(
+                "Explain what this site is about.",
+                comment: "Placeholder text for the tagline of a site"
+            )
 
         cell.editable = blog.isAdmin
         cell.textLabel?.text = NSLocalizedString("Tagline", comment: "Label for tagline blog setting")
@@ -300,7 +418,10 @@ extension SiteSettingsViewController {
     private func configureCellForURL(_ cell: SettingTableViewCell) {
         let url: String = {
             guard let url = blog.url else {
-                return NSLocalizedString("http://my-site-address (URL)", comment: "(placeholder) Help the user enter a URL into the field")
+                return NSLocalizedString(
+                    "http://my-site-address (URL)",
+                    comment: "(placeholder) Help the user enter a URL into the field"
+                )
             }
 
             return url
@@ -321,11 +442,14 @@ extension SiteSettingsViewController {
         let name: String
 
         if let languageId = blog.settings?.languageID.intValue {
-            name = WordPressComLanguageDatabase().nameForLanguageWithId(languageId)
+            name = WordPressComLanguageDatabase.shared.nameForLanguageWithId(languageId)
         } else {
             // Since the settings can be nil, we need to handle the scenario... but it
             // really should not be possible to reach this line.
-            name = NSLocalizedString("Undefined", comment: "When the App can't figure out what language a blog is configured to use.")
+            name = NSLocalizedString(
+                "Undefined",
+                comment: "When the App can't figure out what language a blog is configured to use."
+            )
         }
 
         cell.editable = blog.isAdmin
@@ -336,7 +460,7 @@ extension SiteSettingsViewController {
     private func configureCellForTimezone(_ cell: SettingTableViewCell) {
         cell.editable = blog.isAdmin
         cell.textLabel?.text = NSLocalizedString("Time Zone", comment: "Label for the timezone setting")
-        cell.textValue = timezoneLabel()
+        cell.textValue = formattedTimezoneValue()
     }
 
     // MARK: - Handling General Setting Cell Taps
@@ -349,12 +473,17 @@ extension SiteSettingsViewController {
         let siteTitleViewController = SettingsTextViewController(
             text: blog.settings?.name ?? "",
             placeholder: NSLocalizedString("A title for the site", comment: "Placeholder text for the title of a site"),
-            hint: "")
+            hint: ""
+        )
 
-        siteTitleViewController.title = NSLocalizedString("Site Title", comment: "Title for screen that show site title editor")
+        siteTitleViewController.title = NSLocalizedString(
+            "Site Title",
+            comment: "Title for screen that show site title editor"
+        )
         siteTitleViewController.onValueChanged = { [weak self] value in
-            guard let self = self,
-                  let cell = self.tableView.cellForRow(at: indexPath) else {
+            guard let self,
+                let cell = self.tableView.cellForRow(at: indexPath)
+            else {
                 // No need to update anything if the cell doesn't exist.
                 return
             }
@@ -363,7 +492,9 @@ extension SiteSettingsViewController {
 
             if value != self.blog.settings?.name {
                 self.blog.settings?.name = value
-                self.saveSettings()
+                let changes = BlogSettingsChanges()
+                changes.name = value
+                self.saveSettings(with: changes)
 
                 self.trackSettingsChange(fieldName: "site_title")
             }
@@ -379,13 +510,24 @@ extension SiteSettingsViewController {
 
         let siteTaglineViewController = SettingsTextViewController(
             text: blog.settings?.tagline ?? "",
-            placeholder: NSLocalizedString("Explain what this site is about.", comment: "Placeholder text for the tagline of a site"),
-            hint: NSLocalizedString("In a few words, explain what this site is about.", comment: "Explain what is the purpose of the tagline"))
+            placeholder: NSLocalizedString(
+                "Explain what this site is about.",
+                comment: "Placeholder text for the tagline of a site"
+            ),
+            hint: NSLocalizedString(
+                "In a few words, explain what this site is about.",
+                comment: "Explain what is the purpose of the tagline"
+            )
+        )
 
-        siteTaglineViewController.title = NSLocalizedString("Tagline", comment: "Title for screen that show tagline editor")
+        siteTaglineViewController.title = NSLocalizedString(
+            "Tagline",
+            comment: "Title for screen that show tagline editor"
+        )
         siteTaglineViewController.onValueChanged = { [weak self] value in
-            guard let self = self,
-                  let cell = self.tableView.cellForRow(at: indexPath) else {
+            guard let self,
+                let cell = self.tableView.cellForRow(at: indexPath)
+            else {
                 // No need to update anything if the cell doesn't exist.
                 return
             }
@@ -395,7 +537,9 @@ extension SiteSettingsViewController {
 
             if normalizedTagline != self.blog.settings?.tagline {
                 self.blog.settings?.tagline = normalizedTagline
-                self.saveSettings()
+                let changes = BlogSettingsChanges()
+                changes.tagline = normalizedTagline
+                self.saveSettings(with: changes)
 
                 self.trackSettingsChange(fieldName: "tagline")
             }
@@ -405,15 +549,58 @@ extension SiteSettingsViewController {
     }
 
     func trackSettingsChange(fieldName: String, value: Any? = nil) {
-        WPAnalytics.trackSettingsChange("site_settings",
-                                        fieldName: fieldName,
-                                        value: value)
+        WPAnalytics.trackSettingsChange(
+            "site_settings",
+            fieldName: fieldName,
+            value: value
+        )
     }
-
 }
 
 private extension SiteSettingsViewController {
     enum Strings {
-        static let privacyTitle = NSLocalizedString("siteSettings.privacy.title", value: "Privacy", comment: "Title for screen to select the privacy options for a blog")
+        static let privacyTitle = NSLocalizedString(
+            "siteSettings.privacy.title",
+            value: "Privacy",
+            comment: "Title for screen to select the privacy options for a blog"
+        )
+
+        static let themeStylesFooterBlockThemeSuggested = NSLocalizedString(
+            "siteSettings.themeStyles.footer.blockThemeSuggested",
+            value:
+                "Your site isn't using a Block Theme, so the editor might not match your content correctly. If things aren't looking right, you can disable editor styles.",
+            comment:
+                "Caveat shown under the 'Use theme styles' toggle when the site doesn't have a block theme. The toggle still works; the styles may just not match the content."
+        )
+
+        static let themeStylesFooterGutenbergRequired = NSLocalizedString(
+            "siteSettings.themeStyles.footer.gutenbergRequired",
+            value: "Install the Gutenberg plugin on your site to activate theme style support.",
+            comment:
+                "Explanation for why the 'Use theme styles' toggle is disabled when the site doesn't have the Gutenberg plugin"
+        )
+
+        static let themeStylesFooterEnabled = NSLocalizedString(
+            "siteSettings.themeStyles.footer.enabled",
+            value: "Make the block editor look like your theme.",
+            comment: "Explanation for the option to enable theme styles when the feature is available"
+        )
+
+        static let thirdPartyBlocksFooterEnabled = NSLocalizedString(
+            "siteSettings.thirdPartyBlocks.footer.enabled",
+            value: "Load third-party blocks from plugins installed on your site.",
+            comment: "Explanation for the option to load blocks provided by plugins installed on the site"
+        )
+
+        static let thirdPartyBlocksFooterUnsupported = NSLocalizedString(
+            "siteSettings.thirdPartyBlocks.footer.unsupported",
+            value: "Install the Jetpack plugin on your site to activate third-party block support.",
+            comment:
+                "Explanation appended to the 'Use third-party blocks' footer when the site can't support the feature"
+        )
     }
+}
+
+private enum Constants {
+    static let emptySiteSupportURL = URL(string: "https://en.support.wordpress.com/empty-site")
 }

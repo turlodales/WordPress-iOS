@@ -1,25 +1,23 @@
 import UIKit
-import Gridicons
 import WordPressShared
+import WordPressUI
 
 extension WPStyleGuide {
-    static let aztecFormatBarInactiveColor: UIColor = .toolbarInactive
+    static let aztecFormatBarInactiveColor: UIColor = .secondaryLabel
 
-    static let aztecFormatBarActiveColor: UIColor = .primary
+    static let aztecFormatBarActiveColor: UIColor = UIAppColor.primary
 
-    static let aztecFormatBarDisabledColor = UIColor.neutral(.shade10)
+    static let aztecFormatBarDisabledColor = UIAppColor.neutral(.shade10)
 
-    static let aztecFormatBarDividerColor: UIColor = .divider
+    static let aztecFormatBarDividerColor: UIColor = .separator
 
-    static var aztecFormatPickerSelectedCellBackgroundColor: UIColor {
-        get {
-            return (UIDevice.isPad()) ? .neutral(.shade0) : .neutral(.shade5)
-        }
+    /// The format picker is a popover on the pad idiom and a sheet elsewhere, so its background
+    /// follows the idiom of the presenting view controller.
+    static func aztecFormatPickerSelectedCellBackgroundColor(for traitCollection: UITraitCollection) -> UIColor {
+        (traitCollection.userInterfaceIdiom == .pad) ? UIAppColor.neutral(.shade0) : UIAppColor.neutral(.shade5)
     }
 
-    static var aztecFormatPickerBackgroundColor: UIColor {
-        get {
-            return (UIDevice.isPad()) ? .basicBackground : .neutral(.shade0)
-        }
+    static func aztecFormatPickerBackgroundColor(for traitCollection: UITraitCollection) -> UIColor {
+        (traitCollection.userInterfaceIdiom == .pad) ? .systemBackground : UIAppColor.neutral(.shade0)
     }
 }

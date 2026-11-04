@@ -1,3 +1,7 @@
+import WordPressData
+import WordPressKit
+import WordPressShared
+import WordPressSharedUI
 
 /// dependency container for the What's New / Feature Announcements scene
 extension RootViewCoordinator {
@@ -5,7 +9,7 @@ extension RootViewCoordinator {
     @objc func presentWhatIsNew(on viewController: UIViewController) {
 
         DispatchQueue.main.async { [weak viewController] in
-            guard let viewController = viewController else {
+            guard let viewController else {
                 return
             }
             self.whatIsNewScenePresenter.present(on: viewController, animated: true, completion: nil)
@@ -13,27 +17,29 @@ extension RootViewCoordinator {
     }
 
     @objc func makeWhatIsNewPresenter() -> ScenePresenter {
-        return WhatIsNewScenePresenter(store: makeAnnouncementStore())
+        WhatIsNewScenePresenter(store: makeAnnouncementStore())
     }
 
     private func makeAnnouncementStore() -> AnnouncementsStore {
-        return CachedAnnouncementsStore(cache: makeCache(), service: makeAnnouncementsService())
+        CachedAnnouncementsStore(cache: makeCache(), service: makeAnnouncementsService())
     }
 
     private func makeAnnouncementsService() -> AnnouncementServiceRemote {
-        return AnnouncementServiceRemote(wordPressComRestApi: makeApi())
+        AnnouncementServiceRemote(wordPressComRestApi: makeApi())
     }
 
     private func makeCache() -> AnnouncementsCache {
-        return UserDefaultsAnnouncementsCache()
+        UserDefaultsAnnouncementsCache()
     }
 
     private func makeApi() -> WordPressComRestApi {
         let defaultAccount = try? WPAccount.lookupDefaultWordPressComAccount(in: ContextManager.shared.mainContext)
         let token: String? = defaultAccount?.authToken
 
-        return WordPressComRestApi.defaultApi(oAuthToken: token,
-                                              userAgent: WPUserAgent.wordPress(),
-                                              localeKey: WordPressComRestApi.LocaleKeyV2)
+        return WordPressComRestApi.defaultApi(
+            oAuthToken: token,
+            userAgent: WPUserAgent.wordPress(),
+            localeKey: WordPressComRestApi.LocaleKeyV2
+        )
     }
 }

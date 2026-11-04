@@ -1,4 +1,6 @@
-import Foundation
+import UIKit
+import WordPressKit
+import WordPressUI
 
 struct JetpackScanThreatViewModel {
 
@@ -87,7 +89,7 @@ struct JetpackScanThreatViewModel {
 
         // Threat Details
         detailIconImage = UIImage(named: "jetpack-scan-state-error")
-        detailIconImageColor = .error
+        detailIconImageColor = UIAppColor.error
         problemTitle = Strings.details.titles.problem
         problemDescription = threat.description
         fixTitle = Self.fixTitle(for: threat)
@@ -235,13 +237,10 @@ struct JetpackScanThreatViewModel {
     }
 
     private static func iconColor(for status: JetpackScanThreat.ThreatStatus?) -> UIColor {
-        switch status {
-        case .current:
-            return .error
-        case .fixed:
-            return .success
-        default:
-            return .neutral(.shade20)
+        return switch status {
+        case .current: UIAppColor.error
+        case .fixed: UIAppColor.success
+        default: UIAppColor.neutral(.shade20)
         }
     }
 
@@ -278,7 +277,7 @@ struct JetpackScanThreatViewModel {
 
     private static func warningActionTitle(for threat: JetpackScanThreat, hasValidCredentials: Bool?) -> HighlightedText? {
         guard fixActionTitle(for: threat) != nil,
-              let hasValidCredentials = hasValidCredentials,
+              let hasValidCredentials,
               !hasValidCredentials else {
             return nil
         }
@@ -351,7 +350,6 @@ struct JetpackScanThreatViewModel {
             }
         }
 
-
         struct titles {
             struct core {
                 static let singular = NSLocalizedString("Infected core file", comment: "Title for a threat")
@@ -396,22 +394,22 @@ struct JetpackScanThreatViewModel {
 
         struct colors {
             struct normal {
-                static let text = UIColor.muriel(color: .gray, .shade100)
-                static let background = UIColor.muriel(color: .gray, .shade5)
-                static let numberText = UIColor.muriel(color: .gray, .shade100)
-                static let numberBackground = UIColor.muriel(color: .gray, .shade20)
+                static let text = UIAppColor.gray(.shade100)
+                static let background = UIAppColor.gray(.shade5)
+                static let numberText = UIAppColor.gray(.shade100)
+                static let numberBackground = UIAppColor.gray(.shade20)
             }
 
             struct highlighted {
                 static let text = UIColor.white
-                static let background = UIColor.muriel(color: .error, .shade50)
-                static let numberBackground = UIColor.muriel(color: .error, .shade5)
+                static let background = UIAppColor.gray(.shade50)
+                static let numberBackground = UIAppColor.gray(.shade5)
             }
         }
     }
 }
 
-private extension JetpackThreatContext {
+extension JetpackThreatContext {
 
     struct JetpackThreatContextRendererConfig {
         let numberAttributes: [NSAttributedString.Key: Any]
@@ -423,7 +421,7 @@ private extension JetpackThreatContext {
 
     func attributedString(with config: JetpackThreatContextRendererConfig) -> NSAttributedString? {
 
-        guard let longestLine = lines.sorted(by: { $0.contents.count > $1.contents.count }).first else {
+        guard let longestLine = lines.max(by: { $0.contents.count < $1.contents.count }) else {
             return nil
         }
 
@@ -463,26 +461,21 @@ private extension JetpackThreatContext {
 
             if let highlights = line.highlights {
 
-                numberAttr.setAttributes(config.highlightedNumberAttributes,
-                                         range: NSRange(location: 0, length: numberStr.count))
+                numberAttr.addAttributes(config.highlightedNumberAttributes)
 
-                contentsAttr.addAttributes(config.highlightedContentsAttributes,
-                                           range: NSRange(location: 0, length: contentsStr.count))
+                contentsAttr.addAttributes(config.highlightedContentsAttributes)
 
                 for highlight in highlights {
                     let location = highlight.location
-                    let length = highlight.length + Constants.columnSpacer.count
+                    let length = highlight.length + Constants.columnSpacer.utf16.count
                     let range = NSRange(location: location, length: length)
 
                     contentsAttr.addAttributes(config.highlightedSectionAttributes, range: range)
                 }
-
             } else {
-                numberAttr.setAttributes(config.numberAttributes,
-                                         range: NSRange(location: 0, length: numberStr.count))
+                numberAttr.addAttributes(config.numberAttributes)
 
-                contentsAttr.setAttributes(config.contentsAttributes,
-                                           range: NSRange(location: 0, length: contentsStr.count))
+                contentsAttr.addAttributes(config.contentsAttributes)
             }
 
             attrString.append(numberAttr)
@@ -504,7 +497,6 @@ private extension String {
         return (self as NSString).lastPathComponent
     }
 }
-
 
 private extension WPStyleGuide {
     static func monospacedSystemFontForTextStyle(_ style: UIFont.TextStyle,

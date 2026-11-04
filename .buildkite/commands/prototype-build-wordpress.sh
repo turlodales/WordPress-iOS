@@ -1,19 +1,13 @@
 #!/bin/bash -eu
 
-# Sentry CLI needs to be up-to-date
-brew upgrade sentry-cli
+if "$(dirname "${BASH_SOURCE[0]}")/should-skip-job.sh" --job-type build; then
+  exit 0
+fi
 
-echo "--- :rubygems: Setting up Gems"
-install_gems
+"$(dirname "${BASH_SOURCE[0]}")/shared-set-up.sh"
+"$(dirname "${BASH_SOURCE[0]}")/shared-set-up-distribution.sh"
 
-echo "--- :cocoapods: Setting up Pods"
-install_cocoapods
-
-echo "--- :closed_lock_with_key: Installing Secrets"
-bundle exec fastlane run configure_apply
-
-echo "--- :swift: Setting up Swift Packages"
-install_swiftpm_dependencies
+source "$(dirname "${BASH_SOURCE[0]}")/install-a8c-secrets.sh"
 
 echo "--- :hammer_and_wrench: Building"
 bundle exec fastlane build_and_upload_wordpress_prototype_build

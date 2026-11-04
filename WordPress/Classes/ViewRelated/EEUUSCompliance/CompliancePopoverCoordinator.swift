@@ -1,7 +1,10 @@
 import UIKit
+import WordPressData
+import WordPressShared
+import WordPressUI
 
 protocol CompliancePopoverCoordinatorProtocol: AnyObject {
-    func presentIfNeeded()
+    func presentIfNeeded() async -> Bool
     func navigateToSettings()
     func dismiss()
 }
@@ -10,8 +13,9 @@ final class CompliancePopoverCoordinator: CompliancePopoverCoordinatorProtocol {
 
     // MARK: - Dependencies
 
-    private let complianceService = ComplianceLocationService()
+    private let complianceService: ComplianceLocationService
     private let defaults: UserDefaults
+    private let isFeatureFlagEnabled: Bool
 
     // MARK: - Views
 
@@ -21,20 +25,32 @@ final class CompliancePopoverCoordinator: CompliancePopoverCoordinatorProtocol {
 
     // MARK: - Init
 
-    init(defaults: UserDefaults = UserDefaults.standard) {
+    init(
+        defaults: UserDefaults = UserDefaults.standard,
+        complianceService: ComplianceLocationService = .init(),
+        isFeatureFlagEnabled: Bool = FeatureFlag.compliancePopover.enabled
+    ) {
         self.defaults = defaults
+        self.complianceService = complianceService
+        self.isFeatureFlagEnabled = isFeatureFlagEnabled
     }
 
-    func presentIfNeeded() {
-        guard FeatureFlag.compliancePopover.enabled/*, !defaults.didShowCompliancePopup */else {
-            return
+    @MainActor func presentIfNeeded() async -> Bool {
+        guard isFeatureFlagEnabled, !defaults.didShowCompliancePopup else {
+            return false
         }
-        complianceService.getIPCountryCode { [weak self] result in
-            guard let self, case .success(let countryCode) = result, self.shouldShowPrivacyBanner(countryCode: countryCode) else {
-                return
-            }
-            DispatchQueue.main.async {
-                self.presentPopover()
+        return await withCheckedContinuation { continuation in
+            self.complianceService.getIPCountryCode { [weak self] result in
+                guard let self, case .success(let countryCode) = result,
+                    self.shouldShowPrivacyBanner(countryCode: countryCode)
+                else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                DispatchQueue.main.async {
+                    self.presentPopover()
+                    continuation.resume(returning: Self.window != nil)
+                }
             }
         }
     }
@@ -52,8 +68,7 @@ final class CompliancePopoverCoordinator: CompliancePopoverCoordinatorProtocol {
     // MARK: - Helpers
 
     private func shouldShowPrivacyBanner(countryCode: String) -> Bool {
-        let isCountryInEU = Self.gdprCountryCodes.contains(countryCode)
-        return isCountryInEU && !defaults.didShowCompliancePopup
+        Self.gdprCountryCodes.contains(countryCode)
     }
 
     private func dismiss(completion: (() -> Void)? = nil) {
@@ -72,10 +87,26 @@ final class CompliancePopoverCoordinator: CompliancePopoverCoordinatorProtocol {
         Self.window = nil
     }
 
+    /// Creates the popover's host window. The default requires a connected scene:
+    /// a window without one never displays under the scene life cycle. The unit
+    /// test host has no scene, so tests inject a plain window instead.
+    var makeWindow: () -> UIWindow? = {
+        guard let windowScene = UIApplication.shared.mainWindow?.windowScene else {
+            return nil
+        }
+        return UIWindow(windowScene: windowScene)
+    }
+
     private func presentPopover() {
+        // Resolve the new window before tearing down a visible popover: when no
+        // scene is available, an existing popover stays up. `Self.window` staying
+        // nil (when there is none) makes `presentIfNeeded` report the popover as
+        // not shown.
+        guard let window = makeWindow() else {
+            return
+        }
         self.removeWindow()
 
-        let window = UIWindow()
         window.windowLevel = .alert
         window.backgroundColor = .clear
         window.rootViewController = presentingViewController
@@ -87,10 +118,10 @@ final class CompliancePopoverCoordinator: CompliancePopoverCoordinatorProtocol {
             contextManager: ContextManager.shared
         )
         complianceViewModel.coordinator = self
-        let complianceViewController = CompliancePopoverViewController(viewModel: complianceViewModel)
-        let bottomSheetViewController = BottomSheetViewController(childViewController: complianceViewController, customHeaderSpacing: 0)
-
-        bottomSheetViewController.show(from: presentingViewController)
+        let complianceVC = CompliancePopoverViewController(viewModel: complianceViewModel)
+        complianceVC.sheetPresentationController?.detents = [.medium(), .large()]
+        complianceVC.isModalInPresentation = true
+        presentingViewController.present(complianceVC, animated: true)
     }
 }
 
@@ -127,7 +158,7 @@ private extension CompliancePopoverCoordinator {
         "CH", "CHE", // Switzerland
         "IS",
         "LI",
-        "GB",
+        "GB"
         // *Although the UK has departed from the EU as of January 2021,
         // the GDPR was enacted before its withdrawal and is therefore considered a valid UK law.*
     ]
@@ -139,7 +170,8 @@ extension UserDefaults {
     var didShowCompliancePopup: Bool {
         get {
             bool(forKey: Self.didShowCompliancePopupKey)
-        } set {
+        }
+        set {
             set(newValue, forKey: Self.didShowCompliancePopupKey)
         }
     }

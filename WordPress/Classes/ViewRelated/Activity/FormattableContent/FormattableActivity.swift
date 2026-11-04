@@ -1,3 +1,6 @@
+import FormattableContentKit
+import WordPressData
+import WordPressKit
 
 class FormattableActivity {
     let activity: Activity
@@ -30,7 +33,7 @@ class FormattableActivity {
     }
 }
 
-extension Activity: Equatable {
+extension Activity: @retroactive Equatable {
     public static func == (lhs: Activity, rhs: Activity) -> Bool {
         return lhs.activityID == rhs.activityID
     }

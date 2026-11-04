@@ -1,4 +1,5 @@
 import Foundation
+import WordPressKit
 
 extension PluginStoreState: Codable {
 
@@ -8,7 +9,6 @@ extension PluginStoreState: Codable {
         case directoryFeeds
         case directoryEntries
     }
-
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -27,5 +27,4 @@ extension PluginStoreState: Codable {
         try container.encode(directoryFeeds, forKey: .directoryFeeds)
         try container.encode(directoryEntries, forKey: .directoryEntries)
     }
-
 }

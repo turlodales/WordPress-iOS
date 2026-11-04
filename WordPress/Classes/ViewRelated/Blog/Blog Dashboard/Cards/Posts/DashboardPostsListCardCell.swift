@@ -1,4 +1,6 @@
 import UIKit
+import WordPressData
+import WordPressShared
 
 final class DashboardDraftPostsCardCell: DashboardPostsListCardCell, BlogDashboardCardConfigurable {
     func configure(blog: Blog, viewController: BlogDashboardViewController?, apiResponse: BlogDashboardRemoteEntity?) {
@@ -23,15 +25,13 @@ class DashboardPostsListCardCell: UICollectionViewCell, Reusable {
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.isScrollEnabled = false
         tableView.backgroundColor = nil
-        let postCompactCellNib = PostCompactCell.defaultNib
-        tableView.register(postCompactCellNib, forCellReuseIdentifier: PostCompactCell.defaultReuseID)
+        tableView.register(PostCompactCell.self, forCellReuseIdentifier: PostCompactCell.defaultReuseID)
         let ghostCellNib = BlogDashboardPostCardGhostCell.defaultNib
         tableView.register(ghostCellNib, forCellReuseIdentifier: BlogDashboardPostCardGhostCell.defaultReuseID)
         tableView.register(DashboardPostListErrorCell.self, forCellReuseIdentifier: DashboardPostListErrorCell.defaultReuseID)
         tableView.separatorStyle = .none
         return tableView
     }()
-
 
     // MARK: Private Variables
 
@@ -74,11 +74,6 @@ class DashboardPostsListCardCell: UICollectionViewCell, Reusable {
         contentView.addSubview(frameView)
         contentView.pinSubviewToAllEdges(frameView, priority: UILayoutPriority(999))
     }
-
-    func trackPostsDisplayed() {
-        BlogDashboardAnalytics.shared.track(.dashboardCardShown, properties: ["type": "post", "sub_type": status.rawValue])
-    }
-
 }
 
 // MARK: BlogDashboardCardConfigurable
@@ -157,21 +152,20 @@ extension DashboardPostsListCardCell {
     }
 
     private func presentPostList(with status: BasePost.Status) {
-        guard let blog = blog, let viewController = viewController else {
+        guard let blog, let viewController else {
             return
         }
 
         PostListViewController.showForBlog(blog, from: viewController, withPostStatus: status)
-        WPAppAnalytics.track(.openedPosts, withProperties: [WPAppAnalyticsKeyTabSource: "dashboard", WPAppAnalyticsKeyTapSource: "posts_card"], with: blog)
+        WPAppAnalytics.track(.openedPosts, properties: [WPAppAnalyticsKeyTabSource: "dashboard", WPAppAnalyticsKeyTapSource: "posts_card"], blog: blog)
     }
-
 }
 
 // MARK: - UITableViewDelegate
 extension DashboardPostsListCardCell: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         guard let post = viewModel?.postAt(indexPath),
-              let viewController = viewController else {
+              let viewController else {
             return
         }
 

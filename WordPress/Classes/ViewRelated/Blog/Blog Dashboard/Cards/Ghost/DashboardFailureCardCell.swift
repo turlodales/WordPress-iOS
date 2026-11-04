@@ -1,4 +1,6 @@
 import UIKit
+import WordPressData
+import WordPressShared
 
 class DashboardFailureCardCell: UICollectionViewCell, Reusable {
     private lazy var contentStackView: UIStackView = {
@@ -13,7 +15,7 @@ class DashboardFailureCardCell: UICollectionViewCell, Reusable {
         let title = UILabel()
         title.textColor = .secondaryLabel
         title.text = Strings.title
-        title.font = AppStyleGuide.prominentFont(textStyle: .headline, weight: .semibold)
+        title.font = WPStyleGuide.fontForTextStyle(.headline, fontWeight: .semibold)
         title.textAlignment = .center
         return title
     }()

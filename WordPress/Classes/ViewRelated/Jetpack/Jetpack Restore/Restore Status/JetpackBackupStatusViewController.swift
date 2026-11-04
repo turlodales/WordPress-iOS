@@ -1,5 +1,5 @@
 import UIKit
-import CocoaLumberjack
+import WordPressKit
 import WordPressShared
 import WordPressUI
 

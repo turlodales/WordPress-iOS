@@ -1,4 +1,7 @@
 import UIKit
+import WordPressData
+import WordPressReader
+import WordPressUI
 
 class ReaderDetailCommentsHeader: UITableViewHeaderFooterView, NibReusable {
 
@@ -28,6 +31,8 @@ class ReaderDetailCommentsHeader: UITableViewHeaderFooterView, NibReusable {
         return post?.isSubscribedComments ?? false
     }
 
+    var displaySetting: ReaderDisplaySettings = .standard
+
     override func awakeFromNib() {
         super.awakeFromNib()
         configureView()
@@ -43,12 +48,13 @@ class ReaderDetailCommentsHeader: UITableViewHeaderFooterView, NibReusable {
     ) {
         self.post = post
         self.totalComments = totalComments
-        self.followConversationEnabled = post.commentsOpen && post.canSubscribeComments
+        self.followConversationEnabled = post.commentsOpen && post.canActuallySubscribeToComments
         self.followButtonTappedClosure = followButtonTappedClosure
 
+        configureTitle()
         configureButton()
 
-        readerCommentsFollowPresenter = ReaderCommentsFollowPresenter.init(
+        readerCommentsFollowPresenter = ReaderCommentsFollowPresenter(
             post: post,
             delegate: self,
             presentingViewController: presentingViewController
@@ -59,10 +65,6 @@ class ReaderDetailCommentsHeader: UITableViewHeaderFooterView, NibReusable {
         self.post = post
         configureButton()
     }
-
-    func followButtonMidPoint() -> CGPoint {
-        CGPoint(x: followButton.frame.midX, y: followButton.frame.minY)
-    }
 }
 
 // MARK: - Private Extension
@@ -70,15 +72,13 @@ class ReaderDetailCommentsHeader: UITableViewHeaderFooterView, NibReusable {
 private extension ReaderDetailCommentsHeader {
 
     func configureView() {
-        contentView.backgroundColor = .basicBackground
-        addBottomBorder(withColor: .divider)
-        configureTitle()
-
+        contentView.backgroundColor = .clear
+        addBottomBorder(withColor: separatorColor)
     }
 
     func configureTitle() {
-        titleLabel.textColor = .text
-        titleLabel.font = WPStyleGuide.serifFontForTextStyle(.title3, fontWeight: .semibold)
+        titleLabel.textColor = titleTextColor
+        titleLabel.font = titleFont
     }
 
     func configureTitleLabel() {
@@ -99,12 +99,12 @@ private extension ReaderDetailCommentsHeader {
         followButton.addTarget(self, action: #selector(followButtonTapped), for: .touchUpInside)
 
         if isSubscribedComments {
-            followButton.setImage(UIImage.init(systemName: "bell"), for: .normal)
+            followButton.setImage(UIImage(systemName: "bell"), for: .normal)
             followButton.setTitle(nil, for: .normal)
         } else {
             followButton.setTitle(Titles.followButton, for: .normal)
-            followButton.setTitleColor(.primary, for: .normal)
-            followButton.titleLabel?.font = WPStyleGuide.fontForTextStyle(.footnote)
+            followButton.setTitleColor(followButtonColor, for: .normal)
+            followButton.titleLabel?.font = followButtonFont
             followButton.setImage(nil, for: .normal)
         }
     }
@@ -140,6 +140,33 @@ private extension ReaderDetailCommentsHeader {
         static let followButton = NSLocalizedString("Follow Conversation", comment: "Button title. Follow the comments on a post.")
     }
 
+    // MARK: Customizable Colors
+
+    var titleFont: UIFont {
+        guard ReaderDisplaySettings.customizationEnabled else {
+            return WPStyleGuide.serifFontForTextStyle(.title3, fontWeight: .semibold)
+        }
+        return displaySetting.font(with: .title3, weight: .semibold)
+    }
+
+    var titleTextColor: UIColor {
+        ReaderDisplaySettings.customizationEnabled ? displaySetting.color.foreground : .label
+    }
+
+    var followButtonFont: UIFont {
+        guard ReaderDisplaySettings.customizationEnabled else {
+            return WPStyleGuide.fontForTextStyle(.footnote)
+        }
+        return displaySetting.font(with: .footnote)
+    }
+
+    var followButtonColor: UIColor {
+        UIAppColor.primary
+    }
+
+    var separatorColor: UIColor {
+        ReaderDisplaySettings.customizationEnabled ? displaySetting.color.border : .separator
+    }
 }
 
 // MARK: - ReaderCommentsFollowPresenterDelegate
@@ -154,5 +181,4 @@ extension ReaderDetailCommentsHeader: ReaderCommentsFollowPresenterDelegate {
     func toggleNotificationComplete(success: Bool, post: ReaderPost) {
         self.post = post
     }
-
 }

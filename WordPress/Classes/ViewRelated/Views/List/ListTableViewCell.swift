@@ -1,9 +1,14 @@
+import UIKit
+import WordPressUI
+import Gravatar
+import WordPressShared
+
 /// Table view cell for the List component.
 ///
 /// This is used in Comments and Notifications as part of the Comments
 /// Unification project.
 ///
-class ListTableViewCell: UITableViewCell, NibReusable {
+public class ListTableViewCell: UITableViewCell, NibReusable {
     // MARK: IBOutlets
 
     @IBOutlet private weak var indicatorView: UIView!
@@ -11,6 +16,9 @@ class ListTableViewCell: UITableViewCell, NibReusable {
     @IBOutlet private weak var titleLabel: UILabel!
     @IBOutlet private weak var snippetLabel: UILabel!
     @IBOutlet private weak var indicatorWidthConstraint: NSLayoutConstraint!
+
+    /// The separator's leading inset from the nib.
+    private var separatorLeadingInset: CGFloat = 0
 
     /// Convenience property to retain the overlay view when shown on top of the cell.
     /// The overlay can be shown or dismissed through `showOverlay` and `dismissOverlay` respectively.
@@ -20,30 +28,30 @@ class ListTableViewCell: UITableViewCell, NibReusable {
 
     /// Added to provide objc support, since NibReusable protocol methods aren't accessible from objc.
     /// This should be removed when the caller is rewritten in Swift.
-    @objc static let reuseIdentifier = defaultReuseID
+    @objc public static let reuseIdentifier = defaultReuseID
 
-    @objc static let estimatedRowHeight = 68
+    @objc public static let estimatedRowHeight = 68
 
     /// The color of the indicator circle.
-    @objc var indicatorColor: UIColor = .clear {
+    @objc public var indicatorColor: UIColor = .clear {
         didSet {
             updateIndicatorColor()
         }
     }
 
     /// Toggle variable to determine whether the indicator circle should be shown.
-    @objc var showsIndicator: Bool = false {
+    @objc public var showsIndicator: Bool = false {
         didSet {
             updateIndicatorColor()
         }
     }
 
     /// The default placeholder image.
-    @objc var placeholderImage: UIImage = Style.placeholderImage
+    @objc public var placeholderImage: UIImage = Style.placeholderImage
 
     /// The attributed string to be displayed in titleLabel.
     /// To keep the styles uniform between List components, refer to regular and bold styles in `WPStyleGuide+List`.
-    @objc var attributedTitleText: NSAttributedString? {
+    @objc public var attributedTitleText: NSAttributedString? {
         get {
             titleLabel.attributedText
         }
@@ -54,7 +62,7 @@ class ListTableViewCell: UITableViewCell, NibReusable {
 
     /// The snippet text, displayed in snippetLabel.
     /// Note that new values are trimmed of whitespaces and newlines.
-    @objc var snippetText: String? {
+    @objc public var snippetText: String? {
         get {
             snippetLabel.text
         }
@@ -71,9 +79,15 @@ class ListTableViewCell: UITableViewCell, NibReusable {
 
     // MARK: Initialization
 
-    override func awakeFromNib() {
+    public override func awakeFromNib() {
         super.awakeFromNib()
+        separatorLeadingInset = separatorInset.left
         configureSubviews()
+    }
+
+    public override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        separatorInset = separatorInsets(leading: separatorLeadingInset)
     }
 
     // MARK: Public Methods
@@ -82,7 +96,7 @@ class ListTableViewCell: UITableViewCell, NibReusable {
     /// If the URL does not contain any image, the default placeholder image will be displayed.
     /// - Parameter url: The URL containing the image.
     func configureImage(with url: URL?) {
-        if let someURL = url, let gravatar = Gravatar(someURL) {
+        if let someURL = url, let gravatar = AvatarURL(url: someURL) {
             avatarView.downloadGravatar(gravatar, placeholder: placeholderImage, animate: true)
             return
         }
@@ -99,7 +113,7 @@ class ListTableViewCell: UITableViewCell, NibReusable {
             return
         }
 
-        avatarView.downloadGravatarWithEmail(someEmail, placeholderImage: placeholderImage)
+        avatarView.downloadGravatar(for: someEmail, placeholderImage: placeholderImage)
     }
 
     // MARK: Overlay View Support

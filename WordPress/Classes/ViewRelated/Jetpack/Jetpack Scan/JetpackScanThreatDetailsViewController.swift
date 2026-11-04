@@ -1,5 +1,8 @@
 import UIKit
+import WordPressData
 import WordPressFlux
+import WordPressUI
+import WordPressKit
 
 protocol JetpackScanThreatDetailsViewControllerDelegate: AnyObject {
     func willFixThreat(_ threat: JetpackScanThreat, controller: JetpackScanThreatDetailsViewController)
@@ -59,7 +62,7 @@ class JetpackScanThreatDetailsViewController: UIViewController {
         self.blog = blog
         self.threat = threat
         self.hasValidCredentials = hasValidCredentials
-        super.init(nibName: nil, bundle: nil)
+        super.init(nibName: "JetpackScanThreatDetailsViewController", bundle: .keystone)
     }
 
     required init?(coder: NSCoder) {
@@ -81,9 +84,9 @@ class JetpackScanThreatDetailsViewController: UIViewController {
                                       message: viewModel.fixDescription,
                                       preferredStyle: .alert)
 
-        alert.addAction(UIAlertAction(title: Strings.cancel, style: .cancel))
-        alert.addAction(UIAlertAction(title: Strings.ok, style: .default, handler: { [weak self] _ in
-            guard let self = self else {
+        alert.addAction(UIAlertAction(title: SharedStrings.Button.cancel, style: .cancel))
+        alert.addAction(UIAlertAction(title: SharedStrings.Button.ok, style: .default, handler: { [weak self] _ in
+            guard let self else {
                 return
             }
             self.delegate?.willFixThreat(self.threat, controller: self)
@@ -104,9 +107,9 @@ class JetpackScanThreatDetailsViewController: UIViewController {
                                       message: String(format: viewModel.ignoreActionMessage, blogName),
                                       preferredStyle: .alert)
 
-        alert.addAction(UIAlertAction(title: Strings.cancel, style: .cancel))
-        alert.addAction(UIAlertAction(title: Strings.ok, style: .default, handler: { [weak self] _ in
-            guard let self = self else {
+        alert.addAction(UIAlertAction(title: SharedStrings.Button.cancel, style: .cancel))
+        alert.addAction(UIAlertAction(title: SharedStrings.Button.ok, style: .default, handler: { [weak self] _ in
+            guard let self else {
                 return
             }
 
@@ -184,13 +187,12 @@ extension JetpackScanThreatDetailsViewController {
 
         if let warningActionTitle = viewModel.warningActionTitle {
 
-            let attributedTitle = WPStyleGuide.Jetpack.highlightString(warningActionTitle.substring,
+            let attributedTitle = StringHighlighter.highlightString(warningActionTitle.substring,
                                                                        inString: warningActionTitle.string)
 
             warningButton.setAttributedTitle(attributedTitle, for: .normal)
 
             warningButton.isHidden = false
-
         } else {
             warningButton.isHidden = true
         }
@@ -201,7 +203,7 @@ extension JetpackScanThreatDetailsViewController {
     // MARK: - Styling
 
     private func applyStyles() {
-        view.backgroundColor = .basicBackground
+        view.backgroundColor = .systemBackground
         styleGeneralInfoSection()
         styleProblemSection()
         styleTechnicalDetailsSection()
@@ -211,27 +213,27 @@ extension JetpackScanThreatDetailsViewController {
 
     private func styleGeneralInfoSection() {
         generalInfoTitleLabel.font = WPStyleGuide.fontForTextStyle(.title3, fontWeight: .semibold)
-        generalInfoTitleLabel.textColor = .error
+        generalInfoTitleLabel.textColor = UIAppColor.error
         generalInfoTitleLabel.numberOfLines = 0
 
         generalInfoDescriptionLabel.font = WPStyleGuide.fontForTextStyle(.body)
-        generalInfoDescriptionLabel.textColor = .text
+        generalInfoDescriptionLabel.textColor = .label
         generalInfoDescriptionLabel.numberOfLines = 0
     }
 
     private func styleProblemSection() {
         problemTitleLabel.font = WPStyleGuide.fontForTextStyle(.title3, fontWeight: .semibold)
-        problemTitleLabel.textColor = .text
+        problemTitleLabel.textColor = .label
         problemTitleLabel.numberOfLines = 0
 
         problemDescriptionLabel.font = WPStyleGuide.fontForTextStyle(.body)
-        problemDescriptionLabel.textColor = .text
+        problemDescriptionLabel.textColor = .label
         problemDescriptionLabel.numberOfLines = 0
     }
 
     private func styleTechnicalDetailsSection() {
         technicalDetailsTitleLabel.font = WPStyleGuide.fontForTextStyle(.title3, fontWeight: .semibold)
-        technicalDetailsTitleLabel.textColor = .text
+        technicalDetailsTitleLabel.textColor = .label
         technicalDetailsTitleLabel.numberOfLines = 0
 
         technicalDetailsFileContainerView.backgroundColor = viewModel.fileNameBackgroundColor
@@ -241,7 +243,7 @@ extension JetpackScanThreatDetailsViewController {
         technicalDetailsFileLabel.numberOfLines = 0
 
         technicalDetailsDescriptionLabel.font = WPStyleGuide.fontForTextStyle(.body)
-        technicalDetailsDescriptionLabel.textColor = .text
+        technicalDetailsDescriptionLabel.textColor = .label
         technicalDetailsDescriptionLabel.numberOfLines = 0
 
         technicalDetailsContextLabel.numberOfLines = 0
@@ -249,11 +251,11 @@ extension JetpackScanThreatDetailsViewController {
 
     private func styleFixSection() {
         fixTitleLabel.font = WPStyleGuide.fontForTextStyle(.title3, fontWeight: .semibold)
-        fixTitleLabel.textColor = .text
+        fixTitleLabel.textColor = .label
         fixTitleLabel.numberOfLines = 0
 
         fixDescriptionLabel.font = WPStyleGuide.fontForTextStyle(.body)
-        fixDescriptionLabel.textColor = .text
+        fixDescriptionLabel.textColor = .label
         fixDescriptionLabel.numberOfLines = 0
     }
 
@@ -262,10 +264,12 @@ extension JetpackScanThreatDetailsViewController {
 
         ignoreThreatButton.isPrimary = false
 
-        warningButton.setTitleColor(.text, for: .normal)
+        warningButton.setTitleColor(.label, for: .normal)
         warningButton.titleLabel?.lineBreakMode = .byWordWrapping
         warningButton.titleLabel?.numberOfLines = 0
         warningButton.setImage(.gridicon(.plusSmall), for: .normal)
+        // Matches the bottom content inset the button carries in Interface Builder.
+        warningButton.verticalTitlePadding = 10
     }
 }
 
@@ -273,8 +277,6 @@ extension JetpackScanThreatDetailsViewController {
 
     private enum Strings {
         static let title = NSLocalizedString("Threat details", comment: "Title for the Jetpack Scan Threat Details screen")
-        static let ok = NSLocalizedString("OK", comment: "OK button for alert")
-        static let cancel = NSLocalizedString("Cancel", comment: "Cancel button for alert")
         static let jetpackSettingsNotice = NSLocalizedString("Unable to visit Jetpack settings for site", comment: "Message displayed when visiting the Jetpack settings page fails.")
     }
 }

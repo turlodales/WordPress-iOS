@@ -1,19 +1,35 @@
-class StatsStackViewCell: StatsBaseCell, NibLoadable {
+import UIKit
+import WordPressShared
+
+class StatsStackViewCell: StatsBaseCell {
     private typealias Style = WPStyleGuide.Stats
 
-    @IBOutlet private(set) var stackView: UIStackView! {
-        didSet {
-            if !AppConfiguration.statsRevampV2Enabled {
-                contentView.addTopBorder(withColor: Style.separatorColor)
-                contentView.addBottomBorder(withColor: Style.separatorColor)
-            }
-        }
+    private(set) var stackView: UIStackView = {
+        let stackView = UIStackView()
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .vertical
+        return stackView
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+
+        selectionStyle = .none
+        Style.configureCell(self)
+
+        contentView.addSubview(stackView)
+        let topConstraint = stackView.topAnchor.constraint(equalTo: contentView.topAnchor)
+        NSLayoutConstraint.activate([
+            topConstraint,
+            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+        self.topConstraint = topConstraint
     }
 
-    override func awakeFromNib() {
-        super.awakeFromNib()
-        Style.configureCell(self)
-        stackView.removeAllSubviews()
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     override func prepareForReuse() {
@@ -21,7 +37,7 @@ class StatsStackViewCell: StatsBaseCell, NibLoadable {
         stackView.removeAllSubviews()
     }
 
-    func insert(view: UIView, animated: Bool = true) {
+    func insert(view: UIView) {
         stackView.addArrangedSubview(view)
     }
 }

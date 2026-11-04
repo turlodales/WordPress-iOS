@@ -1,11 +1,12 @@
 import Foundation
 import UIKit
+import WordPressData
+import WordPressShared
 import WordPressKit
-
+import FormattableContentKit
 
 /// Convenience class that manages the data and display logic for likes.
 /// This is intended to be used as replacement for table view delegate and data source.
-
 
 @objc protocol LikesListControllerDelegate: AnyObject {
     /// Reports to the delegate that the header cell has been tapped.
@@ -27,7 +28,7 @@ class LikesListController: NSObject {
     private let formatter = FormattableContentFormatter()
     private let content: ContentIdentifier
     private let siteID: NSNumber
-    private var notification: Notification? = nil
+    private var notification: WordPressData.Notification? = nil
     private var readerPost: ReaderPost? = nil
     private let tableView: UITableView
     private var loadingIndicator = UIActivityIndicatorView()
@@ -89,7 +90,7 @@ class LikesListController: NSObject {
 
     /// Init with Notification
     ///
-    init?(tableView: UITableView, notification: Notification, delegate: LikesListControllerDelegate? = nil) {
+    init?(tableView: UITableView, notification: WordPressData.Notification, delegate: LikesListControllerDelegate? = nil) {
 
         guard let siteID = notification.metaSiteID else {
             return nil
@@ -128,13 +129,25 @@ class LikesListController: NSObject {
     ///
     init?(tableView: UITableView, post: ReaderPost, delegate: LikesListControllerDelegate? = nil) {
 
-        guard let postID = post.postID else {
+        guard let postID = post.postID, let siteID = post.siteID else {
             return nil
         }
 
         content = .post(id: postID)
         readerPost = post
-        siteID = post.siteID
+        self.siteID = siteID
+        self.tableView = tableView
+        self.delegate = delegate
+
+        super.init()
+        configureLoadingIndicator()
+    }
+
+    /// Init with siteID and postID
+    ///
+    init(tableView: UITableView, siteID: NSNumber, postID: NSNumber, delegate: LikesListControllerDelegate? = nil) {
+        content = .post(id: postID)
+        self.siteID = siteID
         self.tableView = tableView
         self.delegate = delegate
 
@@ -173,7 +186,7 @@ class LikesListController: NSObject {
         }
 
         fetchLikes(success: { [weak self] users, totalLikes, likesPerPage in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
@@ -193,21 +206,15 @@ class LikesListController: NSObject {
             self.isFirstLoad = false
             self.isLoadingContent = false
             self.trackUsersToExclude()
-        }, failure: { [weak self] error in
-            guard let self = self else {
-                return
-            }
-
+        }, failure: { error in
             let errorMessage: String? = {
-                // Get error message from API response if provided.
-                if let error = error,
-                   let message = (error as NSError).userInfo[WordPressComRestApi.ErrorKeyErrorMessage] as? String,
-                   !message.isEmpty {
-                    return message
+                guard let error = error as? NSError,
+                      error.domain == WordPressComRestApiEndpointError.errorDomain,
+                      error.code == WordPressComRestApiErrorCode.authorizationRequired.rawValue else {
+                    return nil
                 }
-                return nil
+                return Strings.fetchLikesFromPrivateBlogErrorMessage
             }()
-
             self.isLoadingContent = false
             self.delegate?.showErrorView(title: self.errorTitle, subtitle: errorMessage)
         })
@@ -296,7 +303,6 @@ class LikesListController: NSObject {
 
         return Calendar.current.date(byAdding: .second, value: 1, to: lastDate)
     }
-
 }
 
 // MARK: - Table View Related
@@ -359,7 +365,6 @@ extension LikesListController: UITableViewDataSource, UITableViewDelegate {
 
         delegate?.didSelectUser(user, at: indexPath)
     }
-
 }
 
 // MARK: - Notification Cell Handling
@@ -386,8 +391,15 @@ private extension LikesListController {
                 return
         }
 
-        cell.attributedHeaderTitle = formatter.render(content: gravatarBlock, with: HeaderContentStyles())
-        cell.attributedHeaderDetails = formatter.render(content: snippetBlock, with: HeaderDetailsContentStyles())
+        let horizontalSizeClass = (tableView.window ?? tableView).traitCollection.horizontalSizeClass
+        cell.attributedHeaderTitle = formatter.render(
+            content: gravatarBlock,
+            with: HeaderContentStyles(horizontalSizeClass: horizontalSizeClass)
+        )
+        cell.attributedHeaderDetails = formatter.render(
+            content: snippetBlock,
+            with: HeaderDetailsContentStyles(horizontalSizeClass: horizontalSizeClass)
+        )
 
         // Download the Gravatar
         let mediaURL = gravatarBlock.media.first?.mediaURL
@@ -404,7 +416,6 @@ private extension LikesListController {
         cell.configure(withUser: user, isLastRow: (indexPath.row == likingUsers.endIndex - 1))
         return cell
     }
-
 }
 
 // MARK: - Private Definitions
@@ -423,4 +434,11 @@ private extension LikesListController {
         static let numberOfHeaderRows = 1
     }
 
+    struct Strings {
+        static let fetchLikesFromPrivateBlogErrorMessage = NSLocalizedString(
+            "likesListViewController.likesList.privateBlogErrorMessage",
+            value: "You don't have permission to view this private blog.",
+            comment: "Error message that informs likes from a private blog cannot be fetched."
+        )
+    }
 }

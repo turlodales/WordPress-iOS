@@ -1,5 +1,8 @@
+import UIKit
 import Aztec
+import WordPressData
 import WordPressEditor
+import WordPressShared
 
 // View Controller for the Revision Visual preview
 //
@@ -12,7 +15,7 @@ class RevisionPreviewViewController: UIViewController, StoryboardLoadable {
         }
     }
 
-    private let mainContext = ContextManager.sharedInstance().mainContext
+    private let mainContext = ContextManager.shared.mainContext
     private let textViewManager = RevisionPreviewTextViewManager()
     private var titleInsets = UIEdgeInsets(top: 8.0, left: 8.0, bottom: 8.0, right: 8.0)
 
@@ -54,12 +57,11 @@ class RevisionPreviewViewController: UIViewController, StoryboardLoadable {
     }
 }
 
-
 private extension RevisionPreviewViewController {
     private func setupAztec() {
         textView.load(WordPressPlugin())
         textView.textAttachmentDelegate = textViewManager
-        textView.preBackgroundColor = .preformattedBackground
+        textView.preBackgroundColor = .systemGray6
 
         let providers: [TextViewAttachmentImageProvider] = [
             SpecialTagAttachmentRenderer(),
@@ -74,7 +76,7 @@ private extension RevisionPreviewViewController {
     }
 
     private func showRevision() {
-        guard let revision = revision else {
+        guard let revision else {
             return
         }
 
@@ -90,13 +92,12 @@ private extension RevisionPreviewViewController {
     }
 }
 
-
 // Aztec editor implementation for the title Label and text view.
 // Like the post editor, title and content are separate views.
 //
 private extension RevisionPreviewViewController {
     private func addSubviews() {
-        view.backgroundColor = .basicBackground
+        view.backgroundColor = .systemBackground
         view.addSubview(textView)
         textView.addSubview(titleLabel)
     }
@@ -110,7 +111,7 @@ private extension RevisionPreviewViewController {
             textView.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
             textView.topAnchor.constraint(equalTo: view.topAnchor),
             textView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-            ])
+        ])
     }
 
     private func updateTitleHeight() {

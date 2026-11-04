@@ -1,8 +1,10 @@
-@objc class UntouchableWindow: UIWindow {
-    let untouchableViewController  = UntouchableViewController()
+import UIKit
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+@objc class UntouchableWindow: UIWindow {
+    let untouchableViewController = UntouchableViewController()
+
+    override init(windowScene: UIWindowScene) {
+        super.init(windowScene: windowScene)
         rootViewController = untouchableViewController
     }
 
@@ -34,8 +36,7 @@ class UntouchableViewController: UIViewController {
         // when saving a draft in offline mode the editing view is dismissed
         // this causes the check for the presentedViewController to return nil
         // thus placing the notice incorrectly, without the proper space for the tabBar
-        guard let mainWindow = UIApplication.shared.delegate?.window,
-            let tabBarController = mainWindow?.rootViewController as? WPTabBarController else {
+        guard let tabBarController = visibleTabBarController else {
             return 0
         }
 
@@ -44,13 +45,27 @@ class UntouchableViewController: UIViewController {
 
     var offsetOffscreen: CGFloat {
         // we want 0 unless the tab bar has presented a VC
-        guard let mainWindow = UIApplication.shared.delegate?.window,
-            let tabBarController = mainWindow?.rootViewController as? WPTabBarController,
-            tabBarController.presentedViewController != nil else {
-                return 0
+        guard let tabBarController = visibleTabBarController,
+            tabBarController.presentedViewController != nil
+        else {
+            return 0
         }
 
         return Constants.offsetWithoutTabbar
+    }
+
+    /// The tab bar controller whose tab bar is at the bottom of the app window, if any.
+    private var visibleTabBarController: WPTabBarController? {
+        let rootViewController = UIApplication.shared.delegate?.window??.rootViewController
+        if let tabBarController = rootViewController as? WPTabBarController {
+            return tabBarController
+        }
+        // On iPad the root is a split view. It shows the tab bar only when the window is
+        // narrow enough to collapse it.
+        if let splitViewController = rootViewController as? UISplitViewController, splitViewController.isCollapsed {
+            return splitViewController.viewController(for: .compact) as? WPTabBarController
+        }
+        return nil
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -60,8 +75,9 @@ class UntouchableViewController: UIViewController {
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         get {
             guard let mainWindow = UIApplication.shared.delegate?.window,
-                let rootController = mainWindow?.rootViewController else {
-                    return .all
+                let rootController = mainWindow?.rootViewController
+            else {
+                return .all
             }
 
             return rootController.topmostPresentedViewController.supportedInterfaceOrientations
@@ -77,7 +93,7 @@ private class UntouchableView: UIView {
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         let visibleViews = subviews.filter { view -> Bool in
-            return view.alpha >= 0.01 && !view.isHidden && view.isUserInteractionEnabled
+            view.alpha >= 0.01 && !view.isHidden && view.isUserInteractionEnabled
         }
         for view in visibleViews {
             let relativePoint = convert(point, to: view)

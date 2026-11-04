@@ -1,6 +1,9 @@
+import UIKit
 import Gutenberg
+import ImagePlayground
+import WordPressData
 
-class GutenbergExternalMediaPicker {
+class GutenbergExternalMediaPicker: NSObject {
     private var mediaPickerCallback: MediaPickerDidPickMediaCallback?
     private let mediaInserter: GutenbergMediaInserterHelper
     private unowned var gutenberg: Gutenberg
@@ -9,17 +12,26 @@ class GutenbergExternalMediaPicker {
     init(gutenberg: Gutenberg, mediaInserter: GutenbergMediaInserterHelper) {
         self.mediaInserter = mediaInserter
         self.gutenberg = gutenberg
+        super.init()
     }
 
-    func presentTenorPicker(origin: UIViewController, post: AbstractPost, multipleSelection: Bool, callback: @escaping MediaPickerDidPickMediaCallback) {
+    func presentImagePlayground(
+        origin: UIViewController,
+        post: AbstractPost,
+        callback: @escaping MediaPickerDidPickMediaCallback
+    ) {
         mediaPickerCallback = callback
-        self.multipleSelection = multipleSelection
 
-        MediaPickerMenu(viewController: origin, isMultipleSelectionEnabled: multipleSelection)
-            .showFreeGIFPicker(blog: post.blog, delegate: self)
+        MediaPickerMenu(viewController: origin)
+            .showImagePlayground(delegate: self)
     }
 
-    func presentStockPhotoPicker(origin: UIViewController, post: AbstractPost, multipleSelection: Bool, callback: @escaping MediaPickerDidPickMediaCallback) {
+    func presentStockPhotoPicker(
+        origin: UIViewController,
+        post: AbstractPost,
+        multipleSelection: Bool,
+        callback: @escaping MediaPickerDidPickMediaCallback
+    ) {
         mediaPickerCallback = callback
         self.multipleSelection = multipleSelection
 
@@ -29,7 +41,10 @@ class GutenbergExternalMediaPicker {
 }
 
 extension GutenbergExternalMediaPicker: ExternalMediaPickerViewDelegate {
-    func externalMediaPickerViewController(_ viewController: ExternalMediaPickerViewController, didFinishWithSelection assets: [ExternalMediaAsset]) {
+    func externalMediaPickerViewController(
+        _ viewController: ExternalMediaPickerViewController,
+        didFinishWithSelection assets: [ExternalMediaAsset]
+    ) {
         defer {
             mediaPickerCallback = nil
         }
@@ -42,7 +57,7 @@ extension GutenbergExternalMediaPicker: ExternalMediaPickerViewDelegate {
         }
 
         // For blocks that support multiple uploads this will upload all images.
-        // If multiple uploads are not supported then it will seperate them out to Image Blocks.
+        // If multiple uploads are not supported then it will separate them out to Image Blocks.
         if multipleSelection {
             insertOnBlock(with: assets, source: viewController.source)
         } else {
@@ -50,8 +65,8 @@ extension GutenbergExternalMediaPicker: ExternalMediaPickerViewDelegate {
         }
     }
 
-    /// Adds the given image object to the requesting block and seperates multiple images to seperate image blocks
-    /// - Parameter asset: Tenor Media object to add.
+    /// Adds the given image object to the requesting block and separates multiple images to separate image blocks
+    /// - Parameter asset: Image object to add.
     func insertSingleImages(_ assets: [ExternalMediaAsset], source: MediaSource) {
         // Append the first item via callback given by Gutenberg.
         if let firstItem = assets.first {
@@ -63,13 +78,13 @@ extension GutenbergExternalMediaPicker: ExternalMediaPickerViewDelegate {
     }
 
     /// Adds the given images  to the requesting block
-    /// - Parameter assets: Tenor Media objects to add.
+    /// - Parameter assets: Image objects to add.
     func insertOnBlock(with assets: [ExternalMediaAsset], source: MediaSource) {
         guard let callback = mediaPickerCallback else {
             return assertionFailure("Image picked without callback")
         }
 
-        let mediaInfo = assets.compactMap { (asset) -> MediaInfo? in
+        let mediaInfo = assets.compactMap { asset -> MediaInfo? in
             guard let media = self.mediaInserter.insert(exportableAsset: asset, source: source) else {
                 return nil
             }
@@ -81,12 +96,22 @@ extension GutenbergExternalMediaPicker: ExternalMediaPickerViewDelegate {
     }
 
     /// Create a new image block for each of the image objects in the slice.
-    /// - Parameter assets: Tenor Media objects to append.
+    /// - Parameter assets: Image objects to append.
     func appendOnNewBlocks(assets: ArraySlice<ExternalMediaAsset>, source: MediaSource) {
         assets.forEach {
             if let media = self.mediaInserter.insert(exportableAsset: $0, source: source) {
                 self.gutenberg.appendMedia(id: media.gutenbergUploadID, url: $0.largeURL, type: .image)
             }
         }
+    }
+}
+
+extension GutenbergExternalMediaPicker: ImagePlaygroundPickerDelegate {
+    func imagePlaygroundViewController(_ viewController: UIViewController, didCreateImageAt imageURL: URL) {
+        if let callback = mediaPickerCallback {
+            let itemProvider = MediaPickerMenu.makeItemProvider(with: imageURL)
+            mediaInserter.insertFromDevice([itemProvider], callback: callback)
+        }
+        viewController.presentingViewController?.dismiss(animated: true)
     }
 }

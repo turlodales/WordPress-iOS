@@ -1,5 +1,8 @@
 import UIKit
+import WordPressData
 import WordPressFlux
+import WordPressKit
+import WordPressUI
 
 @objc protocol SiteStatsDetailsDelegate {
     @objc optional func tabbedTotalsCellUpdated()
@@ -20,7 +23,6 @@ class SiteStatsDetailTableViewController: UITableViewController, StoryboardLoada
 
     private typealias Style = WPStyleGuide.Stats
     private var statSection: StatSection?
-    private var statType: StatType = .period
     private var selectedDate = StatsDataHelper.currentDateForSite()
     private var selectedPeriod: StatsPeriodUnit?
 
@@ -28,17 +30,17 @@ class SiteStatsDetailTableViewController: UITableViewController, StoryboardLoada
 
     private var receipt: Receipt?
 
-    private let insightsStore = StoreContainer.shared.statsInsights
-    private let periodStore = StoreContainer.shared.statsPeriod
+    private let insightsStore = StatsInsightsStore()
+    private let periodStore = StatsPeriodStore()
 
-    private lazy var tableHandler: ImmuTableViewHandler = {
-        return ImmuTableViewHandler(takeOver: self)
+    private lazy var tableHandler: ImmuTableDiffableViewHandler = {
+        return ImmuTableDiffableViewHandler(takeOver: self, with: nil)
     }()
 
     private var postID: Int?
 
     private lazy var mainContext: NSManagedObjectContext = {
-        return ContextManager.sharedInstance().mainContext
+        return ContextManager.shared.mainContext
     }()
 
     // MARK: - View
@@ -47,12 +49,14 @@ class SiteStatsDetailTableViewController: UITableViewController, StoryboardLoada
         super.viewDidLoad()
 
         clearExpandedRows()
-        Style.configureTable(tableView)
+
         refreshControl?.addTarget(self, action: #selector(refreshData), for: .valueChanged)
         tableView.estimatedSectionHeaderHeight = SiteStatsTableHeaderView.estimatedHeight
         ImmuTable.registerRows(tableRowTypes(), tableView: tableView)
-        tableView.register(SiteStatsTableHeaderView.defaultNib,
-                           forHeaderFooterViewReuseIdentifier: SiteStatsTableHeaderView.defaultNibName)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
         addWillEnterForegroundObserver()
     }
 
@@ -69,7 +73,6 @@ class SiteStatsDetailTableViewController: UITableViewController, StoryboardLoada
         self.selectedDate = selectedDate ?? StatsDataHelper.currentDateForSite()
         self.selectedPeriod = selectedPeriod
         self.postID = postID
-        statType = StatSection.allInsights.contains(statSection) ? .insights : .period
         title = statSection.detailsTitle
         initViewModel()
     }
@@ -86,16 +89,14 @@ class SiteStatsDetailTableViewController: UITableViewController, StoryboardLoada
     override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
 
         // Only show the date bar for Insights Annual details
-        guard let statSection = statSection,
+        guard let statSection,
             statSection == .insightsAnnualSiteStats,
             let allAnnualInsights = insightsStore.getAllAnnual()?.allAnnualInsights,
             let mostRecentYear = allAnnualInsights.last?.year else {
             return nil
         }
 
-        guard let cell = Bundle.main.loadNibNamed("SiteStatsTableHeaderView", owner: nil, options: nil)?.first as? SiteStatsTableHeaderView else {
-            return nil
-        }
+        let cell = SiteStatsTableHeaderView()
 
         // Allow the date bar to only go up to the most recent year available.
         var dateComponents = Calendar.current.dateComponents([.year, .month, .day], from: StatsDataHelper.currentDateForSite())
@@ -113,7 +114,7 @@ class SiteStatsDetailTableViewController: UITableViewController, StoryboardLoada
 
     override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
         // Only show the date bar for Insights Annual details
-        guard let statSection = statSection,
+        guard let statSection,
             statSection == .insightsAnnualSiteStats,
             let allAnnualInsights = insightsStore.getAllAnnual()?.allAnnualInsights,
             allAnnualInsights.last?.year != nil else {
@@ -122,7 +123,6 @@ class SiteStatsDetailTableViewController: UITableViewController, StoryboardLoada
 
         return UITableView.automaticDimension
     }
-
 }
 
 extension SiteStatsDetailTableViewController: StatsForegroundObservable {
@@ -138,9 +138,11 @@ private extension SiteStatsDetailTableViewController {
 
     func initViewModel() {
         viewModel = SiteStatsDetailsViewModel(detailsDelegate: self,
-                                              referrerDelegate: self)
+                                              referrerDelegate: self,
+                                              insightsStore: insightsStore,
+                                              periodStore: periodStore)
 
-        guard let statSection = statSection else {
+        guard let statSection else {
             return
         }
 
@@ -170,11 +172,11 @@ private extension SiteStatsDetailTableViewController {
     // MARK: - Table Refreshing
 
     func refreshTableView() {
-        guard let viewModel = viewModel else {
+        guard let viewModel else {
             return
         }
 
-        tableHandler.viewModel = viewModel.tableViewModel()
+        tableHandler.diffableDataSource.apply(viewModel.tableViewSnapshot(), animatingDifferences: false)
         refreshControl?.endRefreshing()
 
         if viewModel.fetchDataHasFailed() {
@@ -185,7 +187,7 @@ private extension SiteStatsDetailTableViewController {
     }
 
     @objc func refreshData() {
-        guard let statSection = statSection else {
+        guard let statSection else {
             return
         }
 
@@ -221,6 +223,8 @@ private extension SiteStatsDetailTableViewController {
             viewModel?.refreshFileDownloads()
         case .postStatsMonthsYears, .postStatsAverageViews:
             viewModel?.refreshPostStats()
+        case .subscribersEmailsSummary:
+            viewModel?.refreshEmailsSummary()
         default:
             refreshControl?.endRefreshing()
         }
@@ -251,7 +255,6 @@ private extension SiteStatsDetailTableViewController {
 
         initViewModel()
     }
-
 }
 
 // MARK: - SiteStatsDetailsDelegate Methods
@@ -264,7 +267,7 @@ extension SiteStatsDetailTableViewController: SiteStatsDetailsDelegate {
 
     func displayWebViewWithURL(_ url: URL) {
         let webViewController = WebViewControllerFactory.controllerAuthenticatedWithDefaultAccount(url: url, source: "site_stats_detail")
-        let navController = UINavigationController.init(rootViewController: webViewController)
+        let navController = UINavigationController(rootViewController: webViewController)
         present(navController, animated: true)
     }
 
@@ -356,7 +359,7 @@ extension SiteStatsDetailTableViewController: NoResultsViewControllerDelegate {
 extension SiteStatsDetailTableViewController: SiteStatsTableHeaderDelegate {
 
     func dateChangedTo(_ newDate: Date?) {
-        guard let newDate = newDate else {
+        guard let newDate else {
             return
         }
 
@@ -366,5 +369,4 @@ extension SiteStatsDetailTableViewController: SiteStatsTableHeaderDelegate {
         viewModel?.updateSelectedDate(newDate)
         refreshTableView()
     }
-
 }

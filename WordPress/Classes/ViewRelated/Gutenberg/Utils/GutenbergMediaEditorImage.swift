@@ -1,5 +1,7 @@
-import Foundation
+import UIKit
 import MediaEditor
+import AsyncImageKit
+import WordPressData
 
 /**
  This is a struct to be given to MediaEditor that represent the image.
@@ -12,6 +14,9 @@ class GutenbergMediaEditorImage: AsyncImage {
 
     private let post: AbstractPost
 
+    /// The trait collection of the view controller that presents the media editor.
+    private let traitCollection: UITraitCollection
+
     private var fullQualityURL: URL? {
         guard var urlComponents = URLComponents(url: originalURL, resolvingAgainstBaseURL: false) else {
             return nil
@@ -19,7 +24,7 @@ class GutenbergMediaEditorImage: AsyncImage {
 
         urlComponents.query = nil
 
-        return try? urlComponents.asURL()
+        return urlComponents.url
     }
 
     private lazy var mediaUtility: EditorMediaUtility = {
@@ -28,18 +33,19 @@ class GutenbergMediaEditorImage: AsyncImage {
 
     var thumb: UIImage?
 
-    init(url: URL, post: AbstractPost) {
+    init(url: URL, post: AbstractPost, traitCollection: UITraitCollection) {
         originalURL = url
         self.post = post
-        thumb = AnimatedImageCache.shared.cachedStaticImage(url: originalURL)
+        self.traitCollection = traitCollection
+        thumb = ImageDownloader.shared.cachedImage(for: originalURL)
     }
 
     /**
      If a thumbnail doesn't exist in cache, fetch one
      */
     func thumbnail(finishedRetrievingThumbnail: @escaping (UIImage?) -> ()) {
-        let task = ImageDownloader.shared.downloadImage(at: originalURL, completion: { image, error in
-            guard let image = image else {
+        let task = ImageDownloader.shared.downloadImage(at: originalURL, completion: { image, _ in
+            guard let image else {
                 finishedRetrievingThumbnail(nil)
                 return
             }
@@ -54,11 +60,19 @@ class GutenbergMediaEditorImage: AsyncImage {
     */
     func full(finishedRetrievingFullImage: @escaping (UIImage?) -> ()) {
         // By passing .zero as the size the full quality image will be downloaded
-        let task = mediaUtility.downloadImage(from: fullQualityURL!, size: .zero, scale: .greatestFiniteMagnitude, post: post, success: { image in
-            finishedRetrievingFullImage(image)
-        }, onFailure: { _ in
-            finishedRetrievingFullImage(nil)
-        })
+        let task = mediaUtility.downloadImage(
+            from: fullQualityURL!,
+            size: .zero,
+            scale: .greatestFiniteMagnitude,
+            post: post,
+            traitCollection: traitCollection,
+            success: { image in
+                finishedRetrievingFullImage(image)
+            },
+            onFailure: { _ in
+                finishedRetrievingFullImage(nil)
+            }
+        )
 
         self.tasks.append(task)
     }

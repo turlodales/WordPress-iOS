@@ -1,4 +1,7 @@
 import Foundation
+import BuildSettingsKit
+import WordPressData
+import WordPressKit
 
 extension WPAccount {
     enum VerificationStatus: String {
@@ -27,10 +30,6 @@ extension WPAccount {
 
     var logDescription: String {
         let coreDataID = objectID.uriRepresentation().absoluteString
-        return "<Account username: \(username ?? "-") ID: \(userID?.stringValue ?? "-"), Email: \(verificationStatus.rawValue) ObjectID: \(coreDataID)>"
-    }
-
-    var needsEmailVerification: Bool {
-        return verificationStatus == .unverified
+        return "<Account username: \(username) ID: \(userID?.stringValue ?? "-"), Email: \(verificationStatus.rawValue) ObjectID: \(coreDataID)>"
     }
 }

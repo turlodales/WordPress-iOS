@@ -1,9 +1,11 @@
+import CoreData
 import Foundation
 import UIKit
-import CoreData
+import WordPressCore
+import WordPressData
 import WordPressKit
 
-enum DashboardSection: Int, CaseIterable {
+enum DashboardSection: Int, CaseIterable, Sendable {
     case migrationSuccess
     case quickActions
     case cards
@@ -11,7 +13,7 @@ enum DashboardSection: Int, CaseIterable {
 
 typealias BlogID = Int
 
-enum DashboardItem: Hashable {
+enum DashboardItem: Hashable, Sendable {
     case migrationSuccess
     case quickActions(BlogID)
     case cards(DashboardCardModel)
@@ -20,12 +22,17 @@ enum DashboardItem: Hashable {
 typealias DashboardSnapshot = NSDiffableDataSourceSnapshot<DashboardSection, DashboardItem>
 typealias DashboardDataSource = UICollectionViewDiffableDataSource<DashboardSection, DashboardItem>
 
+@MainActor
 final class BlogDashboardViewModel {
     private weak var viewController: BlogDashboardViewController?
 
     private let managedObjectContext: NSManagedObjectContext
 
     private var blog: Blog
+
+    private var error: Error?
+
+    private let wordpressClient: WordPressClient?
 
     private var currentCards: [DashboardCardModel] = []
 
@@ -51,7 +58,7 @@ final class BlogDashboardViewModel {
     }()
 
     private lazy var dataSource: DashboardDataSource? = {
-        guard let viewController = viewController else {
+        guard let viewController else {
             return nil
         }
 
@@ -60,6 +67,7 @@ final class BlogDashboardViewModel {
             var cellType: DashboardCollectionViewCell.Type
             var cardType: DashboardCard
             var apiResponse: BlogDashboardRemoteEntity?
+
             switch item {
             case .quickActions:
                 let cellType = DashboardQuickActionsCardCell.self
@@ -88,14 +96,30 @@ final class BlogDashboardViewModel {
     private var quickActionsViewModel: DashboardQuickActionsViewModel
     private var personalizationService: BlogDashboardPersonalizationService
 
-    init(viewController: BlogDashboardViewController, managedObjectContext: NSManagedObjectContext = ContextManager.shared.mainContext, blog: Blog) {
+    init(
+        viewController: BlogDashboardViewController,
+        managedObjectContext: NSManagedObjectContext = ContextManager.shared.mainContext,
+        blog: Blog
+    ) {
         self.viewController = viewController
         self.managedObjectContext = managedObjectContext
         self.blog = blog
         self.personalizationService = BlogDashboardPersonalizationService(siteID: blog.dotComID?.intValue ?? 0)
         self.blazeViewModel = DashboardBlazeCardCellViewModel(blog: blog)
         self.quickActionsViewModel = DashboardQuickActionsViewModel(blog: blog, personalizationService: personalizationService)
+
+        var _error: Error?
+
+        do {
+            self.wordpressClient = try WordPressClientFactory.shared.instance(for: .init(blog: self.blog))
+        } catch {
+            _error = error
+            self.wordpressClient = nil
+        }
+
         registerNotifications()
+
+        self.error = _error
     }
 
     /// Apply the initial configuration when the view loaded
@@ -132,7 +156,6 @@ final class BlogDashboardViewModel {
             completion?(cards)
         }, failure: { [weak self] cards in
             self?.viewController?.stopLoading()
-            self?.loadingFailure()
             self?.updateCurrentCards(cards: cards)
 
             completion?(cards)
@@ -142,19 +165,12 @@ final class BlogDashboardViewModel {
     }
 
     @objc func loadCardsFromCache() {
+        loadCardsFromCacheWithAnimation(animated: false)
+    }
+
+    @nonobjc func loadCardsFromCacheWithAnimation(animated: Bool) {
         let cards = service.fetchLocal(blog: blog)
-        updateCurrentCards(cards: cards)
-    }
-
-    func isQuickActionsSection(_ sectionIndex: Int) -> Bool {
-        let showMigration = MigrationSuccessCardView.shouldShowMigrationSuccessCard && !WPDeviceIdentification.isiPad()
-        let targetIndex = showMigration ? DashboardSection.quickActions.rawValue : DashboardSection.quickActions.rawValue - 1
-        return sectionIndex == targetIndex
-    }
-
-    func isMigrationSuccessCardSection(_ sectionIndex: Int) -> Bool {
-        let showMigration = MigrationSuccessCardView.shouldShowMigrationSuccessCard && !WPDeviceIdentification.isiPad()
-        return showMigration ? sectionIndex == DashboardSection.migrationSuccess.rawValue : false
+        updateCurrentCards(cards: cards, animated: animated)
     }
 }
 
@@ -169,10 +185,10 @@ private extension BlogDashboardViewModel {
         NotificationCenter.default.addObserver(self, selector: #selector(loadCardsFromCache), name: .domainsServiceDomainsRefreshed, object: nil)
     }
 
-    func updateCurrentCards(cards: [DashboardCardModel]) {
+    func updateCurrentCards(cards: [DashboardCardModel], animated: Bool = false) {
         currentCards = cards
         syncPosts(for: cards)
-        applySnapshot(for: cards)
+        applySnapshot(for: cards, animated: animated)
     }
 
     func syncPosts(for cards: [DashboardCardModel]) {
@@ -187,20 +203,31 @@ private extension BlogDashboardViewModel {
         }
     }
 
-    func applySnapshot(for cards: [DashboardCardModel]) {
+    func applySnapshot(for cards: [DashboardCardModel], animated: Bool = false) {
         let snapshot = createSnapshot(from: cards)
-        dataSource?.apply(snapshot, animatingDifferences: false)
+        dataSource?
+            .apply(snapshot, animatingDifferences: animated) { [weak viewController] in
+                // Self-sizing cells (e.g. the quick actions card) can have their cached measured
+                // height reset by this update even when their own content didn't change, since any
+                // snapshot change forces the compositional layout to recompute. Invalidating here
+                // ensures they always get re-measured after any dashboard content change.
+                viewController?.collectionView.collectionViewLayout.invalidateLayout()
+            }
     }
 
     func createSnapshot(from cards: [DashboardCardModel]) -> DashboardSnapshot {
+        // In an expanded split view the site menu is shown next to the dashboard.
+        // Everywhere else these quick actions are the only way to reach it.
+        let isShowingQuickActions = viewController?.splitViewController?.isCollapsed ?? true
+
         let items = cards.map { DashboardItem.cards($0) }
         let dotComID = blog.dotComID?.intValue ?? 0
         var snapshot = DashboardSnapshot()
-        if MigrationSuccessCardView.shouldShowMigrationSuccessCard, !WPDeviceIdentification.isiPad() {
+        if MigrationSuccessCardView.shouldShowMigrationSuccessCard, isShowingQuickActions {
             snapshot.appendSections([.migrationSuccess])
             snapshot.appendItems([.migrationSuccess], toSection: .migrationSuccess)
         }
-        if !WPDeviceIdentification.isiPad() {
+        if isShowingQuickActions {
             snapshot.appendSections([.quickActions])
             snapshot.appendItems([.quickActions(dotComID)], toSection: .quickActions)
         }
@@ -224,19 +251,9 @@ private extension BlogDashboardViewModel {
             loadCardsFromCache()
         }
     }
-
 }
 
 // MARK: - Ghost/Skeleton cards and failures
-
-private extension BlogDashboardViewModel {
-
-    func loadingFailure() {
-        if blog.dashboardState.hasCachedData {
-            viewController?.loadingFailure()
-        }
-    }
-}
 
 private extension Collection where Element == DashboardCardModel {
     var hasDrafts: Bool {

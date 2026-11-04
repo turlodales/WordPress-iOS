@@ -1,3 +1,8 @@
+import WordPressData
+import WordPressKit
+import WordPressShared
+import WordPressSharedUI
+
 /// Encapsulates the logic required to fetch, prepare, and present the contents for sharing the app to others.
 ///
 /// The contents for sharing is first fetched from the API, so the share presentation logic is not synchronously executed.
@@ -64,7 +69,7 @@ class ShareAppContentPresenter {
         isLoading = true
 
         remote.getContent(for: appName) { [weak self] result in
-            guard let self = self else { return }
+            guard let self else { return }
 
             switch result {
             case .success(let content):

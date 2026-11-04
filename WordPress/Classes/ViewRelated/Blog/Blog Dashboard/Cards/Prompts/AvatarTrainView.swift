@@ -41,7 +41,7 @@ final class AvatarTrainView: UIView {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         // redraw border when user interface style changes.
-        if let previousTraitCollection = previousTraitCollection,
+        if let previousTraitCollection,
             previousTraitCollection.userInterfaceStyle != traitCollection.userInterfaceStyle {
             configureAvatarBorders()
         }
@@ -50,7 +50,6 @@ final class AvatarTrainView: UIView {
     override func layoutSubviews() {
         configureAvatarBorders()
     }
-
 }
 
 // MARK: Private Helpers
@@ -72,7 +71,7 @@ private extension AvatarTrainView {
             imageView.widthAnchor.constraint(equalTo: imageView.heightAnchor)
         ])
 
-        if let avatarURL = avatarURL {
+        if let avatarURL {
             imageView.downloadImage(from: avatarURL, placeholderImage: placeholderImage)
         }
 
@@ -83,7 +82,7 @@ private extension AvatarTrainView {
         avatarStackView.arrangedSubviews.forEach { view in
             view.layer.masksToBounds = true
             view.layer.borderWidth = Constants.borderWidth
-            view.layer.borderColor = UIColor.listForeground.cgColor
+            view.layer.borderColor = UIColor.secondarySystemGroupedBackground.cgColor
         }
     }
 
@@ -95,5 +94,4 @@ private extension AvatarTrainView {
         static let borderWidth: CGFloat = 2
         static let placeholderImage: UIImage = .gravatarPlaceholderImage
     }
-
 }

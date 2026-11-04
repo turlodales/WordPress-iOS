@@ -58,7 +58,7 @@ extension UITableView {
     ///
     /// Source: https://gist.github.com/smileyborg/50de5da1c921b73bbccf7f76b3694f6a
     ///
-    func sizeToFitFooterView() {
+    @objc public func sizeToFitFooterView() {
         guard let tableFooterView else {
             return
         }
@@ -74,5 +74,4 @@ extension UITableView {
             self.tableFooterView = tableFooterView
         }
     }
-
 }

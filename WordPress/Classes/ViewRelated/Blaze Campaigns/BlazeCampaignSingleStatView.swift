@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 final class BlazeCampaignSingleStatView: UIView {
 
@@ -29,7 +30,7 @@ final class BlazeCampaignSingleStatView: UIView {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = WPStyleGuide.fontForTextStyle(.body, fontWeight: .semibold)
-        label.textColor = .text
+        label.textColor = .label
         label.isAccessibilityElement = false
         return label
     }()
@@ -38,7 +39,7 @@ final class BlazeCampaignSingleStatView: UIView {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = WPStyleGuide.fontForTextStyle(.footnote, fontWeight: .regular)
-        label.textColor = .textSubtle
+        label.textColor = .secondaryLabel
         label.isAccessibilityElement = false
         return label
     }()

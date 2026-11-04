@@ -1,16 +1,6 @@
 import UIKit
-
-struct PostingActivityViewModel {
-    private let insightsStore: StatsInsightsStore
-
-    init(insightsStore: StatsInsightsStore) {
-        self.insightsStore = insightsStore
-    }
-
-    lazy var yearData: [[PostingStreakEvent]] = {
-        return insightsStore.getYearlyPostingActivity(from: Date())
-    }()
-}
+import WordPressKit
+import WordPressShared
 
 final class PostingActivityViewController: UIViewController, StoryboardLoadable {
 
@@ -32,10 +22,10 @@ final class PostingActivityViewController: UIViewController, StoryboardLoadable 
 
     // MARK: - Private
 
-    private var viewModel: PostingActivityViewModel
+    private let yearData: [[PostingStreakEvent]]
 
-    init?(coder: NSCoder, viewModel: PostingActivityViewModel) {
-        self.viewModel = viewModel
+    init?(coder: NSCoder, yearData: [[PostingStreakEvent]]) {
+        self.yearData = yearData
         super.init(coder: coder)
     }
 
@@ -61,7 +51,6 @@ final class PostingActivityViewController: UIViewController, StoryboardLoadable 
         super.viewDidLayoutSubviews()
         collectionView.collectionViewLayout.invalidateLayout()
     }
-
 }
 
 // MARK: - UICollectionViewDataSource
@@ -73,17 +62,16 @@ extension PostingActivityViewController: UICollectionViewDataSource {
     }
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return viewModel.yearData.count
+        return yearData.count
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
 
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PostingActivityCollectionViewCell.reuseIdentifier, for: indexPath) as! PostingActivityCollectionViewCell
-        cell.configure(withData: viewModel.yearData[indexPath.row], postingActivityDayDelegate: self)
+        cell.configure(withData: yearData[indexPath.row], postingActivityDayDelegate: self)
 
         return cell
     }
-
 }
 
 // MARK: - UICollectionViewDelegateFlowLayout
@@ -93,7 +81,6 @@ extension PostingActivityViewController: UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
         return Style.cellSizeForFrameWidth(collectionView.frame.size.width)
     }
-
 }
 
 // MARK: - PostingActivityDayDelegate
@@ -112,7 +99,6 @@ extension PostingActivityViewController: PostingActivityDayDelegate {
         dateLabel.text = formattedDate(dayData.date)
         postCountLabel.text = formattedPostCount(dayData.postCount)
     }
-
 }
 
 // MARK: - Private Extension
@@ -120,14 +106,14 @@ extension PostingActivityViewController: PostingActivityDayDelegate {
 private extension PostingActivityViewController {
 
     func addLegend() {
-        let legend = PostingActivityLegend.loadFromNib()
-        legend.backgroundColor = .listForeground
+        let legend = PostingActivityLegend()
+        legend.backgroundColor = .secondarySystemGroupedBackground
         legendView.addSubview(legend)
     }
 
     func applyStyles() {
-        view.backgroundColor = .listForeground
-        collectionView.backgroundColor = .listForeground
+        view.backgroundColor = .secondarySystemGroupedBackground
+        collectionView.backgroundColor = .secondarySystemGroupedBackground
         Style.configureLabelAsPostingDate(dateLabel)
         Style.configureLabelAsPostingCount(postCountLabel)
         Style.configureViewAsSeparator(separatorLine)

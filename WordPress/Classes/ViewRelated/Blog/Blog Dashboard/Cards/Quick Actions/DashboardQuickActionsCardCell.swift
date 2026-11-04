@@ -1,6 +1,10 @@
 import UIKit
 import Combine
+import WordPressData
 import WordPressShared
+import SwiftUI
+import WordPressAPI
+import WordPressUI
 
 final class DashboardQuickActionsCardCell: UICollectionViewCell, Reusable, UITableViewDataSource, UITableViewDelegate {
 
@@ -11,8 +15,8 @@ final class DashboardQuickActionsCardCell: UICollectionViewCell, Reusable, UITab
         tableView.isScrollEnabled = false
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.clipsToBounds = true
-        tableView.layer.cornerRadius = 10
-        tableView.backgroundColor = .listForeground
+        tableView.layer.cornerRadius = DesignConstants.radius(.large)
+        tableView.backgroundColor = .secondarySystemGroupedBackground
         tableView.register(DashboardQuickActionCell.self, forCellReuseIdentifier: Constants.cellReuseID)
         return tableView
     }()
@@ -25,7 +29,6 @@ final class DashboardQuickActionsCardCell: UICollectionViewCell, Reusable, UITab
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-
         createView()
     }
 
@@ -38,7 +41,10 @@ final class DashboardQuickActionsCardCell: UICollectionViewCell, Reusable, UITab
         contentView.pinSubviewToAllEdges(tableView, priority: UILayoutPriority(999))
     }
 
-    func configure(viewModel: DashboardQuickActionsViewModel, viewController: BlogDashboardViewController) {
+    func configure(
+        viewModel: DashboardQuickActionsViewModel,
+        viewController: BlogDashboardViewController
+    ) {
         self.parentViewController = viewController
         self.viewModel = viewModel
 
@@ -48,14 +54,16 @@ final class DashboardQuickActionsCardCell: UICollectionViewCell, Reusable, UITab
             self?.deselectCurrentCell()
         }
 
-        viewModel.$items.sink { [weak self] in
-            guard let self else { return }
-            self.items = $0
-            self.tableView.reloadData()
-            self.setNeedsLayout()
-            self.layoutIfNeeded()
-            self.parentViewController?.collectionView.collectionViewLayout.invalidateLayout()
-        }.store(in: &cancellables)
+        viewModel.$items
+            .sink { [weak self] in
+                guard let self else { return }
+                self.items = $0
+                self.tableView.reloadData()
+                self.setNeedsLayout()
+                self.layoutIfNeeded()
+                self.parentViewController?.collectionView.collectionViewLayout.invalidateLayout()
+            }
+            .store(in: &cancellables)
     }
 
     private func deselectCurrentCell() {
@@ -71,11 +79,14 @@ final class DashboardQuickActionsCardCell: UICollectionViewCell, Reusable, UITab
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: Constants.cellReuseID, for: indexPath) as! DashboardQuickActionCell
+        let cell =
+            tableView.dequeueReusableCell(withIdentifier: Constants.cellReuseID, for: indexPath)
+            as! DashboardQuickActionCell
         cell.configure(items[indexPath.row])
         cell.backgroundColor = .clear
         cell.accessoryType = .disclosureIndicator
         cell.isSeparatorHidden = indexPath.row == (items.count - 1)
+
         return cell
     }
 
@@ -92,43 +103,64 @@ final class DashboardQuickActionsCardCell: UICollectionViewCell, Reusable, UITab
             trackQuickActionsEvent(.openedPages, blog: blog)
             PageListViewController.showForBlog(blog, from: parentViewController)
         case .comments:
+            if let v2 = CommentsRouting.makeViewController(for: blog) {
+                let properties: [String: Any] = [
+                    WPAppAnalyticsKeyTapSource: "quick_actions",
+                    WPAppAnalyticsKeyTabSource: "dashboard",
+                    "is_v2": "1"
+                ]
+                WPAppAnalytics.track(.openedComments, properties: properties, blog: blog)
+                parentViewController.show(v2, sender: nil)
+                return
+            }
             if let viewController = CommentsViewController(blog: blog) {
                 trackQuickActionsEvent(.openedComments, blog: blog)
                 parentViewController.show(viewController, sender: nil)
             }
         case .media:
+            if let v2 = MediaLibraryRouting.makeViewController(
+                for: blog,
+                baseAnalyticsProperties: [
+                    WPAppAnalyticsKeyTapSource: "quick_actions",
+                    WPAppAnalyticsKeyTabSource: "dashboard"
+                ]
+            ) {
+                parentViewController.show(v2, sender: nil)
+                return
+            }
             trackQuickActionsEvent(.openedMediaLibrary, blog: blog)
             let controller = SiteMediaViewController(blog: blog)
             parentViewController.show(controller, sender: nil)
-            QuickStartTourGuide.shared.visited(.mediaScreen)
         case .stats:
             trackQuickActionsEvent(.statsAccessed, blog: blog)
-            StatsViewController.show(for: blog, from: parentViewController)
+            let statsVC = StatsHostingViewController.makeStatsViewController(for: blog)
+            parentViewController.show(statsVC, sender: nil)
         case .more:
-            let viewController = BlogDetailsViewController()
+            let viewController = BlogDetailsViewController(blog: blog)
             viewController.isScrollEnabled = true
-            viewController.tableView.isScrollEnabled = true
-            viewController.blog = blog
+            viewController.tableView?.isScrollEnabled = true
             viewController.presentationDelegate = self
-            viewController.navigationItem.scrollEdgeAppearance = {
-                let appearance = UINavigationBarAppearance()
-                appearance.configureWithTransparentBackground()
-                return appearance
-            }()
             self.blogDetailsViewController = viewController
             self.parentViewController?.show(viewController, sender: nil)
         }
     }
 
     private func trackQuickActionsEvent(_ event: WPAnalyticsStat, blog: Blog) {
-        WPAppAnalytics.track(event, withProperties: [WPAppAnalyticsKeyTabSource: "dashboard", WPAppAnalyticsKeyTapSource: "quick_actions"], with: blog)
+        var properties: [String: Any] = [
+            WPAppAnalyticsKeyTabSource: "dashboard",
+            WPAppAnalyticsKeyTapSource: "quick_actions"
+        ]
+        if event == .statsAccessed, FeatureFlag.newStats.enabled {
+            properties[WPAnalyticsEvent.isNewStatsKey] = "1"
+        }
+        WPAppAnalytics.track(event, properties: properties, blog: blog)
     }
 }
 
 // MARK: - DashboardQuickActionsCardCell (BlogDetailsPresentationDelegate)
 
 extension DashboardQuickActionsCardCell: BlogDetailsPresentationDelegate {
-    func showBlogDetailsSubsection(_ subsection: BlogDetailsSubsection) {
+    func showBlogDetailsSubsection(_ subsection: BlogDetailsRowKind) {
         self.blogDetailsViewController?.showDetailView(for: subsection)
     }
 

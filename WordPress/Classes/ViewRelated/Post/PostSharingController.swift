@@ -1,20 +1,22 @@
 import Foundation
+import UIKit
 import SVProgressHUD
+import WordPressData
 
 @objc class PostSharingController: NSObject {
 
-    @objc func shareController(_ title: String?, summary: String?, link: String?) -> UIActivityViewController {
-        var activityItems = [AnyObject]()
+    @objc func shareController(_ title: String?, link: String?) -> UIActivityViewController {
         let url = link.flatMap(URL.init(string:))
-        let post = SharePost(title: title, summary: summary, url: url?.absoluteString)
-        activityItems.append(post)
+        let allItems: [Any?] = [url]
+        let nonNilActivityItems = allItems.compactMap({ $0 })
 
         let activities = WPActivityDefaults.defaultActivities() as! [UIActivity]
-        let controller = UIActivityViewController(activityItems: activityItems, applicationActivities: activities)
-        if let str = title {
-            controller.setValue(str, forKey: "subject")
+        let controller = UIActivityViewController(activityItems: nonNilActivityItems, applicationActivities: activities)
+
+        if let title {
+            controller.setValue(title, forKey: "subject")
         }
-        controller.completionWithItemsHandler = { (activityType, completed, returnedItems, error) in
+        controller.completionWithItemsHandler = { activityType, completed, _, _ in
             if completed {
                 WPActivityDefaults.trackActivityType((activityType).map { $0.rawValue })
             }
@@ -23,13 +25,10 @@ import SVProgressHUD
         return controller
     }
 
-    @objc func sharePost(_ title: String, summary: String, link: String?, fromBarButtonItem anchorBarButtonItem: UIBarButtonItem, inViewController viewController: UIViewController) {
-        let controller = shareController(
-            title,
-            summary: summary,
-            link: link)
+    @objc func sharePost(_ title: String, link: String?, fromBarButtonItem anchorBarButtonItem: UIBarButtonItem, inViewController viewController: UIViewController) {
+        let controller = shareController(title, link: link)
 
-        if !UIDevice.isPad() {
+        if viewController.traitCollection.userInterfaceIdiom != .pad {
             viewController.present(controller, animated: true)
             return
         }
@@ -43,17 +42,13 @@ import SVProgressHUD
         }
     }
 
-    @objc func sharePost(_ title: String, summary: String, link: String?, fromView anchorView: UIView, inViewController viewController: UIViewController) {
-        sharePost(title, summary: summary, link: link, fromAnchor: .view(anchorView), inViewController: viewController)
+    @objc func sharePost(_ title: String?, link: String?, fromView anchorView: UIView, inViewController viewController: UIViewController) {
+        sharePost(title, link: link, fromAnchor: anchorView, inViewController: viewController)
     }
 
-    private func sharePost(_ title: String, summary: String, link: String?, fromAnchor anchor: PopoverAnchor, inViewController viewController: UIViewController) {
-        let controller = shareController(
-            title,
-            summary: summary,
-            link: link)
-
-        if !UIDevice.isPad() {
+    private func sharePost(_ title: String?, link: String?, fromAnchor anchor: UIPopoverPresentationControllerSourceItem, inViewController viewController: UIViewController) {
+        let controller = shareController(title, link: link)
+        if viewController.traitCollection.userInterfaceIdiom != .pad {
             viewController.present(controller, animated: true)
             return
         }
@@ -63,70 +58,54 @@ import SVProgressHUD
         viewController.present(controller, animated: true)
         if let presentationController = controller.popoverPresentationController {
             presentationController.permittedArrowDirections = .any
-            switch anchor {
-            case .barButtonItem(let item):
-                presentationController.barButtonItem = item
-            case .view(let anchorView):
-                presentationController.sourceView = anchorView
-                presentationController.sourceRect = anchorView.bounds
-            }
+            presentationController.sourceItem = anchor
         }
     }
 
     @objc func sharePage(_ page: Page, fromView anchorView: UIView, inViewController viewController: UIViewController) {
-
         sharePost(
             page.titleForDisplay(),
-            summary: page.contentPreviewForDisplay(),
             link: page.permaLink,
             fromView: anchorView,
             inViewController: viewController)
     }
 
     @objc func sharePost(_ post: Post, fromBarButtonItem anchorBarButtonItem: UIBarButtonItem, inViewController viewController: UIViewController) {
-
         sharePost(
             post.titleForDisplay(),
-            summary: post.contentPreviewForDisplay(),
             link: post.permaLink,
             fromBarButtonItem: anchorBarButtonItem,
             inViewController: viewController)
     }
 
     @objc func sharePost(_ post: Post, fromView anchorView: UIView, inViewController viewController: UIViewController) {
-
         sharePost(
             post.titleForDisplay(),
-            summary: post.contentPreviewForDisplay(),
             link: post.permaLink,
             fromView: anchorView,
             inViewController: viewController)
     }
 
-    func shareReaderPost(_ post: ReaderPost, fromAnchor anchor: PopoverAnchor, inViewController viewController: UIViewController) {
-
+    func shareReaderPost(_ post: ReaderPost, fromAnchor anchor: UIPopoverPresentationControllerSourceItem, inViewController viewController: UIViewController) {
         sharePost(
             post.titleForDisplay(),
-            summary: post.contentPreviewForDisplay(),
             link: post.permaLink,
             fromAnchor: anchor,
             inViewController: viewController)
     }
 
     @objc func shareReaderPost(_ post: ReaderPost, fromView anchorView: UIView, inViewController viewController: UIViewController) {
-
         sharePost(
             post.titleForDisplay(),
-            summary: post.contentPreviewForDisplay(),
             link: post.permaLink,
             fromView: anchorView,
             inViewController: viewController)
     }
 
     @objc func shareURL(url: NSURL, fromRect rect: CGRect, inView view: UIView, inViewController viewController: UIViewController) {
-        let controller = shareController("", summary: "", link: url.absoluteString)
+        let controller = shareController("", link: url.absoluteString)
 
-        if !UIDevice.isPad() {
+        if viewController.traitCollection.userInterfaceIdiom != .pad {
             viewController.present(controller, animated: true)
             return
         }
@@ -141,8 +120,5 @@ import SVProgressHUD
             presentationController.sourceView = view
             presentationController.sourceRect = rect
         }
-
     }
-
-    typealias PopoverAnchor = UIPopoverPresentationController.PopoverAnchor
 }

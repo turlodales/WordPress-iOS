@@ -1,5 +1,6 @@
 import Foundation
-
+import WordPressCore
+import WordPressData
 
 /// Encapsulates Account-Y Helpers
 ///
@@ -7,7 +8,7 @@ import Foundation
     /// Threadsafe Helper that indicates whether a Default Dotcom Account is available, or not
     ///
     @objc static func isDotcomAvailable() -> Bool {
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
         var available = false
 
         context.performAndWait {
@@ -19,32 +20,33 @@ import Foundation
 
     @objc static var isLoggedIn: Bool {
         get {
-            return !(noSelfHostedBlogs && noWordPressDotComAccount)
+            !(noSelfHostedBlogs && noWordPressDotComAccount)
         }
     }
 
     @objc static var noSelfHostedBlogs: Bool {
-        let context = ContextManager.sharedInstance().mainContext
-        return BlogQuery().hostedByWPCom(false).count(in: context) == 0 && (try? Blog.hasAnyJetpackBlogs(in: context)) == false
+        let context = ContextManager.shared.mainContext
+        return BlogQuery().hostedByWPCom(false).count(in: context) == 0
+            && (try? Blog.hasAnyJetpackBlogs(in: context)) == false
     }
 
     static var hasBlogs: Bool {
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
         return Blog.count(in: context) > 0
     }
 
     @objc static var noWordPressDotComAccount: Bool {
-        return !AccountHelper.isDotcomAvailable()
+        !AccountHelper.isDotcomAvailable()
     }
 
     static var defaultSiteId: NSNumber? {
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
         let account = try? WPAccount.lookupDefaultWordPressComAccount(in: context)
         return account?.defaultBlog?.dotComID
     }
 
     static var authToken: String? {
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
         let account = try? WPAccount.lookupDefaultWordPressComAccount(in: context)
         return account?.authToken
     }
@@ -59,45 +61,49 @@ import Foundation
         let otherAccounts = accountCount > 1 ? " + \(accountCount - 1) others" : ""
         let accountsDescription = "wp.com account: " + (defaultAccount?.logDescription ?? "<none>") + otherAccounts
 
-        let blogTree = blogsByAccount.map({ (account, blogs) -> String in
-            let accountDescription = account?.logDescription ?? "<Self-Hosted>"
-            let isDefault = (account != nil && account == defaultAccount) ? " (default)" : ""
-            let blogsDescription = blogs.map({ (blog) -> String in
-                return "└─ " + blog.logDescription()
-            }).joined(separator: "\n")
+        let blogTree =
+            blogsByAccount.map({ account, blogs -> String in
+                let accountDescription = account?.logDescription ?? "<Self-Hosted>"
+                let isDefault = (account != nil && account == defaultAccount) ? " (default)" : ""
+                let blogsDescription =
+                    blogs.map({ blog -> String in
+                        "└─ " + blog.logDescription
+                    })
+                    .joined(separator: "\n")
 
-            return accountDescription + isDefault + "\n" + blogsDescription
-        }).joined(separator: "\n")
+                return accountDescription + isDefault + "\n" + blogsDescription
+            })
+            .joined(separator: "\n")
         let blogTreeDescription = !blogsByAccount.isEmpty ? blogTree : "No account/blogs configured on device"
 
-        let result = accountsDescription + "\nAll accounts and blogs:\n" + blogTreeDescription
-        DDLogInfo(result)
+        DDLogInfo("\(accountsDescription)\nAll accounts and blogs:\n\(blogTreeDescription)")
     }
 
     static func logOutDefaultWordPressComAccount() {
         // Unschedule any scheduled blogging reminders
-        let service = AccountService(coreDataStack: ContextManager.sharedInstance())
+        let service = AccountService(coreDataStack: ContextManager.shared)
 
         // Unschedule any scheduled blogging reminders for the account's blogs.
         // We don't just clear all reminders, in case the user has self-hosted
         // sites added to the app.
         if let account = try? WPAccount.lookupDefaultWordPressComAccount(in: ContextManager.shared.mainContext),
-           let blogs = account.blogs,
-           let scheduler = try? ReminderScheduleCoordinator() {
+            let blogs = account.blogs,
+            let scheduler = try? ReminderScheduleCoordinator()
+        {
             blogs.forEach { scheduler.unschedule(for: $0) }
         }
 
         service.removeDefaultWordPressComAccount()
 
         deleteAccountData()
+
+        WordPressClientFactory.shared.reset()
+        JetpackSocialFactory.shared.reset()
     }
 
-    @objc static func deleteAccountData() {
+    static func deleteAccountData() {
         // Delete saved dashboard states
         BlogDashboardState.resetAllStates()
-
-        // Delete local notification on logout
-        PushNotificationsManager.shared.deletePendingLocalNotifications()
 
         // Also clear the spotlight index
         SearchManager.shared.deleteAllSearchableItems()
@@ -110,5 +116,18 @@ import Foundation
 
         // Delete all the logs after logging out
         WPLogger.shared().deleteAllLogs()
+
+        // This is best-effort for now – eventually all of this should be async
+        Task {
+            do {
+                // Delete all cached block editor settings
+                try await BlockEditorCache.shared.deleteAll()
+
+                // Delete everything in the disk cache
+                try await DiskCache().removeAll()
+            } catch {
+                debugPrint("Unable to delete all block editor settings: \(error)")
+            }
+        }
     }
 }

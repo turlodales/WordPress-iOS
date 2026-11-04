@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 class PostStatsTitleCell: UITableViewCell, NibLoadable {
 
@@ -6,10 +7,7 @@ class PostStatsTitleCell: UITableViewCell, NibLoadable {
 
     @IBOutlet weak var titleLabel: UILabel!
     @IBOutlet weak var postTitleLabel: UILabel!
-    @IBOutlet weak var bottomSeparatorLine: UIView!
-    @IBOutlet private var labelsView: UIView!
 
-    private typealias Style = WPStyleGuide.Stats
     private var postURL: URL?
     private weak var postStatsDelegate: PostStatsDelegate?
 
@@ -28,20 +26,16 @@ private extension PostStatsTitleCell {
     func applyStyles() {
         titleLabel.text = NSLocalizedString("Showing stats for:", comment: "Label on Post Stats view indicating which post the stats are for.")
 
-        labelsView.backgroundColor = .listForeground
-
-        Style.configureCell(self)
-        Style.configureLabelAsPostStatsTitle(titleLabel)
-        Style.configureLabelAsPostTitle(postTitleLabel)
-        Style.configureViewAsSeparator(bottomSeparatorLine)
+        titleLabel.font = .preferredFont(forTextStyle: .footnote)
+        titleLabel.textColor = .secondaryLabel
+        postTitleLabel.font = WPStyleGuide.navigationBarStandardFont
+        backgroundColor = .secondarySystemGroupedBackground
     }
 
     @IBAction func didTapPostTitle(_ sender: UIButton) {
-        guard let postURL = postURL else {
+        guard let postURL else {
             return
         }
-
         postStatsDelegate?.displayWebViewWithURL?(postURL)
     }
-
 }

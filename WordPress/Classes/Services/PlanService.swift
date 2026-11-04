@@ -1,13 +1,12 @@
 import Foundation
-import CocoaLumberjack
+import WordPressData
 import WordPressKit
-
 
 open class PlanService: NSObject {
 
     private let coreDataStack: CoreDataStack
 
-    @objc init(coreDataStack: CoreDataStack) {
+    @objc public init(coreDataStack: CoreDataStack) {
         self.coreDataStack = coreDataStack
     }
 
@@ -38,7 +37,6 @@ open class PlanService: NSObject {
         remote.getWpcomPlans({ plans in
 
             self.mergeRemoteWpcomPlans(plans.plans, remoteGroups: plans.groups, remoteFeatures: plans.features, onComplete: success)
-
         }, failure: failure)
     }
 
@@ -53,7 +51,6 @@ open class PlanService: NSObject {
         }, completion: onComplete, on: .main)
     }
 
-
     func allPlans(in context: NSManagedObjectContext) -> [Plan] {
         let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: "Plan")
         fetchRequest.sortDescriptors = [NSSortDescriptor(key: "order", ascending: true)]
@@ -65,13 +62,11 @@ open class PlanService: NSObject {
         }
     }
 
-
     private func findPlanByShortname(_ shortname: String, in context: NSManagedObjectContext) -> Plan? {
         allPlans(in: context).first {
             $0.shortname == shortname
         }
     }
-
 
     private func allPlanGroups(in context: NSManagedObjectContext) -> [PlanGroup] {
         let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: "PlanGroup")
@@ -84,13 +79,11 @@ open class PlanService: NSObject {
         }
     }
 
-
     private func findPlanGroupBySlug(_ slug: String, in context: NSManagedObjectContext) -> PlanGroup? {
         allPlanGroups(in: context).first {
             $0.slug == slug
         }
     }
-
 
     func allPlanFeatures(in context: NSManagedObjectContext) -> [PlanFeature] {
         let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: "PlanFeature")
@@ -102,13 +95,11 @@ open class PlanService: NSObject {
         }
     }
 
-
     private func findPlanFeatureBySlug(_ slug: String, in context: NSManagedObjectContext) -> PlanFeature? {
         let features = allPlanFeatures(in: context) as NSArray
         let results = features.filtered(using: NSPredicate(format: "slug = %@", slug))
         return results.first as? PlanFeature
     }
-
 
     private func mergeRemoteWpcomPlans(_ remotePlans: [RemoteWpcomPlan], in context: NSManagedObjectContext) {
 
@@ -117,7 +108,7 @@ open class PlanService: NSObject {
         for remotePlan in remotePlans {
             var plan = findPlanByShortname(remotePlan.shortname, in: context)
             if plan == nil {
-                plan = NSEntityDescription.insertNewObject(forEntityName: "Plan", into: context) as? Plan
+                plan = NSEntityDescription.insertNewObject(forEntityName: Plan.entityName(), into: context) as? Plan
             }
             plan?.order = Int16(plansToKeep.count)
             plan?.groups = remotePlan.groups
@@ -143,9 +134,7 @@ open class PlanService: NSObject {
             }
             context.delete(plan)
         }
-
     }
-
 
     private func mergeRemotePlanGroups(_ remoteGroups: [RemotePlanGroup], in context: NSManagedObjectContext) {
 
@@ -154,7 +143,7 @@ open class PlanService: NSObject {
         for remoteGroup in remoteGroups {
             var group = findPlanGroupBySlug(remoteGroup.slug, in: context)
             if group == nil {
-                group = NSEntityDescription.insertNewObject(forEntityName: "PlanGroup", into: context) as? PlanGroup
+                group = NSEntityDescription.insertNewObject(forEntityName: PlanGroup.entityName(), into: context) as? PlanGroup
             }
 
             group?.order = Int16(groupsToKeep.count)
@@ -172,7 +161,6 @@ open class PlanService: NSObject {
             }
             context.delete(group)
         }
-
     }
 
     private func mergeRemotePlanFeatures(_ remoteFeatures: [RemotePlanFeature], in context: NSManagedObjectContext) {
@@ -182,7 +170,7 @@ open class PlanService: NSObject {
         for remoteFeature in remoteFeatures {
             var feature = findPlanFeatureBySlug(remoteFeature.slug, in: context)
             if feature == nil {
-                feature = NSEntityDescription.insertNewObject(forEntityName: "PlanFeature", into: context) as? PlanFeature
+                feature = NSEntityDescription.insertNewObject(forEntityName: PlanFeature.entityName(), into: context) as? PlanFeature
             }
 
             feature?.slug = remoteFeature.slug
@@ -205,7 +193,7 @@ open class PlanService: NSObject {
 
 extension PlanService {
     @objc public func plansWithPricesForBlog(_ blog: Blog, success: @escaping () -> Void, failure: @escaping (Error) -> Void) {
-        guard let restAPI = blog.wordPressComRestApi(),
+        guard let restAPI = blog.wordPressComRestApi,
             let siteID = blog.dotComID?.intValue else {
                 let description = NSLocalizedString("Unable to update plan prices. There is a problem with the supplied blog.",
                                                     comment: "This is an error message that could be shown when updating Plans in the app.")
@@ -216,7 +204,7 @@ extension PlanService {
         let remote_v1_3 = PlanServiceRemote_ApiVersion1_3(wordPressComRestApi: restAPI)
         remote_v1_3.getPlansForSite(
             siteID,
-            success: { (plans) in
+            success: { plans in
                 guard let planId = plans.activePlan.planID,
                     let planIdInt = Int(planId) else {
                         // There won't necessarily be an active plan so this is not really a failure
@@ -245,7 +233,7 @@ private struct PlanStorage {
         guard let blogInContext = try? context.existingObject(with: blog.objectID) as? Blog else {
             let error = "Tried to update a plan for a non-existing site"
             assertionFailure(error)
-            DDLogError(error)
+            DDLogError("\(error)")
             return
         }
         if blogInContext.hasDomainCredit != hasDomainCredit {

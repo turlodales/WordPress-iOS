@@ -1,3 +1,5 @@
+import FormattableContentKit
+import Foundation
 
 struct ActivityRangesFactory: FormattableRangesFactory {
     static func contentRange(from dictionary: [String: AnyObject]) -> FormattableContentRange? {
@@ -51,7 +53,7 @@ struct ActivityRangesFactory: FormattableRangesFactory {
         guard let postID = dictionary[RangeKeys.rootId] as? Int,
             let commentID = dictionary[RangeKeys.id] as? Int,
             let siteId = dictionary[RangeKeys.siteId] as? Int,
-            let url = url else {
+            let url else {
                 return nil
         }
         return ActivityCommentRange(range: range, siteID: siteId, postID: postID, commentID: commentID, url: url)

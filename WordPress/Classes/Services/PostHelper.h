@@ -1,21 +1,21 @@
 #import <Foundation/Foundation.h>
 #import <CoreData/CoreData.h>
-#import "PostService.h"
 
-@class AbstractPost, RemotePost;
+@class AbstractPost, RemotePost, Post, Blog, ReaderPost, ReaderAbstractTopic;
 
 NS_ASSUME_NONNULL_BEGIN
+
+typedef NSString * PostServiceType NS_TYPED_ENUM;
+extern PostServiceType const PostServiceTypePost;
+extern PostServiceType const PostServiceTypePage;
+extern PostServiceType const PostServiceTypeAny;
 
 @interface PostHelper: NSObject
 
 + (void)updatePost:(AbstractPost *)post withRemotePost:(RemotePost *)remotePost inContext:(NSManagedObjectContext *)managedObjectContext;
++ (void)updatePost:(AbstractPost *)post withRemotePost:(RemotePost *)remotePost inContext:(NSManagedObjectContext *)managedObjectContext overwrite:(BOOL)overwrite;
 
-/**
- Creates a RemotePost from an AbstractPost to be used for API calls.
-
- @param post The AbstractPost used to create the RemotePost
- */
-+ (RemotePost *)remotePostWithPost:(AbstractPost *)post;
++ (NSArray *)remoteMetadataForPost:(Post *)post;
 
 + (NSArray *)mergePosts:(NSArray <RemotePost *> *)remotePosts
                  ofType:(NSString *)syncPostType

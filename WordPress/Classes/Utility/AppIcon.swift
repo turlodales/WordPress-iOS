@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 /// Encapsulates a custom icon used by the app and provides some convenience
 /// methods around using custom icons.
@@ -25,17 +26,9 @@ struct AppIcon {
         return "\(lowered)-\(Constants.imageBaseName)"
     }
 
-    static var isUsingCustomIcon: Bool {
-        return UIApplication.shared.alternateIconName != nil
-    }
-
     /// The image file name of the current icon used by the app, whether custom or default.
     static var currentOrDefaultIconName: String {
-        guard AppConfiguration.allowsCustomAppIcons else {
-            return iconNameFromBundle()
-        }
-
-        return currentOrDefaultIcon.imageName
+        currentOrDefaultIcon.imageName
     }
 
     /// An `AppIcon` instance representing the current icon used by the app, whether custom or default.
@@ -62,7 +55,7 @@ struct AppIcon {
             return [defaultIcon]
         }
 
-        let customIcons = iconDict.compactMap { (key, value) -> AppIcon? in
+        let customIcons = iconDict.compactMap { key, value -> AppIcon? in
             guard let value = value as? [String: Any] else {
                 return nil
             }
@@ -88,13 +81,13 @@ struct AppIcon {
     }
 
     private enum Constants {
-        static let infoPlistBundleIconsKey    = "CFBundleIcons"
-        static let infoPlistPrimaryIconKey    = "CFBundlePrimaryIcon"
+        static let infoPlistBundleIconsKey = "CFBundleIcons"
+        static let infoPlistPrimaryIconKey = "CFBundlePrimaryIcon"
         static let infoPlistAlternateIconsKey = "CFBundleAlternateIcons"
-        static let infoPlistIconFilesKey      = "CFBundleIconFiles"
+        static let infoPlistIconFilesKey = "CFBundleIconFiles"
         static let infoPlistRequiresBorderKey = "WPRequiresBorder"
-        static let infoPlistLegacyIconKey     = "WPLegacyIcon"
-        static let imageBaseName              = AppConfiguration.isWordPress ? "icon-app-60x60" : "icon-app-60"
+        static let infoPlistLegacyIconKey = "WPLegacyIcon"
+        static let imageBaseName = AppConfiguration.isWordPress ? "icon-app-60x60" : "icon-app-60"
     }
 
     static let defaultIconName = AppConfiguration.isJetpack ? "Cool Green" : "Cool Blue"

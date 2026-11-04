@@ -1,24 +1,26 @@
 import Foundation
+import WordPressData
+import WordPressShared
 
 /// Singleton class to contain site related information for Stats.
 ///
-@objc class SiteStatsInformation: NSObject {
+@objc public class SiteStatsInformation: NSObject {
 
     // MARK: - Properties
     typealias SiteInsights = [String: [Int]]
     private let userDefaultsInsightTypesKey = "StatsInsightTypes"
-    @objc static var sharedInstance: SiteStatsInformation = SiteStatsInformation()
+    @objc public static var sharedInstance = SiteStatsInformation()
     private override init() {}
 
-    @objc var siteID: NSNumber?
-    @objc var siteTimeZone: TimeZone?
-    @objc var oauth2Token: String?
-    @objc var supportsFileDownloads: Bool = true
+    @objc public var siteID: NSNumber?
+    @objc public var siteTimeZone: TimeZone?
+    @objc public var oauth2Token: String?
+    @objc public var supportsFileDownloads: Bool = true
 
     func updateTimeZone() {
         let context = ContextManager.shared.mainContext
 
-        guard let siteID = siteID, let blog = Blog.lookup(withID: siteID, in: context) else {
+        guard let siteID, let blog = Blog.lookup(withID: siteID, in: context) else {
             return
         }
 

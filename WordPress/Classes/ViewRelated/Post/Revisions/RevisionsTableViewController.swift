@@ -1,7 +1,9 @@
-class RevisionsTableViewController: UITableViewController {
-    typealias RevisionLoadedBlock = (AbstractPost) -> Void
+import UIKit
+import WordPressData
+import WordPressUI
 
-    var onRevisionLoaded: RevisionLoadedBlock
+class RevisionsTableViewController: UITableViewController {
+    var onRevisionSelected: ((Revision) -> Void)?
 
     private var post: AbstractPost?
     private var manager: ShowRevisionsListManger?
@@ -32,11 +34,9 @@ class RevisionsTableViewController: UITableViewController {
         return tableViewHandler.resultsController?.sections?.count ?? 0
     }
 
-
-    required init(post: AbstractPost, onRevisionLoaded: @escaping RevisionLoadedBlock) {
+    required init(post: AbstractPost) {
         self.post = post
-        self.onRevisionLoaded = onRevisionLoaded
-        super.init(nibName: nil, bundle: nil)
+        super.init(style: .insetGrouped)
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -63,23 +63,22 @@ class RevisionsTableViewController: UITableViewController {
     }
 }
 
-
 private extension RevisionsTableViewController {
     private func setupUI() {
-        navigationItem.title = NSLocalizedString("History", comment: "Title of the post history screen")
+        navigationItem.title = Strings.title
 
-        let cellNib = UINib(nibName: RevisionsTableViewCell.classNameWithoutNamespaces(),
-                            bundle: Bundle(for: RevisionsTableViewCell.self))
-        tableView.register(cellNib, forCellReuseIdentifier: RevisionsTableViewCell.reuseIdentifier)
+        tableView.register(RevisionsTableViewCell.defaultNib, forCellReuseIdentifier: RevisionsTableViewCell.reuseIdentifier)
         tableView.cellLayoutMarginsFollowReadableWidth = true
 
         let refreshControl = UIRefreshControl()
         refreshControl.addTarget(self, action: #selector(refreshRevisions), for: .valueChanged)
         self.refreshControl = refreshControl
 
-        tableView.tableFooterView = tableViewFooter
+        if post?.getOriginal().isStatus(in: [.draft, .pending]) == false {
+            tableView.tableFooterView = tableViewFooter
+        }
 
-        tableView.separatorColor = .divider
+        tableView.separatorColor = .separator
         WPStyleGuide.configureColors(view: view, tableView: tableView)
     }
 
@@ -114,7 +113,7 @@ private extension RevisionsTableViewController {
 
     @objc private func refreshRevisions() {
         if sectionCount == 0 {
-            configureAndDisplayNoResults(title: NoResultsText.loadingTitle,
+            configureAndDisplayNoResults(title: Strings.loading,
                                          accessoryView: NoResultsViewController.loadingAccessoryView())
         }
 
@@ -148,35 +147,13 @@ private extension RevisionsTableViewController {
     }
 
     private func load(_ revision: Revision) {
-        guard let blog = post?.blog else {
-            return
-        }
-
-        SVProgressHUD.show(withStatus: NSLocalizedString("Loading...", comment: "Text displayed in HUD while a revision post is loading."))
-
-        let coreDataStack = ContextManager.shared
-        let postRepository = PostRepository(coreDataStack: coreDataStack)
-        Task { @MainActor in
-            do {
-                let postID = try await postRepository.getPost(withID: revision.revisionId, from: .init(blog))
-                let post = try coreDataStack.mainContext.existingObject(with: postID)
-
-                await SVProgressHUD.dismiss()
-                WPAnalytics.track(.postRevisionsRevisionLoaded)
-                self.onRevisionLoaded(post)
-                self.navigationController?.popViewController(animated: true)
-            } catch {
-                DDLogError("Error loading revision: \(error.localizedDescription)")
-                SVProgressHUD.showDismissibleError(withStatus: NSLocalizedString("Error occurred\nduring loading", comment: "Text displayed in HUD while a post revision is being loaded."))
-            }
-        }
+        onRevisionSelected?(revision)
     }
 }
 
-
 extension RevisionsTableViewController: WPTableViewHandlerDelegate {
     func managedObjectContext() -> NSManagedObjectContext {
-        return ContextManager.sharedInstance().mainContext
+        return ContextManager.shared.mainContext
     }
 
     func fetchRequest() -> NSFetchRequest<NSFetchRequestResult>? {
@@ -211,7 +188,6 @@ extension RevisionsTableViewController: WPTableViewHandlerDelegate {
         cell.avatarURL = author?.avatarURL
     }
 
-
     // MARK: Override delegate methodds
 
     override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
@@ -226,16 +202,12 @@ extension RevisionsTableViewController: WPTableViewHandlerDelegate {
         return Sizes.cellEstimatedRowHeight
     }
 
-    override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        guard let sectionInfo = tableViewHandler.resultsController?.sections?[section],
-            let headerView = Bundle.main.loadNibNamed(PageListSectionHeaderView.classNameWithoutNamespaces(),
-                                                      owner: nil,
-                                                      options: nil)?.first as? PageListSectionHeaderView else {
-                return UIView()
+    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard let sections = tableViewHandler.resultsController?.sections,
+              sections.indices.contains(section) else {
+            return nil
         }
-
-        headerView.setTitle(sectionInfo.name)
-        return headerView
+        return sections[section].name
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -252,7 +224,7 @@ extension RevisionsTableViewController: WPTableViewHandlerDelegate {
 
         let state = getRevisionState(at: indexPath)
 
-        let revisionsStoryboard = UIStoryboard(name: "Revisions", bundle: nil)
+        let revisionsStoryboard = UIStoryboard(name: "Revisions", bundle: .keystone)
         guard let revisionsNC = revisionsStoryboard.instantiateInitialViewController() as? RevisionsNavigationController else {
             return
         }
@@ -262,13 +234,11 @@ extension RevisionsTableViewController: WPTableViewHandlerDelegate {
     }
 }
 
-
 extension RevisionsTableViewController: NoResultsViewControllerDelegate {
     func actionButtonPressed() {
         refreshRevisions()
     }
 }
-
 
 extension RevisionsTableViewController: RevisionsView {
     func stopLoading(success: Bool, error: Error?) {
@@ -286,21 +256,19 @@ extension RevisionsTableViewController: RevisionsView {
         case (true, let count) where count == 0:
             // When the API call successed but there are no revisions loaded
             // This is an edge cas. It shouldn't happen since we open the revisions list only if the post revisions array is not empty.
-            configureAndDisplayNoResults(title: NoResultsText.noResultsTitle,
-                                         subtitle: NoResultsText.noResultsSubtitle)
+            configureAndDisplayNoResults(title: Strings.noResultsTitle,
+                                         subtitle: Strings.noResultsSubtitle)
         default:
             hideNoResults()
         }
     }
 }
 
-
 private struct Sizes {
     static let sectionHeaderHeight = CGFloat(40.0)
     static let sectionFooterHeight = CGFloat(48.0)
     static let cellEstimatedRowHeight = CGFloat(60.0)
 }
-
 
 private extension Date {
     private static let shortTimeFormatter: DateFormatter = {
@@ -312,7 +280,7 @@ private extension Date {
 
     private static let shortDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateStyle = .short
+        formatter.dateStyle = .medium
         formatter.timeStyle = .none
         return formatter
     }()
@@ -326,12 +294,15 @@ private extension Date {
     }
 }
 
-
 struct NoResultsText {
-    static let loadingTitle = NSLocalizedString("Loading history...", comment: "Displayed while a call is loading the history.")
     static let reloadButtonTitle = NSLocalizedString("Try again", comment: "Re-load the history again. It appears if the loading call fails.")
-    static let noResultsTitle = NSLocalizedString("No history yet", comment: "Displayed when a call is made to load the revisions but there's no result or an error.")
-    static let noResultsSubtitle = NSLocalizedString("When you make changes in the editor you'll be able to see the history here", comment: "Displayed when a call is made to load the history but there's no result or an error.")
     static let errorTitle = NSLocalizedString("Oops", comment: "Title for the view when there's an error loading the history")
     static let errorSubtitle = NSLocalizedString("There was an error loading the history", comment: "Text displayed when there is a failure loading the history.")
+}
+
+private enum Strings {
+    static let title = NSLocalizedString("revisions.title", value: "Revisions", comment: "Post revisions list screen title")
+    static let loading = NSLocalizedString("revisions.loadingTitle", value: "Loading…", comment: "Post revisions list screen / loading view title")
+    static let noResultsTitle = NSLocalizedString("revisions.emptyStateTitle", value: "No revisions yet", comment: "Displayed when a call is made to load the revisions but there's no result or an error.")
+    static let noResultsSubtitle = NSLocalizedString("revisions.emptyStateSubtitle", value: "When you make changes in the editor you'll be able to see the revision history here", comment: "Displayed when a call is made to load the history but there's no result or an error.")
 }

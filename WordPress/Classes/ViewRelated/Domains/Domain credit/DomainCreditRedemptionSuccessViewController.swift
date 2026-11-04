@@ -75,7 +75,7 @@ class DomainCreditRedemptionSuccessViewController: UIViewController {
         button.isPrimary = false
         button.accessibilityIdentifier = Accessibility.doneButtonIdentifier
         button.accessibilityHint = Accessibility.doneButtonHint
-        button.secondaryNormalBackgroundColor = UIColor(light: .white, dark: .muriel(name: .blue, .shade40))
+        button.secondaryNormalBackgroundColor = UIColor(light: .white, dark: UIAppColor.blue(.shade40))
         return button
     }()
 
@@ -95,7 +95,6 @@ class DomainCreditRedemptionSuccessViewController: UIViewController {
         return view
     }()
 
-
     // MARK: - View lifecycle
 
     init(domain: String, continueButtonPressed: @escaping (String) -> Void) {
@@ -108,23 +107,26 @@ class DomainCreditRedemptionSuccessViewController: UIViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        // Hide the illustration if we only have compact height, or if the user has
-        // dynamic content set to accessibility sizes.
-        illustration.isHidden = traitCollection.containsTraits(in: UITraitCollection(verticalSizeClass: .compact)) || traitCollection.preferredContentSizeCategory.isAccessibilityCategory
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        self.view.backgroundColor = UIColor(light: .primary, dark: .secondarySystemBackground)
+        self.view.backgroundColor = UIColor(light: UIAppColor.primary, dark: .secondarySystemBackground)
 
         navigationController?.setNavigationBarHidden(true, animated: false)
 
         setupViewHierarchy()
         configureConstraints()
+
+        registerForTraitChanges([UITraitVerticalSizeClass.self, UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
+            self.updateIllustrationVisibility()
+        }
+        updateIllustrationVisibility()
+    }
+
+    /// Hides the illustration if we only have compact height, or if the user has
+    /// dynamic content set to accessibility sizes.
+    private func updateIllustrationVisibility() {
+        illustration.isHidden = traitCollection.verticalSizeClass == .compact || traitCollection.preferredContentSizeCategory.isAccessibilityCategory
     }
 
     private func setupViewHierarchy() {
@@ -165,7 +167,7 @@ class DomainCreditRedemptionSuccessViewController: UIViewController {
             divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             divider.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             divider.bottomAnchor.constraint(equalTo: doneButtonContainer.topAnchor),
-            divider.heightAnchor.constraint(equalToConstant: .hairlineBorderWidth)
+            divider.makeHairlineConstraint(for: divider.heightAnchor)
         ])
     }
 

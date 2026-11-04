@@ -1,4 +1,5 @@
 import UIKit
+import WordPressData
 import WordPressFlux
 import WordPressShared
 
@@ -64,6 +65,7 @@ import WordPressShared
         // Setup tableView
         WPStyleGuide.configureColors(view: view, tableView: tableView)
         WPStyleGuide.configureAutomaticHeightRows(for: tableView)
+        tableView.cellLayoutMarginsFollowReadableWidth = true
 
         ImmuTable.registerRows([CheckmarkRow.self, NavigationItemRow.self, ActivityIndicatorRow.self], tableView: tableView)
         reloadViewModel()
@@ -179,7 +181,7 @@ import WordPressShared
                                           hiddenPostID: Int?,
                                           isInProgress: (HomepageChange) -> Bool,
                                           changeForPost: @escaping (Int) -> HomepageChange) -> ImmuTableRow {
-        if let inProgressChange = inProgressChange, isInProgress(inProgressChange) {
+        if let inProgressChange, isInProgress(inProgressChange) {
             return ActivityIndicatorRow(title: selectionType.title, animating: true, action: nil)
         } else {
             return NavigationItemRow(title: selectionType.title, detail: detail, action: { [weak self] _ in
@@ -211,7 +213,7 @@ import WordPressShared
                                                       entityName: Page.entityName(),
                                                       hiddenPosts: hiddenPosts,
                                                       publishedOnly: selectionType.publishedPostsOnly,
-                                                      callback: { [weak self] (post) in
+                                                      callback: { [weak self] post in
             if let page = post as? Page {
                 completion(page)
             }
@@ -287,7 +289,7 @@ import WordPressShared
                                  homePageID: homepagePageID,
                                  success: { [weak self] in
             self?.endUpdating()
-        }, failure: { [weak self] error in
+        }, failure: { [weak self] _ in
             self?.endUpdating()
 
             let notice = Notice(title: Strings.updateErrorTitle, message: Strings.updateErrorMessage, feedbackType: .error)
@@ -304,7 +306,7 @@ import WordPressShared
     }
 
     // MARK: - Private Properties
-    private let coreDataStack: CoreDataStackSwift
+    private let coreDataStack: CoreDataStack
     private let blog: Blog
     private let postRepository: PostRepository
 

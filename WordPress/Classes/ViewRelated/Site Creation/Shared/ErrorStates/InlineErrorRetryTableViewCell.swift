@@ -1,8 +1,7 @@
 
 import UIKit
-
 import Gridicons
-import WordPressShared
+import WordPressUI
 
 // MARK: - InlineErrorRetryTableViewCellAccessoryView
 
@@ -14,9 +13,9 @@ private class InlineErrorRetryTableViewCellAccessoryView: UIStackView {
 
     /// A collection of parameters uses for view layout
     private struct Metrics {
-        static let minimumHeight    = CGFloat(28)
-        static let retryDimension   = CGFloat(16)
-        static let padding          = CGFloat(4)
+        static let minimumHeight = CGFloat(28)
+        static let retryDimension = CGFloat(16)
+        static let padding = CGFloat(4)
     }
 
     /// One of the arranged subviews : a "refresh" Gridicon
@@ -29,7 +28,7 @@ private class InlineErrorRetryTableViewCellAccessoryView: UIStackView {
 
     init() {
         self.retryImageView = {
-            let dismissImage = UIImage.gridicon(.refresh).imageWithTintColor(.primary)
+            let dismissImage = UIImage.gridicon(.refresh).imageWithTintColor(UIAppColor.primary)
             let imageView = UIImageView(image: dismissImage)
 
             imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -44,7 +43,7 @@ private class InlineErrorRetryTableViewCellAccessoryView: UIStackView {
             label.translatesAutoresizingMaskIntoConstraints = false
 
             label.font = WPStyleGuide.fontForTextStyle(.body, fontWeight: .bold)
-            label.textColor = .primary
+            label.textColor = UIAppColor.primary
             label.textAlignment = .center
 
             label.text = NSLocalizedString("Retry", comment: "Title for accessory view in the empty state table view cell in the Verticals step of Enhanced Site Creation")
@@ -93,8 +92,8 @@ final class InlineErrorRetryTableViewCell: UITableViewCell, ReusableCell {
 
     /// A collection of parameters uses for view layout
     private struct Metrics {
-        static let height           = CGFloat(44)
-        static let trailingInset    = CGFloat(16)
+        static let height = CGFloat(44)
+        static let trailingInset = CGFloat(16)
     }
 
     /// A subview akin to an accessory view
@@ -122,10 +121,10 @@ final class InlineErrorRetryTableViewCell: UITableViewCell, ReusableCell {
     private func initialize() {
         if let label = textLabel {
             WPStyleGuide.configureLabel(label, textStyle: .body)
-            label.textColor = .neutral(.shade40)
+            label.textColor = UIAppColor.neutral(.shade40)
         }
 
-        let borderColor = UIColor.divider
+        let borderColor = UIColor.separator
         addTopBorder(withColor: borderColor)
         addBottomBorder(withColor: borderColor)
 

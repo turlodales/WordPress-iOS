@@ -1,3 +1,4 @@
+import BuildSettingsKit
 import WordPressFlux
 import WordPressKit
 
@@ -19,7 +20,6 @@ extension Bundle: AnnouncementsVersionProvider {
         shortVersionString()
     }
 }
-
 
 /// Announcement store with a local cache of "some sort"
 class CachedAnnouncementsStore: AnnouncementsStore {
@@ -78,9 +78,11 @@ class CachedAnnouncementsStore: AnnouncementsStore {
         cacheIsValid(for: cache.announcements ?? [])
     }
 
-    init(cache: AnnouncementsCache,
-         service: AnnouncementServiceRemote,
-         versionProvider: AnnouncementsVersionProvider = Bundle.main) {
+    init(
+        cache: AnnouncementsCache,
+        service: AnnouncementServiceRemote,
+        versionProvider: AnnouncementsVersionProvider = Bundle.main
+    ) {
 
         self.cache = cache
         self.service = service
@@ -102,24 +104,28 @@ class CachedAnnouncementsStore: AnnouncementsStore {
         // clear cache if it's invalid
         cache.announcements = nil
 
-        service.getAnnouncements(appId: Identifiers.appId,
-                                 appVersion: Identifiers.appVersion,
-                                 locale: Locale.current.identifier) { [weak self] result in
+        service.getAnnouncements(
+            appId: Identifiers.appId,
+            appVersion: Identifiers.appVersion,
+            locale: Locale.current.identifier
+        ) { [weak self] result in
 
             switch result {
             case .success(let announcements):
-                DispatchQueue.global().async {
-                    self?.cache.announcements = announcements
-                }
+                DispatchQueue.global()
+                    .async {
+                        self?.cache.announcements = announcements
+                    }
                 self?.state = .ready(announcements)
             case .failure(let error):
                 self?.state = .error(error)
-                DDLogError("Feature announcements error: unable to fetch remote announcements - \(error.localizedDescription)")
+                DDLogError(
+                    "Feature announcements error: unable to fetch remote announcements - \(error.localizedDescription)"
+                )
             }
         }
     }
 }
-
 
 extension CachedAnnouncementsStore {
 
@@ -132,7 +138,7 @@ extension CachedAnnouncementsStore {
         }
 
         return (announcement.minimumAppVersion...announcement.maximumAppVersion).contains(version)
-        || announcement.appVersionTargets.contains(version)
+            || announcement.appVersionTargets.contains(version)
     }
 }
 
@@ -140,7 +146,8 @@ private extension CachedAnnouncementsStore {
 
     var cacheExpired: Bool {
         guard let date = cache.date,
-              let elapsedTime = Calendar.current.dateComponents([.hour], from: date, to: Date()).hour else {
+            let elapsedTime = Calendar.current.dateComponents([.hour], from: date, to: Date()).hour
+        else {
             return true
         }
         return elapsedTime >= Self.cacheExpirationTime
@@ -154,25 +161,30 @@ private extension CachedAnnouncementsStore {
             return
         }
         cacheState = .loading
-        DispatchQueue.global().async {
-            self.service.getAnnouncements(appId: Identifiers.appId,
-                                          appVersion: Identifiers.appVersion,
-                                          locale: Locale.current.identifier) { [weak self] result in
-
-                switch result {
-                case .success(let announcements):
-                    self?.cache.announcements = announcements
-                    self?.cacheState = .ready([])
-                case .failure(let error):
-                    DDLogError("Feature announcements error: unable to fetch remote announcements - \(error.localizedDescription)")
-                    self?.cacheState = .error(error)
+        DispatchQueue.global()
+            .async { [weak self] in
+                guard let service = self?.service else { return }
+                service.getAnnouncements(
+                    appId: Identifiers.appId,
+                    appVersion: Identifiers.appVersion,
+                    locale: Locale.current.identifier
+                ) { result in
+                    switch result {
+                    case .success(let announcements):
+                        self?.cache.announcements = announcements
+                        self?.cacheState = .ready([])
+                    case .failure(let error):
+                        DDLogError(
+                            "Feature announcements error: unable to fetch remote announcements - \(error.localizedDescription)"
+                        )
+                        self?.cacheState = .error(error)
+                    }
                 }
             }
-        }
     }
 
     enum Identifiers {
-        static let appId = AppConstants.mobileAnnounceAppId
+        static let appId = BuildSettings.current.mobileAnnounceAppID
         static var appVersion: String {
             Bundle.main.shortVersionString() ?? ""
         }

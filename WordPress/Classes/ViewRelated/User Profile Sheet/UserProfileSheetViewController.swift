@@ -1,3 +1,7 @@
+import UIKit
+import WordPressData
+import WordPressUI
+
 class UserProfileSheetViewController: UITableViewController {
 
     // MARK: - Properties
@@ -8,7 +12,7 @@ class UserProfileSheetViewController: UITableViewController {
     var blogUrlPreviewedSource: String?
 
     private lazy var mainContext = {
-        return ContextManager.sharedInstance().mainContext
+        return ContextManager.shared.mainContext
     }()
 
     private lazy var contentCoordinator: ContentCoordinator = {
@@ -30,46 +34,20 @@ class UserProfileSheetViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+
         configureTable()
         registerTableCells()
+
+        tableView.contentInset.top = 24 // For grabber and extra inset in popover
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
         var size = tableView.contentSize
-
-        // Apply a slight padding to the bottom of the view to give it some space to breathe
-        // when being presented in a popover or bottom sheet
-        let bottomPadding = WPDeviceIdentification.isiPad() ? Constants.iPadBottomPadding : Constants.iPhoneBottomPadding
-        size.height += bottomPadding
-
+        size.height += tableView.contentInset.top
         preferredContentSize = size
     }
-}
-
-// MARK: - DrawerPresentable Extension
-
-extension UserProfileSheetViewController: DrawerPresentable {
-
-    var collapsedHeight: DrawerHeight {
-        if traitCollection.verticalSizeClass == .compact {
-            return .maxHeight
-        }
-
-        // Force the table layout to update so the Bottom Sheet gets the right height.
-        tableView.layoutIfNeeded()
-        return .intrinsicHeight
-    }
-
-    var scrollableView: UIScrollView? {
-        return tableView
-    }
-
-    var allowsUserTransition: Bool {
-        false
-    }
-
 }
 
 // MARK: - UITableViewDataSource methods
@@ -149,7 +127,6 @@ private extension UserProfileSheetViewController {
         }
 
         showSiteTopicWithID(NSNumber(value: blog.blogID))
-
     }
 
     func showSiteTopicWithID(_ siteID: NSNumber) {
@@ -172,7 +149,7 @@ private extension UserProfileSheetViewController {
     }
 
     func configureTable() {
-        tableView.backgroundColor = .basicBackground
+        tableView.backgroundColor = .systemBackground
         tableView.separatorStyle = .none
         tableView.isScrollEnabled = false
     }
@@ -210,8 +187,5 @@ private extension UserProfileSheetViewController {
     enum Constants {
         static let userInfoSection = 0
         static let siteSectionTitle = NSLocalizedString("Site", comment: "Header for a single site, shown in Notification user profile.").localizedUppercase
-        static let iPadBottomPadding: CGFloat = 10
-        static let iPhoneBottomPadding: CGFloat = 40
     }
-
 }

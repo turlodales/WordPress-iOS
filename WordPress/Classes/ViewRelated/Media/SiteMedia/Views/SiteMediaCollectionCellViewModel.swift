@@ -1,4 +1,5 @@
 import UIKit
+import WordPressData
 
 final class SiteMediaCollectionCellViewModel {
     let mediaID: TaggedManagedObjectID<Media>
@@ -52,7 +53,7 @@ final class SiteMediaCollectionCellViewModel {
             self?.updateOverlayState()
         })
 
-        observations.append(media.observe(\.localURL, options: [.new]) { [weak self] media, _ in
+        observations.append(media.observe(\.localURL, options: [.new]) { [weak self] _, _ in
             self?.didUpdateLocalThumbnail()
         })
 

@@ -1,6 +1,7 @@
 import Foundation
-import CocoaLumberjack
+import WordPressData
 import WordPressKit
+import WordPressShared
 
 /// Notes:
 ///
@@ -14,26 +15,44 @@ import WordPressKit
 /// Details in #6220.
 ///
 
-
 // MARK: - Notifications
 //
 let NotificationSyncMediatorDidUpdateNotifications = "NotificationSyncMediatorDidUpdateNotifications"
 
-
 // MARK: - NotificationSyncMediator
 //
-final class NotificationSyncMediator {
+final class NotificationSyncMediator: NotificationSyncMediatorProtocol {
     /// Returns the Main Managed Context
     ///
-    private let contextManager: CoreDataStackSwift
+    private let contextManager: CoreDataStack
+
+    /// API object used to make network requests
+    /// Used by remote services
+    ///
+    fileprivate let restAPI: WordPressComRestApi
 
     /// Sync Service Remote
     ///
     fileprivate let remote: NotificationSyncServiceRemote
 
+    /// Reader Service Remote
+    /// Used for toggling like status for posts and comments
+    ///
+    fileprivate let readerRemoteService: ReaderPostServiceRemote
+
+    /// Comment Remote Factory
+    /// Used to create a comment remote service by providing a siteID and restAPI
+    fileprivate let commentRemoteFactory: CommentServiceRemoteFactory
+
     /// Maximum number of Notes to Sync
     ///
     fileprivate let maximumNotes = 100
+
+    /// UUID of the account whose credentials this mediator uses, or `nil` when
+    /// unknown (tests). Notes are not tagged with an account, so late results
+    /// from a replaced account would otherwise repopulate the new account's list.
+    ///
+    private let accountUUID: String?
 
     /// Main CoreData Context
     ///
@@ -52,17 +71,18 @@ final class NotificationSyncMediator {
         return queue
     }()
 
-
     /// Designed Initializer
     ///
     convenience init?() {
-        let manager = ContextManager.sharedInstance()
+        let manager = ContextManager.shared
 
-        guard let dotcomAPI = try? WPAccount.lookupDefaultWordPressComAccount(in: manager.mainContext)?.wordPressComRestApi else {
+        guard let account = try? WPAccount.lookupDefaultWordPressComAccount(in: manager.mainContext),
+            let dotcomAPI = account.wordPressComRestApi
+        else {
             return nil
         }
 
-        self.init(manager: manager, dotcomAPI: dotcomAPI)
+        self.init(manager: manager, dotcomAPI: dotcomAPI, accountUUID: account.uuid)
     }
 
     /// Initializer: Useful for Unit Testing
@@ -70,17 +90,21 @@ final class NotificationSyncMediator {
     /// - Parameters:
     ///     - manager: ContextManager Instance
     ///     - wordPressComRestApi: The WordPressComRestApi that should be used.
+    ///     - accountUUID: The account `dotcomAPI` belongs to. When set, results are
+    ///       not written once another account becomes the default.
     ///
-    init?(manager: CoreDataStackSwift, dotcomAPI: WordPressComRestApi) {
+    init?(manager: CoreDataStack, dotcomAPI: WordPressComRestApi, accountUUID: String?) {
         guard dotcomAPI.hasCredentials() else {
             return nil
         }
 
+        self.accountUUID = accountUUID
         contextManager = manager
-        remote = NotificationSyncServiceRemote(wordPressComRestApi: dotcomAPI)
+        restAPI = dotcomAPI
+        remote = NotificationSyncServiceRemote(wordPressComRestApi: restAPI)
+        readerRemoteService = ReaderPostServiceRemote(wordPressComRestApi: restAPI)
+        commentRemoteFactory = CommentServiceRemoteFactory()
     }
-
-
 
     /// Syncs the latest *maximumNotes*:
     ///
@@ -94,12 +118,17 @@ final class NotificationSyncMediator {
         assert(Thread.isMainThread)
 
         remote.loadHashes(withPageSize: maximumNotes) { error, remoteHashes in
-            guard let remoteHashes = remoteHashes else {
+            guard let remoteHashes else {
                 completion?(error, false)
                 return
             }
 
-            self.deleteLocalMissingNotes(from: remoteHashes) {
+            self.deleteLocalMissingNotes(from: remoteHashes) { didDelete in
+                // Another account is the default now, so this sync has nothing left to write.
+                guard didDelete else {
+                    completion?(nil, false)
+                    return
+                }
 
                 self.determineUpdatedNotes(with: remoteHashes) { outdatedNoteIds in
                     guard outdatedNoteIds.isEmpty == false else {
@@ -108,12 +137,17 @@ final class NotificationSyncMediator {
                     }
 
                     self.remote.loadNotes(noteIds: outdatedNoteIds) { error, remoteNotes in
-                        guard let remoteNotes = remoteNotes else {
+                        guard let remoteNotes else {
                             completion?(error, false)
                             return
                         }
 
-                        self.updateLocalNotes(with: remoteNotes) {
+                        self.updateLocalNotes(with: remoteNotes) { didWrite in
+                            // The write is skipped once another account is the default.
+                            guard didWrite else {
+                                completion?(nil, false)
+                                return
+                            }
                             self.notifyNotificationsWereUpdated()
                             completion?(nil, true)
                         }
@@ -123,7 +157,6 @@ final class NotificationSyncMediator {
         }
     }
 
-
     /// Sync's Notification matching the specified ID, and updates the local entity.
     ///
     /// - Note: This method should only be used on the main thread.
@@ -132,16 +165,16 @@ final class NotificationSyncMediator {
     ///     - noteId: Notification ID of the note to be downloaded.
     ///     - completion: Closure to be executed on completion.
     ///
-    func syncNote(with noteId: String, completion: ((Error?, Notification?) -> Void)? = nil) {
+    func syncNote(with noteId: String, completion: ((Error?, WordPressData.Notification?) -> Void)? = nil) {
         assert(Thread.isMainThread)
 
         remote.loadNotes(noteIds: [noteId]) { error, remoteNotes in
-            guard let remoteNotes = remoteNotes else {
+            guard let remoteNotes else {
                 completion?(error, nil)
                 return
             }
 
-            self.updateLocalNotes(with: remoteNotes) {
+            self.updateLocalNotes(with: remoteNotes) { _ in
                 let predicate = NSPredicate(format: "(notificationId == %@)", noteId)
                 let note = self.mainContext.firstObject(ofType: Notification.self, matching: predicate)
 
@@ -150,52 +183,67 @@ final class NotificationSyncMediator {
         }
     }
 
-
     /// Marks a Notification as Read.
     ///
-    /// - Note: This method should only be used on the main thread.
+    /// - Note: This method is called on the main thread.
     ///
     /// - Parameters:
     ///     - notification: The notification that was just read.
     ///     - completion: Callback to be executed on completion.
     ///
-    func markAsRead(_ notification: Notification, completion: ((Error?)-> Void)? = nil) {
-        mark([notification], asRead: true, completion: completion)
+    func markAsRead(_ notification: WordPressData.Notification, completion: ((Error?)-> Void)? = nil) {
+        Task { @MainActor in
+            mark([notification], asRead: true, completion: completion)
+        }
     }
 
     /// Marks an array of notifications as Read.
     ///
-    /// - Note: This method should only be used on the main thread.
+    /// - Note: This method is called on the main thread.
     ///
     /// - Parameters:
     ///     - notifications: Notifications that were marked as read.
     ///     - completion: Callback to be executed on completion.
     ///
-    func markAsRead(_ notifications: [Notification], completion: ((Error?)-> Void)? = nil) {
-        mark(notifications, asRead: true, completion: completion)
+    func markAsRead(_ notifications: [WordPressData.Notification], completion: ((Error?)-> Void)? = nil) {
+        Task { @MainActor in
+            mark(notifications, asRead: true, completion: completion)
+        }
     }
 
     /// Marks a Notification as Unead.
     ///
-    /// - Note: This method should only be used on the main thread.
+    /// - Note: This method is called on the main thread.
     ///
     /// - Parameters:
     ///     - notification: The notification that should be marked unread.
     ///     - completion: Callback to be executed on completion.
     ///
-    func markAsUnread(_ notification: Notification, completion: ((Error?)-> Void)? = nil) {
-        mark([notification], asRead: false, completion: completion)
+    func markAsUnread(_ notification: WordPressData.Notification, completion: ((Error?)-> Void)? = nil) {
+        markAsUnread([notification], completion: completion)
     }
 
-    private func mark(_ notifications: [Notification], asRead read: Bool = true, completion: ((Error?)-> Void)? = nil) {
-        assert(Thread.isMainThread)
+    /// Marks a Notification as Unread.
+    ///
+    /// - Note: This method is called on the main thread.
+    ///
+    /// - Parameters:
+    ///     - notifications: The notifications that should be marked unread.
+    ///     - completion: Callback to be executed on completion.
+    ///
+    func markAsUnread(_ notifications: [WordPressData.Notification], completion: ((Error?)-> Void)? = nil) {
+        Task { @MainActor in
+            mark(notifications, asRead: false, completion: completion)
+        }
+    }
 
+    @MainActor private func mark(_ notifications: [WordPressData.Notification], asRead read: Bool = true, completion: ((Error?)-> Void)? = nil) {
         let noteIDs = notifications.map {
             $0.notificationId
         }
 
         remote.updateReadStatusForNotifications(noteIDs, read: read) { error in
-            if let error = error {
+            if let error {
                 DDLogError("Error marking notifications as \(Self.readState(for: read)): \(error)")
                 // Ideally, we'd want to revert to the previous status if this
                 // fails, but if the note is visible, the UI layer will keep
@@ -235,69 +283,90 @@ final class NotificationSyncMediator {
     func markAsReadAndSync(_ noteID: String, completion: ((Error?) -> Void)? = nil) {
         invalidateCacheForNotification(noteID)
         remote.updateReadStatus(noteID, read: true) { error in
-            if let error = error {
+            if let error {
                 DDLogError("Error marking note as read: \(error)")
             }
-            self.syncNote(with: noteID) { (_, _) in
+            self.syncNote(with: noteID) { _, _ in
                 completion?(error)
             }
-        }
-    }
-
-    /// Updates the Backend's Last Seen Timestamp. Used to calculate the Badge Count!
-    ///
-    /// - Note: This method should only be used on the main thread.
-    ///
-    /// - Parameters:
-    ///     - timestamp: Timestamp of the last seen notification.
-    ///     - completion: Callback to be executed on completion.
-    ///
-    func updateLastSeen(_ timestamp: String, completion: ((Error?) -> Void)? = nil) {
-        assert(Thread.isMainThread)
-
-        remote.updateLastSeen(timestamp) { error in
-            if let error = error {
-                DDLogError("Error while Updating Last Seen Timestamp: \(error)")
-            }
-
-            completion?(error)
         }
     }
 
     /// Deletes the note with the given ID from Core Data.
     ///
     func deleteNote(noteID: String) {
-        Self.operationQueue.addOperation(AsyncBlockOperation { [contextManager] done in
+        Self.operationQueue.addOperation(AsyncBlockOperation { [contextManager] operationCompletion in
             contextManager.performAndSave({ context in
                 let predicate = NSPredicate(format: "(notificationId == %@)", noteID)
 
                 for orphan in context.allObjects(ofType: Notification.self, matching: predicate) {
                     context.deleteObject(orphan)
                 }
-            }, completion: done, on: .main)
+            }, completion: operationCompletion, on: .main)
         })
     }
 
     /// Invalidates the local cache for the notification with the specified ID.
     ///
-    func invalidateCacheForNotification(_ noteID: String) {
-        invalidateCacheForNotifications([noteID])
+    func invalidateCacheForNotification(_ noteID: String,
+                                        completion: (() -> Void)? = nil) {
+        invalidateCacheForNotifications([noteID], completion: completion)
     }
 
     /// Invalidates the local cache for all the notifications with specified ID's in the array.
     ///
-    func invalidateCacheForNotifications(_ noteIDs: [String]) {
-        Self.operationQueue.addOperation(AsyncBlockOperation { [contextManager] done in
+    func invalidateCacheForNotifications(_ noteIDs: [String],
+                                         completion: (() -> Void)? = nil) {
+        Self.operationQueue.addOperation(AsyncBlockOperation { [contextManager] operationCompletion in
             contextManager.performAndSave({ context in
                 let predicate = NSPredicate(format: "(notificationId IN %@)", noteIDs)
                 let notifications = context.allObjects(ofType: Notification.self, matching: predicate)
 
                 notifications.forEach { $0.notificationHash = nil }
-            }, completion: done, on: .main)
+            }, completion: {
+                completion?()
+                operationCompletion()
+            }, on: .main)
         })
     }
-}
 
+    func toggleLikeForPostNotification(isLike: Bool,
+                                       postID: UInt,
+                                       siteID: UInt,
+                                       completion: @escaping (Result<Bool, Swift.Error>) -> Void) {
+        let success = { [weak self] () -> Void in
+            self?.updatePostLikeStatusLocally(isLike: isLike, postID: postID, siteID: siteID, completion: completion)
+        }
+        if isLike {
+            readerRemoteService.likePost(postID, forSite: siteID, success: success, failure: { error in
+                completion(.failure(error ?? ServiceError.unknown))
+            })
+        } else {
+            readerRemoteService.unlikePost(postID, forSite: siteID, success: success, failure: { error in
+                completion(.failure(error ?? ServiceError.unknown))
+            })
+        }
+    }
+
+    func toggleLikeForCommentNotification(isLike: Bool,
+                                          commentID: UInt,
+                                          siteID: UInt,
+                                          completion: @escaping (Result<Bool, Swift.Error>) -> Void) {
+        let commentService = commentRemoteFactory.restRemote(siteID: NSNumber(value: siteID), api: restAPI)
+        let success = { [weak self] () -> Void in
+            self?.updateCommentLikeStatusLocally(isLike: isLike, commentID: commentID, siteID: siteID, completion: completion)
+        }
+        if isLike {
+            commentService.likeComment(withID: NSNumber(value: commentID), success: success) { error in
+                completion(.failure(error ?? ServiceError.unknown))
+            }
+        } else {
+            commentService.unlikeComment(withID: NSNumber(value: commentID), success: success) { error in
+                completion(.failure(error ?? ServiceError.unknown))
+            }
+        }
+    }
+}
 
 // MARK: - Private Helpers
 //
@@ -310,7 +379,7 @@ private extension NotificationSyncMediator {
     ///     - completion: Callback to be executed on completion
     ///
     func determineUpdatedNotes(with remoteHashes: [RemoteNotification], completion: @escaping (([String]) -> Void)) {
-        Self.operationQueue.addOperation(AsyncBlockOperation { [contextManager] done in
+        Self.operationQueue.addOperation(AsyncBlockOperation { [contextManager] operationCompletion in
             contextManager.performAndSave({ context in
                 let remoteIds = remoteHashes.map { $0.notificationId }
                 let predicate = NSPredicate(format: "(notificationId IN %@)", remoteIds)
@@ -328,61 +397,90 @@ private extension NotificationSyncMediator {
                     .map { $0.notificationId }
             }, completion: { outdatedIds in
                 completion(outdatedIds)
-                done()
+                operationCompletion()
             }, on: .main)
         })
     }
-
 
     /// Given a collection of remoteNotes, this method will insert missing local ones, and update the ones
     /// that can be found.
     ///
     /// - Parameters:
     ///     - remoteNotes: Collection of Remote Notes
-    ///     - completion: Callback to be executed on completion
+    ///     - completion: Callback to be executed on completion, with whether the
+    ///       notes were written. They are not once another account is the default.
     ///
-    func updateLocalNotes(with remoteNotes: [RemoteNotification], completion: (() -> Void)? = nil) {
-        Self.operationQueue.addOperation(AsyncBlockOperation { [contextManager] done in
+    func updateLocalNotes(
+        with remoteNotes: [RemoteNotification],
+        completion: ((_ didWrite: Bool) -> Void)? = nil
+    ) {
+        Self.operationQueue.addOperation(AsyncBlockOperation { [contextManager, accountUUID] operationCompletion in
             contextManager.performAndSave({ context in
+                guard Self.isDefaultAccount(accountUUID) else {
+                    return false
+                }
                 for remoteNote in remoteNotes {
                     let predicate = NSPredicate(format: "(notificationId == %@)", remoteNote.notificationId)
                     let localNote = context.firstObject(ofType: Notification.self, matching: predicate) ?? context.insertNewObject(ofType: Notification.self)
 
                     localNote.update(with: remoteNote)
                 }
-            }, completion: {
-                done()
+                return true
+            }, completion: { didWrite in
+                operationCompletion()
                 DispatchQueue.main.async {
-                    completion?()
+                    completion?(didWrite)
                 }
             }, on: .global())
         })
     }
 
-
     /// Deletes the collection of local notifications that cannot be found in a given collection of
     /// remote hashes.
     ///
-    /// - Parameter remoteHashes: Collection of remoteNotifications.
+    /// - Parameters:
+    ///     - remoteHashes: Collection of remoteNotifications.
+    ///     - completion: Callback to be executed on completion, with whether the
+    ///       delete ran. It does not once another account is the default.
     ///
-    func deleteLocalMissingNotes(from remoteHashes: [RemoteNotification], completion: @escaping (() -> Void)) {
-        Self.operationQueue.addOperation(AsyncBlockOperation { [contextManager] done in
+    func deleteLocalMissingNotes(
+        from remoteHashes: [RemoteNotification],
+        completion: @escaping ((_ didDelete: Bool) -> Void)
+    ) {
+        Self.operationQueue.addOperation(AsyncBlockOperation { [contextManager, accountUUID] operationCompletion in
             contextManager.performAndSave({ context in
+                // A replaced account's hashes would delete the new account's notes.
+                guard Self.isDefaultAccount(accountUUID) else {
+                    return false
+                }
                 let remoteIds = remoteHashes.map { $0.notificationId }
                 let predicate = NSPredicate(format: "NOT (notificationId IN %@)", remoteIds)
 
                 for orphan in context.allObjects(ofType: Notification.self, matching: predicate) {
                     context.deleteObject(orphan)
                 }
-            }, completion: {
-                done()
+                return true
+            }, completion: { didDelete in
+                operationCompletion()
                 DispatchQueue.main.async {
-                    completion()
+                    completion(didDelete)
                 }
             }, on: .global())
         })
     }
 
+    /// Whether `accountUUID` is still the default account. Checked inside the
+    /// write block, so a sync that outlives an account change does not write the
+    /// previous account's notes.
+    ///
+    /// This narrows the race but cannot close it: an account change can still
+    /// land while the block runs, and notes carry no account to filter on.
+    private static func isDefaultAccount(_ accountUUID: String?) -> Bool {
+        guard let accountUUID else {
+            return true
+        }
+        return UserSettings.defaultDotComUUID == accountUUID
+    }
 
     /// Updates the Read status, of a given Notification, as specified.
     ///
@@ -415,12 +513,81 @@ private extension NotificationSyncMediator {
         contextManager.saveContextAndWait(mainContext)
     }
 
-
     /// Posts a `NotificationSyncMediatorDidUpdateNotifications` Notification, so that (potential listeners)
     /// may react upon new content.
     ///
     func notifyNotificationsWereUpdated() {
         let notificationCenter = NotificationCenter.default
         notificationCenter.post(name: Foundation.Notification.Name(rawValue: NotificationSyncMediatorDidUpdateNotifications), object: nil)
+    }
+
+    /// Attempts to fetch a `Comment` object matching the comment and site IDs from the local cache
+    /// If found, the like status is updated. If not found, nothing happens
+    /// - Parameters:
+    ///   - isLike: Indicates whether this is a like or unlike
+    ///   - commentID: Comment identifier used to fetch the comment
+    ///   - siteID: Site identifier used to fetch the comment
+    ///   - completion: Callback block which is called when the local comment is updated.
+    func updateCommentLikeStatusLocally(isLike: Bool,
+                                        commentID: UInt,
+                                        siteID: UInt,
+                                        completion: @escaping (Result<Bool, Swift.Error>) -> Void) {
+        contextManager.performAndSave({ context in
+            do {
+                let fetchRequest = NSFetchRequest<Comment>(entityName: Comment.entityName())
+                fetchRequest.fetchLimit = 1
+                let commentIDPredicate = NSPredicate(format: "\(#keyPath(Comment.commentID)) == %d", commentID)
+                let siteIDPredicate = NSPredicate(format: "blog.blogID = %@", NSNumber(value: siteID))
+                fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [commentIDPredicate, siteIDPredicate])
+                if let comment = try context.fetch(fetchRequest).first {
+                    comment.isLiked = isLike
+                    comment.likeCount = comment.likeCount + (comment.isLiked ? 1 : -1)
+                }
+            }
+            catch {
+                completion(.failure(ServiceError.localPersistenceError))
+            }
+        }, completion: {
+            completion(.success(isLike))
+        }, on: .main)
+    }
+
+    /// Attempts to fetch a `ReaderPost` object matching the post and site IDs from the local cache
+    /// If found, the like status is updated. If not found, nothing happens
+    /// - Parameters:
+    ///   - isLike: Indicates whether this is a like or unlike
+    ///   - postID: Post identifier used to fetch the post
+    ///   - siteID: Site identifier used to fetch the post
+    ///   - completion: Callback block which is called when the local post is updated.
+    func updatePostLikeStatusLocally(isLike: Bool,
+                                    postID: UInt,
+                                    siteID: UInt,
+                                    completion: @escaping (Result<Bool, Swift.Error>) -> Void) {
+        contextManager.performAndSave({ context in
+            do {
+                let fetchRequest = NSFetchRequest<ReaderPost>(entityName: ReaderPost.entityName())
+                fetchRequest.fetchLimit = 1
+                let commentIDPredicate = NSPredicate(format: "\(#keyPath(ReaderPost.postID)) == %d", postID)
+                let siteIDPredicate = NSPredicate(format: "\(#keyPath(ReaderPost.siteID)) = %@", NSNumber(value: siteID))
+                fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [commentIDPredicate, siteIDPredicate])
+                if let post = try context.fetch(fetchRequest).first {
+                    post.isLiked = isLike
+                    post.likeCount = NSNumber(value: max((post.likeCount?.intValue ?? 0) + (post.isLiked ? 1 : -1), 0))
+                }
+            }
+            catch {
+                completion(.failure(ServiceError.localPersistenceError))
+            }
+        }, completion: {
+            completion(.success(isLike))
+        }, on: .main)
+    }
+}
+
+extension NotificationSyncMediator {
+
+    enum ServiceError: Error {
+        case unknown
+        case localPersistenceError
     }
 }

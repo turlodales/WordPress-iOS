@@ -8,24 +8,24 @@ struct SiteDomainsPresentationCard: View {
     let destinations: [Destination]
 
     var body: some View {
-        VStack(spacing: Length.Padding.medium) {
-            VStack(spacing: Length.Padding.single) {
-                VStack(spacing: -Length.Padding.large) {
+        VStack(spacing: .DS.Padding.medium) {
+            VStack(spacing: .DS.Padding.single) {
+                VStack(spacing: -.DS.Padding.large) {
                     DashboardDomainsCardSearchView()
                     Text(title)
                         .style(.heading4)
-                        .foregroundColor(.DS.Foreground.primary)
+                        .foregroundStyle(Color(.label))
                 }
 
                 Text(description)
                     .style(.bodyLarge(.regular))
-                    .foregroundColor(.DS.Foreground.secondary)
+                    .foregroundColor(Color.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Length.Padding.single)
+                    .padding(.horizontal, .DS.Padding.single)
             }
 
-            VStack(spacing: Length.Padding.single) {
+            VStack(spacing: .DS.Padding.single) {
                 ForEach(destinations) { destination in
                     DSButton(
                         title: destination.title,
@@ -44,7 +44,7 @@ struct SiteDomainsPresentationCard: View {
 
 extension SiteDomainsPresentationCard {
     struct Destination: Identifiable {
-        let id: UUID = UUID()
+        let id = UUID()
         let title: String
         let style: DSButtonStyle.Emphasis
         let action: (() -> Void)

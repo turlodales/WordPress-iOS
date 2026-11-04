@@ -1,6 +1,8 @@
 import Foundation
 import WordPressFlux
 import WordPressKit
+import WordPressShared
+import WordPressSharedUI
 
 enum PluginAction: Action {
     case activate(id: String, site: JetpackSiteRef)
@@ -151,7 +153,6 @@ enum PluginDirectoryEntryState: Codable {
 
         self = .unknown
     }
-
 }
 
 struct PluginStoreState {
@@ -208,7 +209,7 @@ class PluginStore: QueryStore<PluginStoreState, PluginQuery> {
     }
 
     override func logError(_ error: String) {
-        DDLogError(error)
+        DDLogError("\(error)")
     }
 
     func processQueries() {
@@ -320,8 +321,8 @@ class PluginStore: QueryStore<PluginStoreState, PluginQuery> {
 // MARK: - Selectors
 extension PluginStore {
     func getPlugins(site: JetpackSiteRef) -> Plugins? {
-        return state.plugins[site].map({ (sitePlugins) in
-            let plugins = sitePlugins.plugins.map({ (state) -> Plugin in
+        return state.plugins[site].map({ sitePlugins in
+            let plugins = sitePlugins.plugins.map({ state -> Plugin in
                 let entry = getPluginDirectoryEntry(slug: state.slug)
                 return Plugin(state: state, directoryEntry: entry)
             })
@@ -391,7 +392,7 @@ extension PluginStore {
     func shouldFetchDirectory(feed: PluginDirectoryFeedType) -> Bool {
         let isFetching = state.fetchingDirectoryFeed[feed.slug, default: false]
 
-        if case .search(let term) = feed, term.count > 0 {
+        if case .search(let term) = feed, !term.isEmpty {
             return !isFetching
         }
 
@@ -407,7 +408,7 @@ private extension PluginStore {
         guard let plugin = getPlugin(id: pluginID, site: site) else {
             return
         }
-        state.modifyPlugin(id: pluginID, site: site) { (plugin) in
+        state.modifyPlugin(id: pluginID, site: site) { plugin in
             plugin.active = true
         }
 
@@ -416,10 +417,10 @@ private extension PluginStore {
         remote(site: site)?.activatePlugin(
             pluginID: plugin.state.id,
             success: {},
-            failure: { [weak self] (error) in
+            failure: { [weak self] error in
                 let message = String(format: NSLocalizedString("Error activating %@.", comment: "There was an error activating a plugin, placeholder is the plugin name"), plugin.name)
                 self?.notifyRemoteError(message: message, error: error)
-                self?.state.modifyPlugin(id: pluginID, site: site, change: { (plugin) in
+                self?.state.modifyPlugin(id: pluginID, site: site, change: { plugin in
                     plugin.active = false
                 })
         })
@@ -429,7 +430,7 @@ private extension PluginStore {
         guard let plugin = getPlugin(id: pluginID, site: site) else {
             return
         }
-        state.modifyPlugin(id: pluginID, site: site) { (plugin) in
+        state.modifyPlugin(id: pluginID, site: site) { plugin in
             plugin.active = false
         }
 
@@ -438,10 +439,10 @@ private extension PluginStore {
         remote(site: site)?.deactivatePlugin(
             pluginID: plugin.state.id,
             success: {},
-            failure: { [weak self] (error) in
+            failure: { [weak self] error in
                 let message = String(format: NSLocalizedString("Error deactivating %@.", comment: "There was an error deactivating a plugin, placeholder is the plugin name"), plugin.name)
                 self?.notifyRemoteError(message: message, error: error)
-                self?.state.modifyPlugin(id: pluginID, site: site, change: { (plugin) in
+                self?.state.modifyPlugin(id: pluginID, site: site, change: { plugin in
                     plugin.active = true
                 })
         })
@@ -451,7 +452,7 @@ private extension PluginStore {
         guard let plugin = getPlugin(id: pluginID, site: site) else {
             return
         }
-        state.modifyPlugin(id: pluginID, site: site) { (plugin) in
+        state.modifyPlugin(id: pluginID, site: site) { plugin in
             plugin.autoupdate = true
         }
 
@@ -460,10 +461,10 @@ private extension PluginStore {
         remote(site: site)?.enableAutoupdates(
             pluginID: plugin.state.id,
             success: {},
-            failure: { [weak self] (error) in
+            failure: { [weak self] error in
                 let message = String(format: NSLocalizedString("Error enabling autoupdates for %@.", comment: "There was an error enabling autoupdates for a plugin, placeholder is the plugin name"), plugin.name)
                 self?.notifyRemoteError(message: message, error: error)
-                self?.state.modifyPlugin(id: pluginID, site: site, change: { (plugin) in
+                self?.state.modifyPlugin(id: pluginID, site: site, change: { plugin in
                     plugin.autoupdate = false
                 })
         })
@@ -473,7 +474,7 @@ private extension PluginStore {
         guard let plugin = getPlugin(id: pluginID, site: site) else {
             return
         }
-        state.modifyPlugin(id: pluginID, site: site) { (plugin) in
+        state.modifyPlugin(id: pluginID, site: site) { plugin in
             plugin.autoupdate = false
         }
 
@@ -482,10 +483,10 @@ private extension PluginStore {
         remote(site: site)?.disableAutoupdates(
             pluginID: plugin.state.id,
             success: {},
-            failure: { [weak self] (error) in
+            failure: { [weak self] error in
                 let message = String(format: NSLocalizedString("Error disabling autoupdates for %@.", comment: "There was an error disabling autoupdates for a plugin, placeholder is the plugin name"), plugin.name)
                 self?.notifyRemoteError(message: message, error: error)
-                self?.state.modifyPlugin(id: pluginID, site: site, change: { (plugin) in
+                self?.state.modifyPlugin(id: pluginID, site: site, change: { plugin in
                     plugin.autoupdate = true
                 })
         })
@@ -501,7 +502,7 @@ private extension PluginStore {
         }
         remote(site: site)?.activateAndEnableAutoupdates(pluginID: plugin.state.id,
                                                          success: {},
-                                                         failure: { [weak self] error in
+                                                         failure: { [weak self] _ in
                                                             self?.state.modifyPlugin(id: pluginID, site: site) { plugin in
                                                                 plugin.autoupdate = false
                                                                 plugin.active = false
@@ -543,9 +544,9 @@ private extension PluginStore {
             case let .available(version) = plugin.state.updateState else {
             return
         }
-        transaction { (state) in
+        transaction { state in
             state.updatesInProgress[site, default: Set()].insert(pluginID)
-            state.modifyPlugin(id: pluginID, site: site, change: { (plugin) in
+            state.modifyPlugin(id: pluginID, site: site, change: { plugin in
                 plugin.updateState = .updating(version)
             })
         }
@@ -553,17 +554,17 @@ private extension PluginStore {
 
         remote(site: site)?.updatePlugin(
             pluginID: plugin.state.id,
-            success: { [weak self] (plugin) in
-                self?.transaction({ (state) in
-                    state.modifyPlugin(id: pluginID, site: site, change: { (updatedPlugin) in
+            success: { [weak self] plugin in
+                self?.transaction({ state in
+                    state.modifyPlugin(id: pluginID, site: site, change: { updatedPlugin in
                         updatedPlugin = plugin
                     })
                     state.updatesInProgress[site]?.remove(pluginID)
                 })
             },
-            failure: { [weak self] (error) in
-                self?.transaction({ (state) in
-                    state.modifyPlugin(id: pluginID, site: site, change: { (updatedPlugin) in
+            failure: { [weak self] error in
+                self?.transaction({ state in
+                    state.modifyPlugin(id: pluginID, site: site, change: { updatedPlugin in
                         updatedPlugin.updateState = .available(version)
                     })
                     state.updatesInProgress[site]?.remove(pluginID)
@@ -586,7 +587,7 @@ private extension PluginStore {
             return
         }
 
-        let failure: (Error) -> Void = { [weak self] (error) in
+        let failure: (Error) -> Void = { [weak self] error in
             let message = String(format: NSLocalizedString("Error removing %@.", comment: "There was an error removing a plugin, placeholder is the plugin name"), plugin.name)
             self?.notifyRemoteError(message: message, error: error)
             self?.refreshPlugins(site: site)
@@ -638,10 +639,10 @@ private extension PluginStore {
         }
         state.fetching[site] = true
         remote.getPlugins(
-            success: { [actionDispatcher] (plugins) in
+            success: { [actionDispatcher] plugins in
                 actionDispatcher.dispatch(PluginAction.receivePlugins(site: site, plugins: plugins))
             },
-            failure: { [actionDispatcher] (error) in
+            failure: { [actionDispatcher] error in
                 actionDispatcher.dispatch(PluginAction.receivePluginsFailed(site: site, error: error))
         })
     }
@@ -649,7 +650,7 @@ private extension PluginStore {
     func receivePlugins(site: JetpackSiteRef, plugins: SitePlugins) {
         var plugins = plugins
         if let updatesForSite = state.updatesInProgress[site].map(Set.init(_:)) {
-            plugins.plugins = plugins.plugins.map({ (plugin) in
+            plugins.plugins = plugins.plugins.map({ plugin in
                 var plugin = plugin
                 if case let .available(version) = plugin.updateState,
                     updatesForSite.contains(plugin.id) {
@@ -658,8 +659,8 @@ private extension PluginStore {
                 return plugin
             })
         }
-        if BlogService.blog(with: site)?.isAutomatedTransfer() == true {
-            plugins.plugins = plugins.plugins.map({ (plugin) in
+        if BlogService.blog(with: site)?.isAutomatedTransfer == true {
+            plugins.plugins = plugins.plugins.map({ plugin in
                 var plugin = plugin
                 if ["akismet", "jetpack", "vaultpress"].contains(plugin.slug) {
                     plugin.automanaged = true
@@ -667,7 +668,7 @@ private extension PluginStore {
                 return plugin
             })
         }
-        transaction { (state) in
+        transaction { state in
             state.plugins[site] = plugins
             state.fetching[site] = false
             state.lastFetch[site] = Date()
@@ -676,7 +677,7 @@ private extension PluginStore {
     }
 
     func receivePluginsFailed(site: JetpackSiteRef) {
-        transaction { (state) in
+        transaction { state in
             state.fetching[site] = false
             state.lastFetch[site] = Date()
         }
@@ -690,29 +691,27 @@ private extension PluginStore {
     }
 
     func fetchPluginDirectoryEntry(slug: String) {
-        let remote = PluginDirectoryServiceRemote()
         state.fetchingDirectoryEntry[slug] = true
-        remote.getPluginInformation(
-            slug: slug,
-            completion: { [actionDispatcher] (result) in
-                switch result {
-                case .success(let entry):
-                    actionDispatcher.dispatch(PluginAction.receivePluginDirectoryEntry(slug: slug, entry: entry))
-                case .failure(let error):
-                    actionDispatcher.dispatch(PluginAction.receivePluginDirectoryEntryFailed(slug: slug, error: error))
-                }
-            })
+        Task { @MainActor [actionDispatcher] in
+            let remote = PluginDirectoryServiceRemote()
+            do {
+                let entry = try await remote.getPluginInformation(slug: slug)
+                actionDispatcher.dispatch(PluginAction.receivePluginDirectoryEntry(slug: slug, entry: entry))
+            } catch {
+                actionDispatcher.dispatch(PluginAction.receivePluginDirectoryEntryFailed(slug: slug, error: error))
+            }
+        }
     }
 
     func receivePluginDirectoryEntry(slug: String, entry: PluginDirectoryEntry) {
-        transaction { (state) in
+        transaction { state in
             state.directoryEntries[slug] = .present(entry)
             state.fetchingDirectoryEntry[slug] = false
         }
     }
 
     func receivePluginDirectoryEntryFailed(slug: String, error: Error) {
-        transaction { (state) in
+        transaction { state in
             if (error as? PluginDirectoryGetInformationEndpoint.Error) == .pluginNotFound {
                 state.directoryEntries[slug] = .missing(Date())
             }
@@ -747,12 +746,12 @@ private extension PluginStore {
     func fetchPluginDirectoryFeed(feed: PluginDirectoryFeedType) {
         state.fetchingDirectoryFeed[feed.slug] = true
 
-        let remote = PluginDirectoryServiceRemote()
-        remote.getPluginFeed(feed) { [actionDispatcher] result in
-            switch result {
-            case .success(let response):
+        Task { @MainActor [actionDispatcher] in
+            let remote = PluginDirectoryServiceRemote()
+            do {
+                let response = try await remote.getPluginFeed(feed)
                 actionDispatcher.dispatch(PluginAction.receivePluginDirectoryFeed(feed: feed, response: response))
-            case .failure(let error):
+            } catch {
                 actionDispatcher.dispatch(PluginAction.receivePluginDirectoryFeedFailed(feed: feed, error: error))
             }
         }
@@ -762,7 +761,7 @@ private extension PluginStore {
         let zippedPlugins = zip(response.pageMetadata.pluginSlugs, response.plugins.map { PluginDirectoryEntryState.partial($0)})
         let plugins = Dictionary(uniqueKeysWithValues: zippedPlugins)
 
-        transaction { (state) in
+        transaction { state in
             state.fetchingDirectoryFeed[feed.slug] = false
             state.directoryFeeds[feed.slug] = response.pageMetadata
             state.lastDirectoryFeedFetch[feed.slug] = Date()
@@ -803,7 +802,7 @@ private extension PluginStore {
     }
 
     private func selfHostedRemoteClient(site: JetpackSiteRef) -> PluginManagementClient? {
-        guard let remote = BlogService.blog(with: site)?.wordPressOrgRestApi else {
+        guard let remote = BlogService.blog(with: site)?.selfHostedSiteRestApi else {
             return nil
         }
 
@@ -813,6 +812,6 @@ private extension PluginStore {
     func track(_ statName: WPAnalyticsStat, with site: JetpackSiteRef) {
         let siteID: NSNumber? = (site.isSelfHostedWithoutJetpack ? nil : site.siteID) as NSNumber?
 
-        WPAppAnalytics.track(statName, withBlogID: siteID)
+        WPAppAnalytics.track(statName, blogID: siteID)
     }
 }

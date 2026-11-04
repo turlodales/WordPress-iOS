@@ -1,11 +1,14 @@
 import Foundation
 import SwiftUI
 import SVProgressHUD
+import WordPressData
 import WordPressShared
+import WordPressUI
 
 struct RelatedPostsSettingsView: View {
     private let blog: Blog
     @ObservedObject private var settings: BlogSettings
+    @State var isSaving = false
 
     var title: String { Strings.title }
 
@@ -22,18 +25,31 @@ struct RelatedPostsSettingsView: View {
                 previewsSection
             }
         }
-        .toggleStyle(SwitchToggleStyle(tint: Color(UIColor.jetpackGreen)))
+        .toggleStyle(SwitchToggleStyle(tint: Color(UIAppColor.jetpackGreen)))
         .onChange(of: settings.relatedPostsEnabled) {
-            save(field: "show_related_posts", value: $0)
+            let changes = BlogSettingsChanges()
+            changes.relatedPostsEnabled = NSNumber(value: $1)
+            save(field: "show_related_posts", value: $1, changes: changes)
         }
         .onChange(of: settings.relatedPostsShowHeadline) {
-            save(field: "show_related_posts_header", value: $0)
+            let changes = BlogSettingsChanges()
+            changes.relatedPostsShowHeadline = NSNumber(value: $1)
+            save(field: "show_related_posts_header", value: $1, changes: changes)
         }
         .onChange(of: settings.relatedPostsShowThumbnails) {
-            save(field: "show_related_posts_thumbnail", value: $0)
+            let changes = BlogSettingsChanges()
+            changes.relatedPostsShowThumbnails = NSNumber(value: $1)
+            save(field: "show_related_posts_thumbnail", value: $1, changes: changes)
         }
         .navigationTitle(Strings.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if isSaving {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ProgressView()
+                }
+            }
+        }
     }
 
     private var settingsSection: some View {
@@ -46,11 +62,7 @@ struct RelatedPostsSettingsView: View {
         } footer: {
             Text(Strings.optionsFooter)
         }
-        if #available(iOS 15, *) {
-            return section.tint(Color(UIColor.jetpackGreen))
-        } else {
-            return section.toggleStyle(SwitchToggleStyle(tint: Color(UIColor.jetpackGreen)))
-        }
+        return section.tint(Color(UIAppColor.jetpackGreen))
     }
 
     private var previewsSection: some View {
@@ -59,7 +71,7 @@ struct RelatedPostsSettingsView: View {
                 if settings.relatedPostsShowHeadline {
                     Text(Strings.relatedPostsHeader)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Color(UIColor.neutral))
+                        .foregroundColor(Color(UIAppColor.neutral))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 ForEach(PreviewViewModel.previews, content: makePreview)
@@ -82,20 +94,24 @@ struct RelatedPostsSettingsView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(viewModel.title)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color(UIColor.neutral(.shade70)))
+                        .foregroundColor(Color(UIAppColor.neutral(.shade70)))
                     Text(viewModel.details)
                         .font(.system(size: 11).italic())
-                        .foregroundColor(Color(UIColor.neutral))
+                        .foregroundColor(Color(UIAppColor.neutral))
                 }
                 Spacer()
             }
         }
     }
 
-    private func save(field: String, value: Any) {
+    private func save(field: String, value: Any, changes: BlogSettingsChanges) {
         WPAnalytics.trackSettingsChange("related_posts", fieldName: field, value: value)
-        BlogService(coreDataStack: ContextManager.shared).updateSettings(for: blog, success: nil, failure: { _ in
-            SVProgressHUD.showDismissibleError(withStatus: Strings.saveFailed)
+        isSaving = true
+        BlogService(coreDataStack: ContextManager.shared).updateSettings(for: blog, changes: changes, success: {
+            isSaving = false
+        }, failure: { _ in
+            isSaving = false
+            SVProgressHUD.showDismissibleError(status: Strings.saveFailed)
         })
     }
 }

@@ -1,11 +1,11 @@
 import UIKit
 import Gutenberg
 import Gridicons
+import WordPressUI
 
-class CollapsableHeaderCollectionViewCell: UICollectionViewCell {
+class CollapsableHeaderCollectionViewCell: UICollectionViewCell, NibLoadable {
 
     static let cellReuseIdentifier = "\(CollapsableHeaderCollectionViewCell.self)"
-    static let nib = UINib(nibName: "\(CollapsableHeaderCollectionViewCell.self)", bundle: Bundle.main)
     static let selectionAnimationSpeed: Double = 0.25
     @IBOutlet weak var imageView: UIImageView!
     @IBOutlet weak var checkmarkContainerView: UIView!
@@ -37,9 +37,9 @@ class CollapsableHeaderCollectionViewCell: UICollectionViewCell {
     var accentColor: UIColor {
         return UIColor { (traitCollection: UITraitCollection) -> UIColor in
             if traitCollection.userInterfaceStyle == .dark {
-                return UIColor.muriel(color: .primary, .shade40)
+                return UIAppColor.primary(.shade40)
             } else {
-                return UIColor.muriel(color: .primary, .shade50)
+                return UIAppColor.primary(.shade50)
             }
         }
     }
@@ -62,13 +62,10 @@ class CollapsableHeaderCollectionViewCell: UICollectionViewCell {
         styleSelectedBorder()
         styleShadow()
         checkmarkImageView.isGhostableDisabled = true
-    }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
-            styleSelectedBorder()
-            styleShadow()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            self.styleSelectedBorder()
+            self.styleShadow()
         }
     }
 
@@ -102,12 +99,12 @@ class CollapsableHeaderCollectionViewCell: UICollectionViewCell {
             return
         }
 
-        let borderWidthAnimation: CABasicAnimation = CABasicAnimation(keyPath: "borderWidth")
+        let borderWidthAnimation = CABasicAnimation(keyPath: "borderWidth")
         borderWidthAnimation.fromValue = imageView.layer.borderWidth
         borderWidthAnimation.toValue = imageBorderWidth
         borderWidthAnimation.duration = CollapsableHeaderCollectionViewCell.selectionAnimationSpeed
 
-        let borderColorAnimation: CABasicAnimation = CABasicAnimation(keyPath: "borderColor")
+        let borderColorAnimation = CABasicAnimation(keyPath: "borderColor")
         borderColorAnimation.fromValue = imageView.layer.borderColor
         borderColorAnimation.toValue = imageBorderColor
         borderColorAnimation.duration = CollapsableHeaderCollectionViewCell.selectionAnimationSpeed
@@ -137,13 +134,13 @@ class CollapsableHeaderCollectionViewCell: UICollectionViewCell {
 
         UIView.animate(withDuration: CollapsableHeaderCollectionViewCell.selectionAnimationSpeed, animations: {
             self.checkmarkContainerView.alpha = targetAlpha
-        }, completion: { (_) in
+        }, completion: { _ in
             self.checkmarkContainerView.isHidden = !self.isSelected
         })
     }
 
     func setImage(_ imageURL: String?) {
-        guard let imageURL = imageURL, let url = URL(string: imageURL) else { return }
+        guard let imageURL, let url = URL(string: imageURL) else { return }
         imageView.startGhostAnimation(style: GhostCellStyle.muriel)
         imageView.downloadImage(from: url, success: { [weak self] _ in
             self?.imageView.stopGhostAnimation()
@@ -152,13 +149,12 @@ class CollapsableHeaderCollectionViewCell: UICollectionViewCell {
         })
     }
 
-    /// This will retry the polling of the image URL in the situation where a mismatch was recieved for the requested image. This can happen for endpoints that
-    /// dynamically generate the images. This will stop retrying if the view scrolled off screen. Or if the view was updated with a new URL to fetch. It will also stop
-    /// retrying for any other error type.
+    /// Retries while mShots returns its placeholder because the preview is still being generated. Stops when the cell
+    /// scrolls off screen, gets a new URL, or gets any other error.
     func handleError(_ error: Error?, forURL url: String?) {
-        guard let error = error as? UIImageView.ImageDownloadError, error == .urlMismatch else { return }
+        guard let error = error as? UIImageView.ImageDownloadError, error == .mShotsPlaceholder else { return }
         throttle.throttle { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             guard url != nil, url == self.previewURL else { return }
             self.setImage(url)
         }

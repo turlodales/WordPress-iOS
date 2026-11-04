@@ -1,9 +1,16 @@
 import Foundation
-import CocoaLumberjack
+import FormattableContentKit
+import WordPressData
 
 /// This service encapsulates all of the Actions that can be performed with a NotificationBlock
 ///
-class NotificationActionsService: CoreDataService {
+class NotificationActionsService {
+
+    let coreDataStack: CoreDataStack
+
+    init(coreDataStack: CoreDataStack) {
+        self.coreDataStack = coreDataStack
+    }
 
     /// Follows a Site referenced by a given NotificationBlock.
     ///
@@ -20,13 +27,11 @@ class NotificationActionsService: CoreDataService {
             DDLogInfo("Successfully followed site \(siteID)")
             self.invalidateCacheAndForceSyncNotification(with: block)
             completion?(true)
-
         }, failure: { error in
             DDLogError("Error while trying to follow site: \(String(describing: error))")
             completion?(false)
         })
     }
-
 
     /// Unfollows a Site referenced by a given NotificationBlock.
     ///
@@ -43,13 +48,11 @@ class NotificationActionsService: CoreDataService {
             DDLogInfo("Successfully unfollowed site \(siteID)")
             self.invalidateCacheAndForceSyncNotification(with: block)
             completion?(true)
-
         }, failure: { error in
             DDLogError("Error while trying to unfollow site: \(String(describing: error))")
             completion?(false)
         })
     }
-
 
     /// Replies a comment referenced by a given NotificationBlock.
     ///
@@ -67,13 +70,11 @@ class NotificationActionsService: CoreDataService {
             DDLogInfo("Successfully replied to comment \(siteID).\(commentID)")
             self.invalidateCacheAndForceSyncNotification(with: block)
             completion?(true)
-
         }, failure: { error in
             DDLogError("Error while trying to reply comment: \(String(describing: error))")
             completion?(false)
         })
     }
-
 
     /// Updates a comment referenced by a given NotificationBlock.
     ///
@@ -91,17 +92,15 @@ class NotificationActionsService: CoreDataService {
         block.textOverride = content
 
         // Hit the backend
-        commentService.updateComment(withID: commentID, siteID: siteID, content: content, success: {
+        commentService.updateComment(withID: commentID, siteID: siteID, content: content, success: { _ in
             DDLogInfo("Successfully updated to comment \(siteID).\(commentID)")
             self.invalidateCacheAndForceSyncNotification(with: block)
             completion?(true)
-
         }, failure: { error in
             DDLogError("Error while trying to update comment: \(String(describing: error))")
             completion?(false)
         })
     }
-
 
     /// Likes a comment referenced by a given NotificationBlock.
     ///
@@ -124,13 +123,11 @@ class NotificationActionsService: CoreDataService {
             DDLogInfo("Successfully liked comment \(siteID).\(commentID)")
             self.invalidateCacheAndForceSyncNotification(with: block)
             completion?(true)
-
         }, failure: { error in
             DDLogError("Error while trying to like comment: \(String(describing: error))")
             completion?(false)
         })
     }
-
 
     /// Unlikes a comment referenced by a given NotificationBlock.
     ///
@@ -147,13 +144,11 @@ class NotificationActionsService: CoreDataService {
             DDLogInfo("Successfully unliked comment \(siteID).\(commentID)")
             self.invalidateCacheAndForceSyncNotification(with: block)
             completion?(true)
-
         }, failure: { error in
             DDLogError("Error while trying to unlike comment: \(String(describing: error))")
             completion?(false)
         })
     }
-
 
     /// Approves a comment referenced by a given NotificationBlock.
     ///
@@ -170,13 +165,11 @@ class NotificationActionsService: CoreDataService {
             DDLogInfo("Successfully approved comment \(siteID).\(commentID)")
             self.invalidateCacheAndForceSyncNotification(with: block)
             completion?(true)
-
         }, failure: { error in
             DDLogError("Error while trying to moderate comment: \(String(describing: error))")
             completion?(false)
         })
     }
-
 
     /// Unapproves a comment referenced by a given NotificationBlock.
     ///
@@ -193,13 +186,11 @@ class NotificationActionsService: CoreDataService {
             DDLogInfo("Successfully unapproved comment \(siteID).\(commentID)")
             self.invalidateCacheAndForceSyncNotification(with: block)
             completion?(true)
-
         }, failure: { error in
             DDLogError("Error while trying to moderate comment: \(String(describing: error))")
             completion?(false)
         })
     }
-
 
     /// Spams a comment referenced by a given NotificationBlock.
     ///
@@ -216,13 +207,11 @@ class NotificationActionsService: CoreDataService {
             DDLogInfo("Successfully spammed comment \(siteID).\(commentID)")
             self.invalidateCacheAndForceSyncNotification(with: block)
             completion?(true)
-
         }, failure: { error in
             DDLogError("Error while trying to mark comment as spam: \(String(describing: error))")
             completion?(false)
         })
     }
-
 
     /// Deletes a comment referenced by a given NotificationBlock.
     ///
@@ -239,15 +228,12 @@ class NotificationActionsService: CoreDataService {
             DDLogInfo("Successfully deleted comment \(siteID).\(commentID)")
             self.invalidateCacheAndForceSyncNotification(with: block)
             completion?(true)
-
         }, failure: { error in
             DDLogError("Error while trying to delete comment: \(String(describing: error))")
             completion?(false)
         })
     }
 }
-
-
 
 // MARK: - Private Helpers
 //
@@ -272,8 +258,6 @@ private extension NotificationActionsService {
         mediator.syncNote(with: notificationID)
     }
 }
-
-
 
 // MARK: - Computed Properties
 //

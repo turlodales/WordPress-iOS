@@ -1,4 +1,7 @@
 import UIKit
+import WordPressData
+import WordPressUI
+import WordPressKit
 
 class JetpackScanHistoryViewController: UIViewController {
     private let blog: Blog
@@ -19,7 +22,7 @@ class JetpackScanHistoryViewController: UIViewController {
     // MARK: - Initializers
     @objc init(blog: Blog) {
         self.blog = blog
-        super.init(nibName: nil, bundle: nil)
+        super.init(nibName: "JetpackScanHistoryViewController", bundle: .keystone)
     }
 
     required init?(coder: NSCoder) {
@@ -66,7 +69,7 @@ class JetpackScanHistoryViewController: UIViewController {
     // MARK: - Private: Config
     private func configureFilterTabBar() {
         WPStyleGuide.configureFilterTabBar(filterTabBar)
-        filterTabBar.superview?.backgroundColor = .filterBarBackground
+        filterTabBar.superview?.backgroundColor = .secondarySystemGroupedBackground
 
         filterTabBar.tabSizingStyle = .equalWidths
         filterTabBar.items = coordinator.filterItems
@@ -110,7 +113,7 @@ extension JetpackScanHistoryViewController: JetpackScanHistoryView {
     }
 
     func showGenericError() {
-        let model =  NoResultsViewController.Model(title: NoResultsText.error.title,
+        let model = NoResultsViewController.Model(title: NoResultsText.error.title,
                                                    subtitle: NoResultsText.error.subtitle,
                                                    buttonText: NoResultsText.error.buttonText)
 
@@ -118,7 +121,7 @@ extension JetpackScanHistoryViewController: JetpackScanHistoryView {
     }
 
     func showNoConnectionError() {
-        let model =  NoResultsViewController.Model(title: NoResultsText.noConnection.title,
+        let model = NoResultsViewController.Model(title: NoResultsText.noConnection.title,
                                                    subtitle: NoResultsText.noConnection.subtitle,
                                                    buttonText: NoResultsText.tryAgainButtonText)
 
@@ -131,14 +134,14 @@ extension JetpackScanHistoryViewController: JetpackScanHistoryView {
     }
 
     func showNoIgnoredThreats() {
-        let model =  NoResultsViewController.Model(title: NoResultsText.noIgnoredThreats.title,
+        let model = NoResultsViewController.Model(title: NoResultsText.noIgnoredThreats.title,
                                                    subtitle: NoResultsText.noIgnoredThreats.subtitle)
 
         updateNoResults(model)
     }
 
     func showNoFixedThreats() {
-        let model =  NoResultsViewController.Model(title: NoResultsText.noFixedThreats.title,
+        let model = NoResultsViewController.Model(title: NoResultsText.noFixedThreats.title,
                                                    subtitle: NoResultsText.noFixedThreats.subtitle)
 
         updateNoResults(model)
@@ -198,7 +201,6 @@ extension JetpackScanHistoryViewController: UITableViewDataSource, UITableViewDe
         self.navigationController?.pushViewController(threatDetailsVC, animated: true)
 
         WPAnalytics.track(.jetpackScanThreatListItemTapped, properties: ["threat_signature": threat.signature, "section": "history"])
-
     }
 
     private func configureThreatCell(cell: JetpackScanThreatCell, threat: JetpackScanThreat) {
@@ -232,7 +234,7 @@ extension JetpackScanHistoryViewController: NoResultsViewControllerDelegate {
             noResultsViewController = NoResultsViewController.controller()
             noResultsViewController?.delegate = self
 
-            guard let noResultsViewController = noResultsViewController else {
+            guard let noResultsViewController else {
                 return
             }
 
@@ -288,5 +290,3 @@ extension JetpackScanHistoryViewController: NoResultsViewControllerDelegate {
         static let tryAgainButtonText = NSLocalizedString("Try again", comment: "Button label for trying to retrieve the history again")
     }
 }
-
-extension ActivityListSectionHeaderView: NibLoadable { }

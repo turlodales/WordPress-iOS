@@ -1,7 +1,7 @@
 #import "SuggestionsTableView.h"
-#import "WPStyleGuide+Suggestions.h"
 #import "SuggestionsTableViewCell.h"
 #import "WordPress-Swift.h"
+@import WordPressData;
 
 CGFloat const STVDefaultMinHeaderHeight = 0.f;
 NSString * const CellIdentifier = @"SuggestionsTableViewCell";
@@ -54,12 +54,6 @@ CGFloat const STVSeparatorHeight = 1.f;
 
 #pragma mark - Custom Setters
 
-- (void)setProminentSuggestionsIds:(NSArray<NSNumber *> *)prominentSuggestionsIds
-{
-    _prominentSuggestionsIds = prominentSuggestionsIds;
-    self.viewModel.prominentSuggestionsIds = prominentSuggestionsIds;
-}
-
 - (void)setUseTransparentHeader:(BOOL)useTransparentHeader
 {
     _useTransparentHeader = useTransparentHeader;
@@ -81,10 +75,10 @@ CGFloat const STVSeparatorHeight = 1.f;
 {
     if (_useTransparentHeader) {
         [self.headerView setBackgroundColor: [UIColor clearColor]];
-        [self.separatorView setBackgroundColor: [WPStyleGuide suggestionsSeparatorSmoke]];
+        [self.separatorView setBackgroundColor: [UIColor clearColor]];
     } else {
-        [self.headerView setBackgroundColor: [WPStyleGuide suggestionsHeaderSmoke]];
-        [self.separatorView setBackgroundColor: [WPStyleGuide suggestionsHeaderSmoke]];
+        [self.headerView setBackgroundColor:[[UIColor blackColor] colorWithAlphaComponent:0.33]];
+        [self.separatorView setBackgroundColor:[[UIColor blackColor] colorWithAlphaComponent:0.33]];
     }
 }
 
@@ -109,7 +103,7 @@ CGFloat const STVSeparatorHeight = 1.f;
     
     _separatorView = [[UIView alloc] init];
     [_separatorView setTranslatesAutoresizingMaskIntoConstraints:NO];
-    [_separatorView setBackgroundColor: [WPStyleGuide suggestionsSeparatorSmoke]];
+    [_separatorView setBackgroundColor:[UIColor separatorColor]];
     [self addSubview:_separatorView];
 
     [self updateHeaderStyles];
@@ -237,11 +231,9 @@ CGFloat const STVSeparatorHeight = 1.f;
     [self.tableView setNeedsLayout];
     [self.tableView layoutIfNeeded];
     if (maxRows) {
-        self.heightConstraint.constant = [SuggestionsTableView maximumHeightForTableView:self.tableView
-                                                                maxNumberOfRowsToDisplay:maxRows];
+        self.heightConstraint.constant = [SuggestionsTableView maximumHeightForTableView:self.tableView maxNumberOfRowsToDisplay:maxRows];
     } else {
-        self.heightConstraint.constant = [SuggestionsTableView heightForTableView:self.tableView
-                                                                    maximumHeight:self.bounds.size.height - minimumHeaderHeight];
+        self.heightConstraint.constant = [SuggestionsTableView heightForTableView:self.tableView maximumHeight:self.bounds.size.height - minimumHeaderHeight];
     }
     [super updateConstraints];
 }

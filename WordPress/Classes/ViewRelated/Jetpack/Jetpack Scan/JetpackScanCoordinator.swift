@@ -1,4 +1,7 @@
 import Foundation
+import WordPressData
+import WordPressShared
+import WordPressKit
 
 protocol JetpackScanView {
     func render()
@@ -43,7 +46,7 @@ class JetpackScanCoordinator {
         let returnThreats: [JetpackScanThreat]?
 
         if scan?.state == .fixingThreats {
-            returnThreats = scan?.threatFixStatus?.compactMap { $0.threat } ?? nil
+            returnThreats = scan?.threatFixStatus?.compactMap { $0.threat }
         } else {
             returnThreats = scan?.state == .idle ? scan?.threats : nil
         }
@@ -81,7 +84,6 @@ class JetpackScanCoordinator {
     public func refreshData() {
         service.getScanWithFixableThreatsStatus(for: blog) { [weak self] scanObj in
             self?.refreshDidSucceed(with: scanObj)
-
         } failure: { [weak self] error in
             DDLogError("Error fetching scan object: \(String(describing: error?.localizedDescription))")
 
@@ -105,7 +107,7 @@ class JetpackScanCoordinator {
         // server doesn't update its state immediately after starting a scan
         startPolling(triggerImmediately: false)
 
-        service.startScan(for: blog) { [weak self] (success) in
+        service.startScan(for: blog) { [weak self] success in
             if success == false {
                 DDLogError("Error starting scan: Scan response returned false")
 
@@ -115,7 +117,7 @@ class JetpackScanCoordinator {
                 self?.stopPolling()
                 self?.view.showScanStartError()
             }
-        } failure: { [weak self] (error) in
+        } failure: { [weak self] error in
             DDLogError("Error starting scan: \(String(describing: error?.localizedDescription))")
 
             WPAnalytics.track(.jetpackScanError, properties: ["action": "scan",
@@ -154,7 +156,7 @@ class JetpackScanCoordinator {
 
     private func fixThreats(threats: [JetpackScanThreat]) {
         // If there are no fixable threats just reload the state since it may be out of date
-        guard threats.count > 0 else {
+        guard !threats.isEmpty else {
             refreshData()
             return
         }
@@ -173,7 +175,7 @@ class JetpackScanCoordinator {
 
         startPolling(triggerImmediately: false)
 
-        service.fixThreats(threats, blog: blog) { [weak self] (response) in
+        service.fixThreats(threats, blog: blog) { [weak self] response in
             if response.success == false {
                 DDLogError("Error starting scan: Scan response returned false")
                 self?.stopPolling()
@@ -181,7 +183,7 @@ class JetpackScanCoordinator {
             } else {
                 self?.refreshData()
             }
-        } failure: { [weak self] (error) in
+        } failure: { [weak self] error in
             DDLogError("Error fixing threats: \(String(describing: error.localizedDescription))")
 
             self?.refreshDidFail(with: error)
@@ -269,12 +271,11 @@ class JetpackScanCoordinator {
         togglePolling()
     }
 
-    private func refreshDidFail(with error: Error? = nil) {
-        let appDelegate = WordPressAppDelegate.shared
-
-        guard
-            let connectionAvailable = appDelegate?.connectionAvailable, connectionAvailable == true
-        else {
+    private func refreshDidFail(
+        with error: Error? = nil,
+        connectionAvailable: Bool = ReachabilityUtils.connectionAvailable
+    ) {
+        guard connectionAvailable else {
             view.showNoConnectionError()
             actionButtonState = .tryAgain
 
@@ -335,7 +336,7 @@ class JetpackScanCoordinator {
             return
         }
 
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: Constants.refreshTimerInterval, repeats: true, block: { [weak self] (_) in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: Constants.refreshTimerInterval, repeats: true, block: { [weak self] _ in
             self?.refreshData()
         })
 

@@ -3,6 +3,50 @@
 This file documents changes in the data model. Please explain any changes to the
 data model as well as any custom migrations.
 
+## WordPress 158
+
+@kean 2026-02-23
+
+- Remove unused fields from `Blog`: `lastPostsSync`, `lastPagesSync`, `quickStartTypeValue`, `pinnedDate`, `isActivated`, `hasOlderPosts`, `hasOlderPages`
+- Remove unused fields from `BlogSettings`: `geolocationEnabled` 
+- Remove unused fields from `Media`: `localThumbnailIdentifier`, `featuredOnPosts` 
+- Remove unused fields from `BlogSettings`: `jetpackLazyLoadImages`
+
+## WordPress 157
+
+@kean 2026-01-06
+
+- Add `useExcerpt` field to `ReaderPost`
+- Remove deprecated `ReaderSearchSuggestion`
+- Remove deprecated `QuickStartTourState`
+- Remove `quickStartTours` reference from `Blog` entity
+
+## WordPress 156
+
+@kean 2025-10-08
+
+- Remove unused `AbstactPost` properties: `metaIsLocal`, `metaPublishImmediatelly`, `statusAfterSync`, `confirmedChangesHash`
+- Remove unused `Blog` properties: `rawBlockEditorSettings`
+- Remove unused `BlobEntity`
+- Add `metadata`, `permalinkTemplateURL` fields to `AbstractPost`
+- Add `commentsStatus` and `pingsStatus` to `Post`
+- Add `formattedSize` to `Media`
+
+## WordPress 155
+
+@crazytonyli  2025-04-07
+
+- Add `Blog/restApiRootURL`
+- Add `Blog/rawBlockEditorSettings`
+- Add `BlobEntity`
+
+## WordPress 154
+
+@momozw 2024-05-07
+
+- `AbstractPost`: 
+  - Added `foreignID` (optional, no default, `UUID`)
+
 ## WordPress 153
 
 @dvdchr 2023-11-07
@@ -445,6 +489,11 @@ data model as well as any custom migrations.
 
 - Add a new `UserSuggestion` entity
 - Add a one-to-many relationship between `Blog` and `UserSuggestion`
+
+
+# Decommissioned
+
+The models below were removed from the app on Jan 8th 2026 to reduce the app size and improve compile time.
 
 ## WordPress 99
 

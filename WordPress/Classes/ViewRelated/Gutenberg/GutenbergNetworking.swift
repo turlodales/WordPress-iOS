@@ -1,11 +1,17 @@
-import Alamofire
+import WordPressData
 import WordPressKit
 
 struct GutenbergNetworkRequest {
     typealias CompletionHandler = (Swift.Result<Any, NSError>) -> Void
 
+    // Please note: even though this variable is named 'path', the actually values (passed from React Native) contain
+    // path and query.
+    //
+    // For example, when uploading an image to a post in a self-hosted site, this struct is instantiated with a path
+    // `/wp/v2/media/<id>?context=edit&_locale=user`.
     private let path: String
-    private unowned let blog: Blog
+    private let blogID: TaggedManagedObjectID<Blog>
+    private let coreDataStack: CoreDataStack
     private let method: HTTPMethod
     private let data: [String: AnyObject]?
 
@@ -14,40 +20,57 @@ struct GutenbergNetworkRequest {
         case post = "POST"
     }
 
-    init(path: String, blog: Blog, method: HTTPMethod = .get, data: [String: AnyObject]? = nil) {
+    init(path: String, blogID: TaggedManagedObjectID<Blog>, coreDataStack: CoreDataStack = ContextManager.shared, method: HTTPMethod = .get, data: [String: AnyObject]? = nil) {
         self.path = path
-        self.blog = blog
+        self.blogID = blogID
+        self.coreDataStack = coreDataStack
         self.method = method
         self.data = data
     }
 
     func request(completion: @escaping CompletionHandler) {
-        if blog.isAccessibleThroughWPCom(), let dotComID = blog.dotComID {
+        // Resolve the `Blog` on the main context at request time. The Gutenberg JS bridge can fire requests
+        // while the editor is being torn down, so the blog may have been deleted; `existingObject(with:)`
+        // throws in that case instead of dereferencing an invalidated managed object. Resolving on the
+        // main context (where the editor's blog lives) also reuses its cached REST API client.
+        let context = coreDataStack.mainContext
+        context.perform {
+            do {
+                let blog = try context.existingObject(with: self.blogID)
+                self.request(blog: blog, completion: completion)
+            } catch {
+                completion(.failure(error as NSError))
+            }
+        }
+    }
+
+    private func request(blog: Blog, completion: @escaping CompletionHandler) {
+        if blog.isAccessibleThroughWPCom, let dotComID = blog.dotComID {
             switch method {
             case .get:
-                dotComGetRequest(with: dotComID, completion: completion)
+                dotComGetRequest(blog: blog, with: dotComID, completion: completion)
             case .post:
-                dotComPostRequest(with: dotComID, data: data, completion: completion)
+                dotComPostRequest(blog: blog, with: dotComID, data: data, completion: completion)
             }
         } else {
-            selfHostedRequest(completion: completion)
+            selfHostedRequest(blog: blog, completion: completion)
         }
     }
 
     // MARK: - dotCom
 
-    private func dotComGetRequest(with dotComID: NSNumber, completion: @escaping CompletionHandler) {
-        blog.wordPressComRestApi()?.GET(dotComPath(with: dotComID), parameters: nil, success: { (response, httpResponse) in
+    private func dotComGetRequest(blog: Blog, with dotComID: NSNumber, completion: @escaping CompletionHandler) {
+        blog.wordPressComRestApi?.GET(dotComPath(with: dotComID), parameters: nil, success: { response, _ in
             completion(.success(response))
-        }, failure: { (error, httpResponse) in
+        }, failure: { error, httpResponse in
             completion(.failure(error.nsError(with: httpResponse)))
         })
     }
 
-    private func dotComPostRequest(with dotComID: NSNumber, data: [String: AnyObject]?, completion: @escaping CompletionHandler) {
-        blog.wordPressComRestApi()?.POST(dotComPath(with: dotComID), parameters: data, success: { (response, httpResponse) in
+    private func dotComPostRequest(blog: Blog, with dotComID: NSNumber, data: [String: AnyObject]?, completion: @escaping CompletionHandler) {
+        blog.wordPressComRestApi?.POST(dotComPath(with: dotComID), parameters: data, success: { response, _ in
             completion(.success(response))
-        }, failure: { (error, httpResponse) in
+        }, failure: { error, httpResponse in
             completion(.failure(error.nsError(with: httpResponse)))
         })
     }
@@ -60,47 +83,46 @@ struct GutenbergNetworkRequest {
 
     // MARK: - Self-Hosed
 
-    private func selfHostedRequest(completion: @escaping CompletionHandler) {
-        performSelfHostedRequest(completion: completion)
+    private func selfHostedRequest(blog: Blog, completion: @escaping CompletionHandler) {
+        performSelfHostedRequest(blog: blog, completion: completion)
     }
 
-    private func performSelfHostedRequest(completion: @escaping CompletionHandler) {
-        guard let api = blog.wordPressOrgRestApi else {
+    private func performSelfHostedRequest(blog: Blog, completion: @escaping CompletionHandler) {
+        guard let api = blog.selfHostedSiteRestApi else {
             completion(.failure(NSError(domain: NSURLErrorDomain, code: NSURLErrorUnknown, userInfo: nil)))
             return
         }
 
+        let task: Task<WordPressAPIResult<Any, WordPressOrgRestApiError>, Never>
+
         switch method {
         case .get:
-            api.GET(path, parameters: nil) { (result, httpResponse) in
-                switch result {
-                case .success(let response):
-                    completion(.success(response))
-                case .failure(let error):
-                    if handleEmbedError(path: path, error: error, completion: completion) {
-                        return
-                    }
-                    completion(.failure(error as NSError))
-                }
+            task = Task {
+                await api.get(path: path)
             }
         case .post:
-            api.POST(path, parameters: data) { (result, httpResponse) in
-                switch result {
-                case .success(let response):
-                    completion(.success(response))
-                case .failure(let error):
-                    if handleEmbedError(path: path, error: error, completion: completion) {
-                        return
-                    }
-                    completion(.failure(error as NSError))
+            task = Task {
+                await api.post(path: path, parameters: data ?? [:])
+            }
+        }
+
+        Task { @MainActor in
+            let result = await task.value
+            switch result {
+            case .success(let response):
+                completion(.success(response))
+            case .failure(let error):
+                if handleEmbedError(path: path, error: error, completion: completion) {
+                    return
                 }
+                completion(.failure(error as NSError))
             }
         }
     }
 
-    private func handleEmbedError(path: String, error: Error, completion: @escaping CompletionHandler) -> Bool {
+    private func handleEmbedError(path: String, error: WordPressAPIError<WordPressOrgRestApiError>, completion: @escaping CompletionHandler) -> Bool {
         if path.starts(with: "/oembed/1.0/") {
-            if let error = error as? AFError, error.responseCode == 404 {
+            if case let .unacceptableStatusCode(response: response, body: _) = error, response.statusCode == 404 {
                 completion(.failure(URLError(URLError.Code(rawValue: 404)) as NSError))
                 return true
             }

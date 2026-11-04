@@ -1,4 +1,6 @@
 import UIKit
+import WordPressData
+import WordPressShared
 
 class StatsBaseCell: UITableViewCell {
 
@@ -6,29 +8,25 @@ class StatsBaseCell: UITableViewCell {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = UIFont.preferredFont(forTextStyle: .headline)
+        label.maximumContentSizeCategory = .extraExtraExtraLarge
+        label.adjustsFontForContentSizeCategory = true
         label.adjustsFontSizeToFitWidth = true
         label.numberOfLines = 0
         return label
     }()
 
     private lazy var showDetailsButton: UIButton = {
-        let button = UIButton()
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "chevron.forward")
+        configuration.buttonSize = .small
+        configuration.imagePadding = 4
+        configuration.baseForegroundColor = .secondaryLabel
+        configuration.imagePlacement = .trailing
+        configuration.titleLineBreakMode = .byTruncatingTail
+
+        let button = UIButton(configuration: configuration)
         button.translatesAutoresizingMaskIntoConstraints = true
         button.addTarget(self, action: #selector(detailsButtonTapped), for: .touchUpInside)
-        button.titleLabel?.font = UIFont.preferredFont(forTextStyle: .callout)
-        button.titleLabel?.adjustsFontSizeToFitWidth = true
-        button.tintColor = .secondaryLabel
-        button.setTitleColor(.secondaryLabel, for: .normal)
-        button.setImage(UIImage.gridicon(.chevronRight).withTintColor(UIColor(color: WPStyleGuide.greyLighten20())), for: .normal)
-
-        if UIApplication.shared.userInterfaceLayoutDirection == .rightToLeft {
-            button.semanticContentAttribute = .forceLeftToRight
-            button.titleEdgeInsets = Metrics.rtlButtonTitleInsets
-        } else {
-            button.semanticContentAttribute = .forceRightToLeft
-            button.titleEdgeInsets = Metrics.buttonTitleInsets
-        }
-
         button.accessibilityHint = LocalizedText.buttonAccessibilityHint
         return button
     }()
@@ -36,14 +34,14 @@ class StatsBaseCell: UITableViewCell {
     private let stackView: UIStackView = {
         let stackView = UIStackView()
         stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.spacing = Metrics.stackSpacing
+        stackView.spacing = 8
         stackView.axis = .horizontal
         stackView.alignment = .fill
         stackView.distribution = .equalSpacing
         return stackView
     }()
 
-    @IBOutlet var topConstraint: NSLayoutConstraint!
+    @IBOutlet var topConstraint: NSLayoutConstraint?
 
     private var headingBottomConstraint: NSLayoutConstraint?
     private var headingWidthConstraint: NSLayoutConstraint?
@@ -51,12 +49,12 @@ class StatsBaseCell: UITableViewCell {
     /// Finds the item from the top constraint that's not the content view itself.
     /// - Returns: `topConstraint`'s `firstItem` or `secondItem`, whichever is not this cell's content view.
     private var topConstraintTargetView: UIView? {
-        if let firstItem = topConstraint.firstItem as? UIView,
+        if let firstItem = topConstraint?.firstItem as? UIView,
            firstItem != contentView {
             return firstItem
         }
 
-        return topConstraint.secondItem as? UIView
+        return topConstraint?.secondItem as? UIView
     }
 
     var statSection: StatSection? {
@@ -72,15 +70,11 @@ class StatsBaseCell: UITableViewCell {
     }
 
     private func configureHeading(with topConstraint: NSLayoutConstraint) {
-        guard AppConfiguration.statsRevampV2Enabled else {
-            return
-        }
-
         contentView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
             stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.padding),
-            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.padding),
+            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: 0),
             stackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Metrics.padding)
         ])
 
@@ -96,17 +90,13 @@ class StatsBaseCell: UITableViewCell {
             topConstraint.isActive = false
 
             // Create a new constraint between the stackView containing the heading label and the first item of the existing top constraint
-            headingBottomConstraint = stackView.bottomAnchor.constraint(equalTo: anchor, constant: -(Metrics.padding + constant))
+            headingBottomConstraint = stackView.bottomAnchor.constraint(equalTo: anchor, constant: -(Metrics.bottomSpacing + constant))
             headingBottomConstraint?.isActive = true
         }
     }
 
     private func updateHeader() {
-        guard AppConfiguration.statsRevampV2Enabled else {
-            return
-        }
-
-        if headingBottomConstraint == nil && headingLabel.superview == nil {
+        if let topConstraint, headingBottomConstraint == nil && headingLabel.superview == nil {
             configureHeading(with: topConstraint)
         }
 
@@ -118,11 +108,11 @@ class StatsBaseCell: UITableViewCell {
 
             switch statSection {
             case .insightsViewsVisitors:
-                showDetailsButton.setTitle(LocalizedText.buttonTitleThisWeek, for: .normal)
+                showDetailsButton.configuration?.title = LocalizedText.buttonTitleThisWeek
             case .insightsFollowerTotals, .insightsCommentsTotals, .insightsLikesTotals:
-                showDetailsButton.setTitle(LocalizedText.buttonTitleViewMore, for: .normal)
+                showDetailsButton.configuration?.title = LocalizedText.buttonTitleViewMore
             default:
-                showDetailsButton.setTitle("", for: .normal)
+                showDetailsButton.configuration?.title = nil
             }
 
             headingWidthConstraint?.isActive = true
@@ -134,7 +124,7 @@ class StatsBaseCell: UITableViewCell {
         let hasTitleOrButton = !title.isEmpty || !showDetailsButton.isHidden
 
         headingBottomConstraint?.isActive = hasTitleOrButton
-        topConstraint.isActive = !hasTitleOrButton
+        topConstraint?.isActive = !hasTitleOrButton
     }
 
     func shouldShowDetailsButton () -> Bool {
@@ -142,7 +132,7 @@ class StatsBaseCell: UITableViewCell {
     }
 
     @objc private func detailsButtonTapped() {
-        guard let statSection = statSection else {
+        guard let statSection else {
             return
         }
 
@@ -166,7 +156,7 @@ class StatsBaseCell: UITableViewCell {
 
     private func captureAnalyticsEvent(_ event: WPAnalyticsStat) {
         if let blogIdentifier = SiteStatsInformation.sharedInstance.siteID {
-            WPAppAnalytics.track(event, withBlogID: blogIdentifier)
+            WPAppAnalytics.track(event, blogID: blogIdentifier)
         } else {
             WPAppAnalytics.track(event)
         }
@@ -176,7 +166,7 @@ class StatsBaseCell: UITableViewCell {
         let properties: [String: String] = ["type": statSection.analyticsProperty]
 
         if let blogId = SiteStatsInformation.sharedInstance.siteID,
-           let blog = Blog.lookup(withID: blogId, in: ContextManager.sharedInstance().mainContext) {
+           let blog = Blog.lookup(withID: blogId, in: ContextManager.shared.mainContext) {
             WPAnalytics.track(event, properties: properties, blog: blog)
         } else {
             WPAnalytics.track(event, properties: properties)
@@ -184,10 +174,8 @@ class StatsBaseCell: UITableViewCell {
     }
 
     enum Metrics {
-        static let padding: CGFloat = 16.0
-        static let stackSpacing: CGFloat = 8.0
-        static let buttonTitleInsets = UIEdgeInsets(top: 0, left: -8.0, bottom: 0, right: 8.0)
-        static let rtlButtonTitleInsets = UIEdgeInsets(top: 0, left: 8.0, bottom: 0, right: -8.0)
+        static let padding: CGFloat = 16
+        static let bottomSpacing: CGFloat = 12
     }
 
     private enum LocalizedText {

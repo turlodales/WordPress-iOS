@@ -1,7 +1,9 @@
 import Foundation
+import BuildSettingsKit
+import WordPressData
 
 protocol NotificationScheduler {
-    func add(_ request: UNNotificationRequest, withCompletionHandler completionHandler: ((Error?) -> Void)?)
+    func add(_ request: UNNotificationRequest, withCompletionHandler completionHandler: (@Sendable (Error?) -> Void)?)
     func removePendingNotificationRequests(withIdentifiers identifiers: [String])
 }
 
@@ -66,7 +68,7 @@ class BloggingRemindersScheduler {
         case friday
         case saturday
 
-        /// The default reminder hour.  In the future we may want to replace this constant with a more customizable approach.
+        /// The default reminder hour. In the future we may want to replace this constant with a more customizable approach.
         ///
         static let defaultHour = 10
 
@@ -89,7 +91,7 @@ class BloggingRemindersScheduler {
     ///
     private let pushNotificationAuthorizer: PushNotificationAuthorizer
 
-    private let coreDataStack: CoreDataStackSwift
+    private let coreDataStack: CoreDataStack
 
     /// The time of the day when blogging reminders will be received for the given blog
     /// - Parameter blog: the given blog
@@ -146,32 +148,32 @@ class BloggingRemindersScheduler {
             .appendingPathComponent(defaultDataFileName)
     }
 
-    private static func sharedDataFileURL() -> URL? {
-        let sharedDirectory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: WPAppGroupName)
+    private static func sharedDataFileURL(appGroupName: String) -> URL? {
+        let sharedDirectory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
         return sharedDirectory?.appendingPathComponent(defaultDataFileName)
     }
 
-    static func handleRemindersMigration() {
+    static func handleRemindersMigration(appGroupName: String = BuildSettings.current.appGroupName) {
         if AppConfiguration.isWordPress {
-            copyStoreToSharedFile()
+            copyStoreToSharedFile(appGroupName: appGroupName)
         } else if AppConfiguration.isJetpack {
-            copyStoreToLocalFile()
+            copyStoreToLocalFile(appGroupName: appGroupName)
         }
     }
 
     /// Deletes backup reminders if it exists.
     ///
-    static func deleteBackupReminders() {
-        guard let sharedFileURL = sharedDataFileURL() else {
+    static func deleteBackupReminders(appGroupName: String) {
+        guard let sharedFileURL = sharedDataFileURL(appGroupName: appGroupName) else {
             return
         }
 
         try? FileManager.default.removeItem(at: sharedFileURL)
     }
 
-    private static func copyStoreToSharedFile() {
+    private static func copyStoreToSharedFile(appGroupName: String) {
         guard let store = try? defaultStore(),
-              let sharedFileUrl = sharedDataFileURL() else {
+              let sharedFileUrl = sharedDataFileURL(appGroupName: appGroupName) else {
             return
         }
 
@@ -186,15 +188,15 @@ class BloggingRemindersScheduler {
                 configuration[url] = schedule
             }
 
-            if configuration.count > 0 {
+            if !configuration.isEmpty {
                 try? PropertyListEncoder().encode(configuration).write(to: sharedFileUrl)
             }
         }
     }
 
-    private static func copyStoreToLocalFile() {
+    private static func copyStoreToLocalFile(appGroupName: String) {
         guard let localStore = try? defaultStore(),
-              let sharedFileUrl = sharedDataFileURL(),
+              let sharedFileUrl = sharedDataFileURL(appGroupName: appGroupName),
               FileManager.default.fileExists(at: sharedFileUrl),
               let data = try? Data(contentsOf: sharedFileUrl),
               let sharedConfig = try? PropertyListDecoder().decode([String: ScheduledReminders].self, from: data) else {
@@ -202,7 +204,7 @@ class BloggingRemindersScheduler {
         }
 
         // Only copy if the existing local store contains no schedules
-        if localStore.configuration.count == 0 {
+        if localStore.configuration.isEmpty {
             ContextManager.shared.performAndSave { context in
                 for (blogUrl, schedule) in sharedConfig {
                     guard let blog = try? BlogQuery().hostname(matching: blogUrl).blog(in: context) else {
@@ -218,7 +220,7 @@ class BloggingRemindersScheduler {
 
     // MARK: - Initializers
 
-    /// Default initializer.  Allows overriding the blogging reminders store and the notification center for testing purposes.
+    /// Default initializer. Allows overriding the blogging reminders store and the notification center for testing purposes.
     ///
     ///  - Parameters:
     ///     - store: The `BloggingRemindersStore` to use for persisting the reminders schedule.
@@ -229,7 +231,7 @@ class BloggingRemindersScheduler {
         store: BloggingRemindersStore,
         notificationCenter: NotificationScheduler = UNUserNotificationCenter.current(),
         pushNotificationAuthorizer: PushNotificationAuthorizer = InteractiveNotificationsManager.shared,
-        coreDataStack: CoreDataStackSwift = ContextManager.shared
+        coreDataStack: CoreDataStack = ContextManager.shared
     ) {
             self.store = store
             self.notificationScheduler = notificationCenter
@@ -237,17 +239,17 @@ class BloggingRemindersScheduler {
             self.coreDataStack = coreDataStack
     }
 
-    /// Default initializer.  Allows overriding the blogging reminders store and the notification center for testing purposes.
+    /// Default initializer. Allows overriding the blogging reminders store and the notification center for testing purposes.
     ///
     ///  - Parameters:
-    ///     - blogIdentifier, the blog identifier.  This is necessary since we support blogging reminders for multiple blogs.
+    ///     - blogIdentifier, the blog identifier. This is necessary since we support blogging reminders for multiple blogs.
     ///     - notificationCenter: The `NotificationScheduler` to use for the notification requests.
     ///     - pushNotificationAuthorizer: The `PushNotificationAuthorizer` to use for push notification authorization.
     ///
     init(
         notificationCenter: NotificationScheduler = UNUserNotificationCenter.current(),
         pushNotificationAuthorizer: PushNotificationAuthorizer = InteractiveNotificationsManager.shared,
-        coreDataStack: CoreDataStackSwift = ContextManager.shared
+        coreDataStack: CoreDataStack = ContextManager.shared
     ) throws {
         self.store = try Self.defaultStore()
         self.notificationScheduler = notificationCenter
@@ -257,7 +259,7 @@ class BloggingRemindersScheduler {
 
     // MARK: - Scheduling
 
-    /// Main method for scheduling blogging reminder notifications.  This method will take care of scheduling the local notifications and
+    /// Main method for scheduling blogging reminder notifications. This method will take care of scheduling the local notifications and
     /// persisting the user-defined reminder schedule.
     ///
     /// - Parameters:
@@ -288,7 +290,7 @@ class BloggingRemindersScheduler {
         }
     }
 
-    /// You should not be calling this method directly.  Instead, make sure to use `schedule(_:completion:)`.
+    /// You should not be calling this method directly. Instead, make sure to use `schedule(_:completion:)`.
     ///
     private func pushAuthorizationReceived(blog: Blog, schedule: Schedule, time: Date?, completion: (Result<Void, Swift.Error>) -> ()) {
         unschedule(scheduledReminders(for: blog))
@@ -299,7 +301,7 @@ class BloggingRemindersScheduler {
         case .none:
             scheduledReminders = .none
         case .weekdays(let days):
-            guard let time = time else {
+            guard let time else {
                 scheduledReminders = .weekdays(scheduled(days, for: blog))
                 break
             }
@@ -378,9 +380,9 @@ class BloggingRemindersScheduler {
         let uuidString = UUID().uuidString
         let request = UNNotificationRequest(identifier: uuidString, content: content, trigger: trigger)
 
-        notificationScheduler.add(request) { (error) in
-            if let error = error {
-                DDLogError(error.localizedDescription)
+        notificationScheduler.add(request) { error in
+            if let error {
+                DDLogError("\(error)")
             }
         }
 
@@ -430,5 +432,25 @@ class BloggingRemindersScheduler {
         static let notificationTitle = NSLocalizedString("It's time to blog on %@!",
                                                          comment: "Title of a notification displayed prompting the user to create a new blog post. The %@ will be replaced with the blog's title.")
         static let notificationBody = NSLocalizedString("This is your reminder to blog today ✍️", comment: "The body of a notification displayed to the user prompting them to create a new blog post. The emoji should ideally remain, as part of the text.")
+    }
+}
+
+extension BloggingPromptSettingsReminderDays {
+
+    func getActiveWeekdays() -> [BloggingRemindersScheduler.Weekday] {
+        return [
+            sunday,
+            monday,
+            tuesday,
+            wednesday,
+            thursday,
+            friday,
+            saturday
+        ].enumerated().compactMap { (index: Int, isReminderActive: Bool) in
+            guard isReminderActive else {
+                return nil
+            }
+            return BloggingRemindersScheduler.Weekday(rawValue: index)
+        }
     }
 }

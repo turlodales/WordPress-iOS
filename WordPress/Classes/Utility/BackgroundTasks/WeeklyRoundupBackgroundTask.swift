@@ -1,5 +1,9 @@
-import Foundation
 import CoreData
+import Foundation
+import WordPressData
+import WordPressShared
+import WordPressKit
+import WordPressSharedUI
 
 /// The main data provider for Weekly Roundup information.
 ///
@@ -23,7 +27,7 @@ private class WeeklyRoundupDataProvider {
 
     // MARK: - Misc Properties
 
-    private let coreDataStack: CoreDataStackSwift
+    private let coreDataStack: CoreDataStack
 
     /// Method to report errors that won't interrupt the execution.
     ///
@@ -33,7 +37,7 @@ private class WeeklyRoundupDataProvider {
     ///
     private let debugSettings = WeeklyRoundupDebugScreen.Settings()
 
-    init(coreDataStack: CoreDataStackSwift, onError: @escaping (Error) -> Void) {
+    init(coreDataStack: CoreDataStack, onError: @escaping (Error) -> Void) {
         self.coreDataStack = coreDataStack
         self.onError = onError
     }
@@ -49,7 +53,7 @@ private class WeeklyRoundupDataProvider {
         self.getSites { [weak self] sitesResult in
             switch sitesResult {
             case .success(let sites):
-                guard let self, sites.count > 0 else {
+                guard let self, !sites.isEmpty else {
                     completion(.success(nil))
                     return
                 }
@@ -83,7 +87,7 @@ private class WeeklyRoundupDataProvider {
 
             do {
                 service = try Self.makeRemoteStatsService(for: site)
-            } catch let error {
+            } catch {
                 self.onError(error)
                 continue
             }
@@ -138,11 +142,11 @@ private class WeeklyRoundupDataProvider {
         }
     }
 
-    /// Filters the "best" count sites from the provided dictionary of sites and stats.  This method implicitly implements the
+    /// Filters the "best" count sites from the provided dictionary of sites and stats. This method implicitly implements the
     /// definition of "best" through a sorting mechanism where the "best" sites are placed first.
     ///
     private func filterBest(_ count: Int, minimumViewsCount: Int = 5, from blogStats: SiteStats) -> SiteStats {
-        let filteredAndSorted = blogStats.filter { (site, stats) in
+        let filteredAndSorted = blogStats.filter { _, stats in
             stats.viewsCount >= minimumViewsCount
         }.sorted { (first: (_, value: StatsSummaryData), second: (_, value: StatsSummaryData)) in
             first.value.viewsCount >= second.value.viewsCount
@@ -173,10 +177,10 @@ private class WeeklyRoundupDataProvider {
     ///
     private func filterCandidateSites(_ sites: [Site], result: @escaping (Result<[Site], Error>) -> Void) {
         let administeredSites = sites.filter { site in
-            site.isAdmin && ((FeatureFlag.debugMenu.enabled && debugSettings.isEnabledForA8cP2s) || !site.isAutomatticP2)
+            site.isAdmin && !site.isAutomatticP2
         }
 
-        guard administeredSites.count > 0 else {
+        guard !administeredSites.isEmpty else {
             result(.success([]))
             return
         }
@@ -203,7 +207,7 @@ private class WeeklyRoundupDataProvider {
     ) -> [Site] {
         return sites.filter { site in
             guard let siteSettings = settings.first(where: { $0.blogManagedObjectID == site.managedObjectID }),
-                  let pushNotificationsStream = siteSettings.streams.first(where: { $0.kind == .Device }),
+                  let pushNotificationsStream = siteSettings.streams.first(where: { $0.kind == .device }),
                   let sitePreferences = pushNotificationsStream.preferences else {
                 return false
             }
@@ -281,7 +285,6 @@ private class WeeklyRoundupDataProvider {
             self.isAutomatticP2 = blog.isAutomatticP2
         }
     }
-
 }
 
 class WeeklyRoundupBackgroundTask: BackgroundTask {
@@ -334,13 +337,12 @@ class WeeklyRoundupBackgroundTask: BackgroundTask {
     init(
         eventTracker: NotificationEventTracker = NotificationEventTracker(),
         runDateComponents: DateComponents? = nil,
-        staticNotificationDateComponents: DateComponents? = nil,
         store: Store = Store(),
         coreDataStack: ContextManager = .shared
     ) {
         self.coreDataStack = coreDataStack
         self.eventTracker = eventTracker
-        self.notificationScheduler = WeeklyRoundupNotificationScheduler(staticNotificationDateComponents: staticNotificationDateComponents)
+        self.notificationScheduler = WeeklyRoundupNotificationScheduler()
         self.store = store
         self.runDateComponents = runDateComponents ?? {
             var dateComponents = DateComponents()
@@ -365,8 +367,8 @@ class WeeklyRoundupBackgroundTask: BackgroundTask {
             direction: .backward) ?? Date()
 
         // The run date is when the task is scheduled to run, but the period end date is actually
-        // the previous day at 24:59:59.
-        let periodEndDate = Calendar.current.date(bySettingHour: 0, minute: 0, second: 0, of: runDate)!.addingTimeInterval(TimeInterval.init(-1))
+        // the previous day at 23:59:59.
+        let periodEndDate = Calendar.current.date(bySettingHour: 0, minute: 0, second: 0, of: runDate)!.addingTimeInterval(TimeInterval(-1))
 
         return periodEndDate
     }
@@ -433,7 +435,6 @@ class WeeklyRoundupBackgroundTask: BackgroundTask {
         // This can be removed once Jetpack migration is complete.
         guard JetpackNotificationMigrationService.shared.shouldPresentNotifications() else {
             notificationScheduler.cancellAll()
-            notificationScheduler.cancelStaticNotification()
             return
         }
 
@@ -455,7 +456,7 @@ class WeeklyRoundupBackgroundTask: BackgroundTask {
 
                 switch result {
                 case .success(let topSiteStats):
-                    guard let topSiteStats = topSiteStats else {
+                    guard let topSiteStats else {
                         return
                     }
 
@@ -471,7 +472,7 @@ class WeeklyRoundupBackgroundTask: BackgroundTask {
         let scheduleNotification = BlockOperation {
             let group = DispatchGroup()
 
-            guard let siteStats = siteStats else {
+            guard let siteStats else {
                 self.cancelExecution()
                 return
             }
@@ -566,61 +567,22 @@ class WeeklyRoundupNotificationScheduler {
     static let notificationIdentifier = "org.wordpress.notification.identifier.weeklyRoundup"
     static let threadIdentifier = "org.wordpress.notification.threadIdentifier.weeklyRoundup"
 
-    private lazy var staticNotificationIdentifier: String = {
-        "\(Self.notificationIdentifier).static"
-    }()
-
     func dynamicNotificationIdentifier(for blogID: Int) -> String {
         "\(Self.notificationIdentifier).\(blogID)"
     }
 
     // MARK: - Initialization
 
-    init(
-        staticNotificationDateComponents: DateComponents? = nil,
-        userNotificationCenter: UNUserNotificationCenter = UNUserNotificationCenter.current()) {
-
+    init(userNotificationCenter: UNUserNotificationCenter = UNUserNotificationCenter.current()) {
         self.userNotificationCenter = userNotificationCenter
-        self.staticNotificationDateComponents = staticNotificationDateComponents ?? {
-            var dateComponents = DateComponents()
-
-            dateComponents.calendar = Calendar.current
-
-            // `DateComponent`'s weekday uses a 1-based index.
-            dateComponents.weekday = 2
-            dateComponents.hour = 18
-
-            return dateComponents
-        }()
     }
 
     // MARK: - Scheduling Notifications
 
-    let staticNotificationDateComponents: DateComponents
     let userNotificationCenter: UNUserNotificationCenter
 
     enum NotificationSchedulingError: Error {
-        case staticNotificationSchedulingError(error: Error)
         case dynamicNotificationSchedulingError(error: Error)
-    }
-
-    func scheduleStaticNotification(completion: @escaping (Result<Void, Error>) -> Void) {
-        let title = TextContent.staticNotificationTitle
-        let body = TextContent.staticNotificationBody
-
-        scheduleNotification(
-            identifier: staticNotificationIdentifier,
-            title: title,
-            body: body,
-            dateComponents: staticNotificationDateComponents) { result in
-
-            switch result {
-            case .success:
-                completion(.success(()))
-            case .failure(let error):
-                completion(.failure(NotificationSchedulingError.staticNotificationSchedulingError(error: error)))
-            }
-        }
     }
 
     func scheduleDynamicNotification(
@@ -633,7 +595,7 @@ class WeeklyRoundupNotificationScheduler {
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
         let title = notificationTitle(siteTitle)
-        let body = notificationBodyWith(views: views, comments: likes, likes: comments)
+        let body = notificationBodyWith(views: views, comments: comments, likes: likes)
 
         // The dynamic notification date is defined by when the background task is run.
         // Since these lines of code execute when the BG Task is run, we can just schedule
@@ -709,7 +671,7 @@ class WeeklyRoundupNotificationScheduler {
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
 
         userNotificationCenter.add(request) { error in
-            if let error = error {
+            if let error {
                 completion(.failure(error))
                 return
             }
@@ -726,7 +688,7 @@ class WeeklyRoundupNotificationScheduler {
         userNotificationCenter.getPendingNotificationRequests { requests in
             let notifications = requests.filter({ $0.content.threadIdentifier == Self.threadIdentifier })
 
-            guard notifications.count > 0 else {
+            guard !notifications.isEmpty else {
                 return
             }
 
@@ -734,14 +696,8 @@ class WeeklyRoundupNotificationScheduler {
         }
     }
 
-    func cancelStaticNotification(completion: @escaping (Bool) -> Void = { _ in }) {
-        userNotificationCenter.getPendingNotificationRequests { requests in
-            completion(true)
-        }
-    }
-
     func notificationTitle(_ siteTitle: String?) -> String {
-        if let siteTitle = siteTitle {
+        if let siteTitle {
             return String(format: TextContent.dynamicNotificationTitle, siteTitle)
         } else {
             return TextContent.staticNotificationTitle
@@ -751,7 +707,6 @@ class WeeklyRoundupNotificationScheduler {
     enum TextContent {
         static let staticNotificationTitle = NSLocalizedString("Weekly Roundup", comment: "Title of Weekly Roundup push notification")
         static let dynamicNotificationTitle = NSLocalizedString("Weekly Roundup: %@", comment: "Title of Weekly Roundup push notification. %@ is a placeholder and will be replaced with the title of one of the user's websites.")
-        static let staticNotificationBody = NSLocalizedString("Your weekly roundup is ready, tap here to see the details!", comment: "Prompt displayed as part of the stats Weekly Roundup push notification.")
         static let dynamicNotificationBodyViewsOnly = NSLocalizedString("Last week you had %@ views.", comment: "Content of a weekly roundup push notification containing stats about the user's site. The % marker is a placeholder and will be replaced by the appropriate number of views")
         static let dynamicNotificationBodyViewsAndLikes = NSLocalizedString("Last week you had %1$@ views and %2$@ likes.", comment: "Content of a weekly roundup push notification containing stats about the user's site. The % markers are placeholders and will be replaced by the appropriate number of views and likes. The numbers indicate the order, so they can be rearranged if necessary – 1 is views, 2 is likes.")
         static let dynamicNotificationBodyViewsAndComments = NSLocalizedString("Last week you had %1$@ views and %2$@ comments.", comment: "Content of a weekly roundup push notification containing stats about the user's site. The % markers are placeholders and will be replaced by the appropriate number of views and comments. The numbers indicate the order, so they can be rearranged if necessary – 1 is views, 2 is comments.")

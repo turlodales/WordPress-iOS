@@ -1,17 +1,14 @@
 #import "ReaderPostService.h"
 
 #import "AccountService.h"
-#import "CoreDataStack.h"
-#import "ReaderGapMarker.h"
-#import "ReaderPost.h"
 #import "ReaderSiteService.h"
-#import "SourcePostAttribution.h"
-#import "WPAccount.h"
 #import "WPAppAnalytics.h"
-#import <WordPressShared/NSString+XMLExtensions.h>
 #import "WordPress-Swift.h"
+@import WordPressData;
 @import WordPressKit;
 @import WordPressShared;
+@import WordPressSharedObjC;
+@import WordPressSharedUI;
 
 NSUInteger const ReaderPostServiceNumberToSync = 7;
 // NOTE: The search endpoint is currently capped to max results of 20 and returns
@@ -26,6 +23,15 @@ NSString * const ReaderPostServiceToggleSiteFollowingState = @"ReaderPostService
 static NSString * const ReaderPostGlobalIDKey = @"globalID";
 
 @implementation ReaderPostService
+
+- (instancetype)initWithCoreDataStack:(id<CoreDataStack>)coreDataStack
+{
+    self = [super init];
+    if (self) {
+        _coreDataStack = coreDataStack;
+    }
+    return self;
+}
 
 #pragma mark - Fetch Methods
 
@@ -138,39 +144,12 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
 
         NSManagedObjectID * __block postObjectID = nil;
         [self.coreDataStack performAndSaveUsingBlock:^(NSManagedObjectContext *context) {
-            ReaderPost *post = [self createOrReplaceFromRemotePost:remotePost forTopic:nil inContext:context];
+            ReaderPost *post = [ReaderPost createOrUpdateWithRemotePost:remotePost topic:nil context:context];
 
             NSError *error;
             BOOL obtainedID = [context obtainPermanentIDsForObjects:@[post] error:&error];
             if (!obtainedID) {
-                DDLogError(@"Error obtaining a permanent ID for post. %@, %@", post, error);
-            }
-            postObjectID = post.objectID;
-        } completion:^{
-            success([self.coreDataStack.mainContext existingObjectWithID:postObjectID error:nil]);
-        } onQueue:dispatch_get_main_queue()];
-    } failure:failure];
-}
-
-- (void)fetchPostAtURL:(NSURL *)postURL
-               success:(void (^)(ReaderPost *post))success
-               failure:(void (^)(NSError *error))failure
-{
-    ReaderPostServiceRemote *remoteService = [[ReaderPostServiceRemote alloc] initWithWordPressComRestApi:[self apiForRequest]];
-    [remoteService fetchPostAtURL:postURL
-                          success:^(RemoteReaderPost *remotePost) {
-        if (!success) {
-            return;
-        }
-
-        NSManagedObjectID * __block postObjectID = nil;
-        [self.coreDataStack performAndSaveUsingBlock:^(NSManagedObjectContext *context) {
-            ReaderPost *post = [self createOrReplaceFromRemotePost:remotePost forTopic:nil inContext:context];
-
-            NSError *error;
-            BOOL obtainedID = [context obtainPermanentIDsForObjects:@[post] error:&error];
-            if (!obtainedID) {
-                DDLogError(@"Error obtaining a permanent ID for post. %@, %@", post, error);
+                WPLogError(@"Error obtaining a permanent ID for post. %@, %@", post, error);
             }
             postObjectID = post.objectID;
         } completion:^{
@@ -192,7 +171,14 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
 
 #pragma mark - Update Methods
 
-- (void)toggleLikedForPost:(ReaderPost *)post success:(void (^)(void))success failure:(void (^)(NSError *error))failure
+- (void)toggleLikedForPost:(ReaderPost *)post success:(void (^)(void))success failure:(void (^)(NSError *))failure {
+    [self toggleLikedForPost:post source:nil success:success failure:failure];
+}
+
+- (void)toggleLikedForPost:(ReaderPost *)post
+                    source:(nullable NSString *)source
+                   success:(void (^)(void))success
+                   failure:(void (^)(NSError *error))failure
 {
     [self.coreDataStack performAndSaveUsingBlock:^(NSManagedObjectContext *context) {
         // Get a the post in our own context
@@ -207,11 +193,15 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
             return;
         }
 
-        [self toggleLikedForPost:readerPost inContext:context success:success failure:failure];
+        [self toggleLikedForPost:readerPost source:source inContext:context success:success failure:failure];
     }];
 }
 
-- (void)toggleLikedForPost:(ReaderPost *)readerPost inContext:(NSManagedObjectContext *)context success:(void (^)(void))success failure:(void (^)(NSError *error))failure
+- (void)toggleLikedForPost:(ReaderPost *)readerPost
+                    source:(nullable NSString *)source
+                 inContext:(NSManagedObjectContext *)context
+                   success:(void (^)(void))success
+                   failure:(void (^)(NSError *error))failure
 {
     NSParameterAssert(readerPost.managedObjectContext == context);
 
@@ -234,10 +224,13 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
     NSNumber *siteID = readerPost.siteID;
     void (^successBlock)(void) = ^void() {
         if (postID && siteID) {
-            NSDictionary *properties = @{
-                                          WPAppAnalyticsKeyPostID: postID,
-                                          WPAppAnalyticsKeyBlogID: siteID
-                                          };
+            NSMutableDictionary *properties = @{WPAppAnalyticsKeyPostID: postID,
+                                                WPAppAnalyticsKeyBlogID: siteID}.mutableCopy;
+
+            if (source && source.length > 0) {
+                properties[@"source"] = source;
+            }
+
             if (like) {
                 [WPAnalytics trackReaderStat:WPAnalyticsStatReaderArticleLiked properties:properties];
                 if (railcar) {
@@ -304,7 +297,8 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
     // If this post belongs to a site topic, let the topic service do the work.
     ReaderTopicService *topicService = [[ReaderTopicService alloc] initWithCoreDataStack:self.coreDataStack];
 
-    if ([readerPost.topic isKindOfClass:[ReaderSiteTopic class]]) {
+    // Workaround for CMM-2006: Skip freshly pressed topics as they cannot be followed through the site service
+    if ([readerPost.topic isKindOfClass:[ReaderSiteTopic class]] && ![ReaderHelpers topicIsFreshlyPressed:readerPost.topic]) {
         ReaderSiteTopic *siteTopic = (ReaderSiteTopic *)readerPost.topic;
         [topicService toggleFollowingForSite:siteTopic success:success failure:failure];
         return;
@@ -334,19 +328,19 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
 
     // Define success block
     void (^successBlock)(void) = ^void() {
-        
+
         // Update subscription count
         NSInteger oldSubscriptionCount = [WPAnalytics subscriptionCount];
         NSInteger newSubscriptionCount = follow ? oldSubscriptionCount + 1 : oldSubscriptionCount - 1;
         [WPAnalytics setSubscriptionCount:newSubscriptionCount];
-        
+
         if (shouldRefreshFollowedPosts) {
             [self refreshPostsForFollowedTopic];
         }
         if (success) {
             success(follow);
         }
-        
+
         dispatch_async(dispatch_get_main_queue(), ^{
             //Notifiy Settings view controller a site's following state has changed
             [[NSNotificationCenter defaultCenter] postNotificationName:ReaderPostServiceToggleSiteFollowingState object:nil];
@@ -460,7 +454,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
     void (^failureBlock)(NSError *error) = ^void(NSError *error) {
         [context performBlockAndWait:^{
 
-            DDLogError(@"Error while toggling post Seen status: %@", error);
+            WPLogError(@"Error while toggling post Seen status: %@", error);
             readerPost.isSeen = oldValue;
 
             [[ContextManager sharedInstance] saveContext:context withCompletionBlock:^{
@@ -499,12 +493,12 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
 
         NSArray *arr = [context executeFetchRequest:fetchRequest error:&error];
         if (error) {
-            DDLogError(@"%@, error fetching posts belonging to no topic: %@", NSStringFromSelector(_cmd), error);
+            WPLogError(@"%@, error fetching posts belonging to no topic: %@", NSStringFromSelector(_cmd), error);
             return;
         }
 
         for (ReaderPost *post in arr) {
-            DDLogInfo(@"%@, deleting topicless post: %@", NSStringFromSelector(_cmd), post);
+            WPLogInfo(@"%@, deleting topicless post: %@", NSStringFromSelector(_cmd), post);
             [context deleteObject:post];
         }
     }];
@@ -518,7 +512,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
         request.predicate = [NSPredicate predicateWithFormat:@"isSavedForLater = true"];
         NSArray *results = [context executeFetchRequest:request error:&error];
         if (error) {
-            DDLogError(@"%@, unsaving saved posts: %@", NSStringFromSelector(_cmd), error);
+            WPLogError(@"%@, unsaving saved posts: %@", NSStringFromSelector(_cmd), error);
             return;
         }
 
@@ -536,7 +530,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
         request.predicate = [NSPredicate predicateWithFormat:@"inUse = true"];
         NSArray *results = [context executeFetchRequest:request error:&error];
         if (error) {
-            DDLogError(@"%@, marking posts not in use.: %@", NSStringFromSelector(_cmd), error);
+            WPLogError(@"%@, marking posts not in use.: %@", NSStringFromSelector(_cmd), error);
             return;
         }
 
@@ -560,7 +554,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
         request.predicate = [NSPredicate predicateWithFormat:@"siteID = %@ AND blogURL = %@", siteID, siteURL];
         NSArray *results = [context executeFetchRequest:request error:&error];
         if (error) {
-            DDLogError(@"%@, error (un)following posts with siteID %@ and URL @%: %@", NSStringFromSelector(_cmd), siteID, siteURL, error);
+            WPLogError(@"%@, error (un)following posts with siteID %@ and URL %@: %@", NSStringFromSelector(_cmd), siteID, siteURL, error);
             return;
         }
         if ([results count] == 0) {
@@ -638,7 +632,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
 
     ReaderPost *post = [[context executeFetchRequest:fetchRequest error:&error] firstObject];
     if (error || !post) {
-        DDLogError(@"Error fetching post at a specific offset.", error);
+        WPLogError(@"Error fetching post at a specific offset: %@", error);
         return nil;
     }
 
@@ -658,20 +652,20 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
 - (NSError *)validatePostForSeenToggle:(ReaderPost *)post
 {
     NSString *description = nil;
-    
+
     if (post.isWPCom && post.postID == nil) {
-        DDLogError(@"Could not toggle Seen: missing postID.");
+        WPLogError(@"Could not toggle Seen: missing postID.");
         description = NSLocalizedString(@"Could not toggle Seen: missing postID.", @"An error description explaining that Seen could not be toggled due to a missing postID.");
-        
+
     } else if (!post.isWPCom && post.feedItemID == nil) {
-        DDLogError(@"Could not toggle Seen: missing feedItemID.");
+        WPLogError(@"Could not toggle Seen: missing feedItemID.");
         description = NSLocalizedString(@"Could not toggle Seen: missing feedItemID.", @"An error description explaining that Seen could not be toggled due to a missing feedItemID.");
     }
-    
+
     if (description == nil) {
         return nil;
     }
-    
+
     NSDictionary *userInfo = @{ NSLocalizedDescriptionKey : description };
     NSError *error = [NSError errorWithDomain:ReaderPostServiceErrorDomain code:0 userInfo:userInfo];
     return error;
@@ -768,13 +762,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
         [self deletePostsFromBlockedSitesInContext:context];
 
         BOOL spaceAvailable = ([self numberOfPostsForTopic:readerTopic inContext:context] < [self maxPostsToSaveForTopic:readerTopic]);
-        if ([ReaderHelpers isTopicTag:readerTopic]) {
-            // For tags, assume there is more content as long as more than zero results are returned.
-            hasMore = (postsCount > 0 ) && spaceAvailable;
-        } else {
-            // For other topics, assume there is more content as long as the number of results requested is returned.
-            hasMore = ([remotePosts count] == [self numberToSyncForTopic:readerTopic]) && spaceAvailable;
-        }
+        hasMore = postsCount > 0 && spaceAvailable;
     } completion:^{
         if (success) {
             success(postsCount, hasMore);
@@ -794,7 +782,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
     NSError *error;
     NSArray *results = [context executeFetchRequest:fetchRequest error:&error];
     if (error) {
-        DDLogError(error.localizedDescription);
+        WPLogError(@"%@", error.localizedDescription);
         return NO;
     }
 
@@ -839,7 +827,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
     NSError *error;
     NSArray *results = [context executeFetchRequest:fetchRequest error:&error];
     if (error) {
-        DDLogError(error.localizedDescription);
+        WPLogError(@"%@", error.localizedDescription);
         return nil;
     }
 
@@ -862,7 +850,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
     marker.sortDate = [post.sortDate dateByAddingTimeInterval:-0.1];
     marker.date_created_gmt = post.sortDate;
 
-    // For compatability with posts that are sorted by score
+    // For compatibility with posts that are sorted by score
     marker.sortRank = @([post.sortRank doubleValue] - CGFLOAT_MIN);
     marker.score = post.score;
 
@@ -878,13 +866,13 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
     NSError *error;
     NSArray *results = [context executeFetchRequest:fetchRequest error:&error];
     if (error) {
-        DDLogError(error.localizedDescription);
+        WPLogError(@"%@", error.localizedDescription);
         return;
     }
 
     // There should only ever be one, but loop over all results just in case.
     for (ReaderGapMarker *marker in results) {
-        DDLogInfo(@"Deleting Gap Marker: %@", marker);
+        WPLogInfo(@"Deleting Gap Marker: %@", marker);
         [context deleteObject:marker];
     }
 }
@@ -897,7 +885,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
     NSError *error;
     NSInteger count = [context countForFetchRequest:fetchRequest error:&error];
     if (error) {
-        DDLogError(error.localizedDescription);
+        WPLogError(@"%@", error.localizedDescription);
         return NO;
     }
     return (count > 0);
@@ -938,7 +926,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
 
     NSArray *currentPosts = [context executeFetchRequest:fetchRequest error:&error];
     if (error) {
-        DDLogError(@"%@ error fetching posts: %@", NSStringFromSelector(_cmd), error);
+        WPLogError(@"%@ error fetching posts: %@", NSStringFromSelector(_cmd), error);
         return;
     }
 
@@ -947,7 +935,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
             // If the missing post is currently being used or has been saved, just remove its topic.
             post.topic = nil;
         } else {
-            DDLogInfo(@"Deleting ReaderPost: %@", post);
+            WPLogInfo(@"Deleting ReaderPost: %@", post);
             [context deleteObject:post];
         }
     }
@@ -987,7 +975,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
 
     NSArray *currentPosts = [context executeFetchRequest:fetchRequest error:&error];
     if (error) {
-        DDLogError(@"%@ error fetching posts: %@", NSStringFromSelector(_cmd), error);
+        WPLogError(@"%@ error fetching posts: %@", NSStringFromSelector(_cmd), error);
         return;
     }
 
@@ -1000,7 +988,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
             // If the missing post is currently being used or has been saved, just remove its topic.
             post.topic = nil;
         } else {
-            DDLogInfo(@"Deleting ReaderPost: %@", post);
+            WPLogInfo(@"Deleting ReaderPost: %@", post);
             [context deleteObject:post];
         }
     }
@@ -1043,7 +1031,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
 
     NSArray *posts = [context executeFetchRequest:fetchRequest error:&error];
     if (error) {
-        DDLogError(@"%@ error fetching posts: %@", NSStringFromSelector(_cmd), error);
+        WPLogError(@"%@ error fetching posts: %@", NSStringFromSelector(_cmd), error);
         return;
     }
 
@@ -1053,7 +1041,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
         if ([self topicShouldBeClearedFor:post]) {
             post.topic = nil;
         } else {
-            DDLogInfo(@"Deleting ReaderPost: %@", post.postTitle);
+            WPLogInfo(@"Deleting ReaderPost: %@", post.postTitle);
             [context deleteObject:post];
         }
     }
@@ -1061,14 +1049,14 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
     // If the last remaining post is a gap marker, remove it.
     ReaderPost *lastPost = [posts objectAtIndex:maxPosts - 1];
     if ([lastPost isKindOfClass:[ReaderGapMarker class]]) {
-        DDLogInfo(@"Deleting Last GapMarker: %@", lastPost);
+        WPLogInfo(@"Deleting Last GapMarker: %@", lastPost);
         [context deleteObject:lastPost];
     }
 }
 
 /**
  Delete posts that are flagged as belonging to a blocked site.
- 
+
  The managed object context is not saved.
  */
 - (void)deletePostsFromBlockedSites
@@ -1085,7 +1073,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
     request.predicate = [NSPredicate predicateWithFormat:@"isSiteBlocked = YES"];
     NSArray *results = [context executeFetchRequest:request error:&error];
     if (error) {
-        DDLogError(@"%@, error deleting deleting posts from blocked sites: %@", NSStringFromSelector(_cmd), error);
+        WPLogError(@"%@, error deleting deleting posts from blocked sites: %@", NSStringFromSelector(_cmd), error);
         return;
     }
 
@@ -1098,7 +1086,7 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
             // If the missing post is currenty being used just remove its topic.
             post.topic = nil;
         } else {
-            DDLogInfo(@"Deleting ReaderPost: %@", post.postTitle);
+            WPLogInfo(@"Deleting ReaderPost: %@", post.postTitle);
             [context deleteObject:post];
         }
     }
@@ -1124,43 +1112,21 @@ static NSString * const ReaderPostGlobalIDKey = @"globalID";
 {
     NSMutableArray *newPosts = [NSMutableArray array];
     for (RemoteReaderPost *post in posts) {
-        ReaderPost *newPost = [self createOrReplaceFromRemotePost:post forTopic:topic inContext:context];
+        ReaderPost *newPost = [ReaderPost createOrUpdateWithRemotePost:post topic:topic context:context];
         if (newPost != nil) {
             [newPosts addObject:newPost];
         } else {
-            DDLogInfo(@"%@ returned a nil post: %@", NSStringFromSelector(_cmd), post);
+            WPLogInfo(@"%@ returned a nil post: %@", NSStringFromSelector(_cmd), post);
         }
     }
     return newPosts;
 }
 
-/**
- Create a `ReaderPost` model object from the specified dictionary.
-
- @param dict A `RemoteReaderPost` object.
- @param topic The `ReaderAbstractTopic` to assign to the created post.
- @return A `ReaderPost` model object whose properties are populated with the values from the passed dictionary.
- */
-- (ReaderPost *)createOrReplaceFromRemotePost:(RemoteReaderPost *)remotePost forTopic:(ReaderAbstractTopic *)topic inContext:(NSManagedObjectContext *)context
-{
-    NSParameterAssert(context != nil);
-    NSParameterAssert(topic == nil || topic.managedObjectContext == context);
-    return [ReaderPost createOrReplaceFromRemotePost:remotePost forTopic:topic context:context];
-}
-
 #pragma mark Internal
 
 - (BOOL)canLoadMorePostsForTopic:(ReaderAbstractTopic * _Nonnull)readerTopic remotePosts:(NSArray * _Nonnull)remotePosts inContext: (NSManagedObjectContext * _Nonnull)context {
-    BOOL hasMore = NO;
     BOOL spaceAvailable = ([self numberOfPostsForTopic:readerTopic inContext:context] < [self maxPostsToSaveForTopic:readerTopic]);
-    if ([ReaderHelpers isTopicTag:readerTopic]) {
-        // For tags, assume there is more content as long as more than zero results are returned.
-        hasMore = ([remotePosts count] > 0 ) && spaceAvailable;
-    } else {
-        // For other topics, assume there is more content as long as the number of results requested is returned.
-        hasMore = ([remotePosts count] == [self numberToSyncForTopic:readerTopic]) && spaceAvailable;
-    }
-    return hasMore;
+    return [remotePosts count] > 0 && spaceAvailable;
 }
 
 @end

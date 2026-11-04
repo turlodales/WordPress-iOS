@@ -1,9 +1,16 @@
 import Foundation
 import AutomatticTracks
+import AutomatticEncryptedLogs
+import BuildSettingsKit
+import WordPressData
 
-struct EventLoggingDelegate: AutomatticTracks.EventLoggingDelegate {
+struct EventLoggingDelegate: AutomatticEncryptedLogs.EventLoggingDelegate {
 
     var shouldUploadLogFiles: Bool {
+        guard BuildSettingsEnvironment.current != .test else {
+            return false
+        }
+
         return
             !ProcessInfo.processInfo.isLowPowerModeEnabled
             && !UserSettings.userHasOptedOutOfCrashLogging

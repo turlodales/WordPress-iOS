@@ -17,7 +17,7 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
     let secondaryActionTitle: String?
     let defaultActionTitle: String?
     open var accessoryBarHeight: CGFloat {
-        return 44
+        if #available(iOS 26, *) { 64 + 16 } else { 44 }
     }
 
     open var separatorStyle: SeparatorStyle {
@@ -53,7 +53,7 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
         title.font = WPStyleGuide.serifFontForTextStyle(UIFont.TextStyle.largeTitle, fontWeight: .semibold).withSize(17)
         title.isHidden = true
         title.adjustsFontSizeToFitWidth = true
-        title.minimumScaleFactor = 2/3
+        title.minimumScaleFactor = 2 / 3
         return title
     }()
 
@@ -95,8 +95,12 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
 
     @IBOutlet var visualEffects: [UIVisualEffectView]! {
         didSet {
-            visualEffects.forEach { (visualEffect) in
-                visualEffect.effect = UIBlurEffect.init(style: .systemChromeMaterial)
+            visualEffects.forEach { visualEffect in
+                if #available(iOS 26, *) {
+                    visualEffect.effect = UIBlurEffect(style: .regular)
+                } else {
+                    visualEffect.effect = UIBlurEffect(style: .systemChromeMaterial)
+                }
                 // Allow touches to pass through to the scroll view behind the header.
                 visualEffect.contentView.isUserInteractionEnabled = false
             }
@@ -106,7 +110,7 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
     private var footerHeight: CGFloat {
         let verticalMargins: CGFloat = 16
         let buttonHeight: CGFloat = 44
-        let safeArea = (UIApplication.shared.mainWindow?.safeAreaInsets.bottom ?? 0)
+        let safeArea = view.safeAreaInsets.bottom
 
         var height = verticalMargins + buttonHeight + verticalMargins + safeArea
 
@@ -157,32 +161,11 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
     private var accentColor: UIColor {
         return UIColor { (traitCollection: UITraitCollection) -> UIColor in
             if traitCollection.userInterfaceStyle == .dark {
-                return UIColor.muriel(color: .primary, .shade40)
+                return UIAppColor.primary(.shade40)
             } else {
-                return UIColor.muriel(color: .primary, .shade50)
+                return UIAppColor.primary(.shade50)
             }
         }
-    }
-
-    // MARK: - Static Helpers
-    public static func closeButton(target: Any?, action: Selector) -> UIBarButtonItem {
-        let closeButton = UIButton(frame: CGRect(x: 0, y: 0, width: 30, height: 30))
-        closeButton.layer.cornerRadius = 15
-        closeButton.accessibilityLabel = NSLocalizedString("Close", comment: "Dismisses the current screen")
-        closeButton.accessibilityIdentifier = "close-button"
-        closeButton.setImage(UIImage.gridicon(.crossSmall), for: .normal)
-        closeButton.addTarget(target, action: action, for: .touchUpInside)
-
-        closeButton.tintColor = .secondaryLabel
-        closeButton.backgroundColor = UIColor { (traitCollection: UITraitCollection) -> UIColor in
-            if traitCollection.userInterfaceStyle == .dark {
-                return UIColor.systemFill
-            } else {
-                return UIColor.quaternarySystemFill
-            }
-        }
-
-        return UIBarButtonItem(customView: closeButton)
     }
 
     // MARK: - Initializers
@@ -233,16 +216,36 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
         configureSubtitleToCategoryBarSpacing()
         configureHeaderImageView()
         navigationItem.titleView = titleView
-        largeTitleView.font = WPStyleGuide.serifFontForTextStyle(UIFont.TextStyle.largeTitle, fontWeight: .semibold)
+        largeTitleView.font = UIFont.make(.recoleta, textStyle: .largeTitle, weight: .medium)
         toggleFilterBarConstraints()
         styleButtons()
         setStaticText()
         scrollableView.delegate = self
 
-        formatNavigationController()
-        extendedLayoutIncludesOpaqueBars = true
-        edgesForExtendedLayout = .top
         updateSeperatorStyle()
+
+        registerForTraitChanges(UITraitCollection.systemTraitsAffectingColorAppearance) { (self: Self, _) in
+            self.styleButtons()
+        }
+
+        // Header height depends only on width and fonts, so the header reacts to the
+        // size classes, text size, and Bold Text, and nothing else. One shared handler
+        // keeps the vertical-size-class-wins behavior of the old override: a rotation
+        // that changes both size classes runs only the vertical branch.
+        registerForTraitChanges([UITraitVerticalSizeClass.self, UITraitHorizontalSizeClass.self, UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self]) { (self: Self, previousTraitCollection: UITraitCollection) in
+            if self.traitCollection.verticalSizeClass != previousTraitCollection.verticalSizeClass {
+                self.isUserInitiatedScroll = false
+                self.configureHeaderTitleVisibility()
+                self.layoutHeaderInsets()
+
+                // This helps reset the header changes after a rotation.
+                self.scrollViewDidScroll(self.scrollableView)
+                self.scrollViewDidEndDecelerating(self.scrollableView)
+            } else {
+                self.layoutHeader()
+                self.snapToHeight(self.scrollableView)
+            }
+        }
     }
 
     /// The estimated content size of the scroll view. This is used to adjust the content insests to allow the header to be scrollable to be collapsable still when
@@ -266,8 +269,11 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
         super.viewWillDisappear(animated)
     }
 
-    override var preferredStatusBarStyle: UIStatusBarStyle {
-        return .default
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        // `footerHeight` includes the bottom safe area inset, so the footer and the
+        // scrollable view's bottom inset go stale when the inset changes.
+        updateFooterInsets()
     }
 
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
@@ -277,7 +283,7 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
             return
         }
 
-        coordinator.animate(alongsideTransition: nil) { (_) in
+        coordinator.animate(alongsideTransition: nil) { _ in
             self.accessoryBarTopCompactConstraint.isActive = self.shouldUseCompactLayout
             self.updateHeaderDisplay()
             // we're keeping this only for no results,
@@ -285,61 +291,29 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
             if self.shouldHideAccessoryBar, self.isShowingNoResults {
                 self.disableInitialLayoutHelpers()
                 self.snapToHeight(self.scrollableView, height: self.minHeaderHeight, animated: false)
+            } else {
+                // `updateHeaderDisplay()` gives the header its full height so it can be measured, whatever the
+                // scroll position. Size it for the scroll position again: the next snap, which runs when the size
+                // class changes, reads the header and would otherwise scroll a full header back to the top.
+                self.scrollViewDidScroll(self.scrollableView)
             }
-        }
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
-            styleButtons()
-        }
-
-        if let previousTraitCollection = previousTraitCollection, traitCollection.verticalSizeClass != previousTraitCollection.verticalSizeClass {
-            isUserInitiatedScroll = false
-            configureHeaderTitleVisibility()
-            layoutHeaderInsets()
-
-            // This helps reset the header changes after a rotation.
-            scrollViewDidScroll(scrollableView)
-            scrollViewDidEndDecelerating(scrollableView)
-        } else {
-            layoutHeader()
-            snapToHeight(scrollableView)
         }
     }
 
     // MARK: - Footer Actions
     @IBAction open func defaultActionSelected(_ sender: Any) {
-        /* This should be overriden in a child class in order to enable support. */
+        /* This should be overridden in a child class in order to enable support. */
     }
 
     @IBAction open func primaryActionSelected(_ sender: Any) {
-        /* This should be overriden in a child class in order to enable support. */
+        /* This should be overridden in a child class in order to enable support. */
     }
 
     @IBAction open func secondaryActionSelected(_ sender: Any) {
-        /* This should be overriden in a child class in order to enable support. */
+        /* This should be overridden in a child class in order to enable support. */
     }
 
     // MARK: - Format Nav Bar
-    /*
-     * To allow more flexibility in the navigation bar's header items, we keep the navigation bar available.
-     * However, that space is also essential to a uniform design of the header. This function updates the design of the
-     * navigation bar. We set the design to the `navigationItem`, which is ViewController specific.
-     */
-    private func formatNavigationController() {
-        let newAppearance = UINavigationBarAppearance()
-        newAppearance.configureWithTransparentBackground()
-        newAppearance.backgroundColor = .clear
-        newAppearance.shadowColor = .clear
-        newAppearance.shadowImage = UIImage()
-        navigationItem.standardAppearance = newAppearance
-        navigationItem.scrollEdgeAppearance = newAppearance
-        navigationItem.compactAppearance = newAppearance
-        setNeedsStatusBarAppearanceUpdate()
-    }
 
     // MARK: - View Styling
     private func setStaticText() {
@@ -350,7 +324,7 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
         promptView.text = prompt
         primaryActionButton.setTitle(primaryActionTitle, for: .normal)
 
-        if let defaultActionTitle = defaultActionTitle {
+        if let defaultActionTitle {
             defaultActionButton.setTitle(defaultActionTitle, for: .normal)
         } else {
             footerHeightContraint.constant = 0
@@ -359,7 +333,7 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
             selectedStateButtonsContainer.isHidden = false
         }
 
-        if let secondaryActionTitle = secondaryActionTitle {
+        if let secondaryActionTitle {
             secondaryActionButton.setTitle(secondaryActionTitle, for: .normal)
         } else {
             secondaryActionButton.isHidden = true
@@ -378,7 +352,7 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
     }
 
     private func insertAccessoryView() {
-        guard let accessoryView = accessoryView else {
+        guard let accessoryView else {
             return
         }
 
@@ -410,7 +384,7 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
     private func styleButtons() {
         let seperator = UIColor.separator
 
-        [defaultActionButton, secondaryActionButton].forEach { (button) in
+        [defaultActionButton, secondaryActionButton].forEach { button in
             button?.titleLabel?.font = WPStyleGuide.fontForTextStyle(.body, fontWeight: .medium)
             button?.titleLabel?.adjustsFontSizeToFitWidth = true
             button?.titleLabel?.adjustsFontForContentSizeCategory = true
@@ -524,7 +498,7 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
                                      subtitle: subtitle,
                                      noConnectionSubtitle: subtitle,
                                      buttonTitle: NSLocalizedString("Retry", comment: "A prompt to attempt the failed network request again"),
-                                     customizationBlock: { (noResultsController) in
+                                     customizationBlock: { noResultsController in
                                         noResultsController.delegate = resultsDelegate
                                      })
     }
@@ -560,10 +534,9 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
 
     /// A public interface to hide the header blur.
     func hideHeaderVisualEffects() {
-        visualEffects.forEach { (visualEffect) in
+        visualEffects.forEach { visualEffect in
             visualEffect.isHidden = true
         }
-        navigationController?.navigationBar.backgroundColor = .systemBackground
     }
 
     /// In scenarios where the content offset before content changes doesn't align with the available space after the content changes then the offset can be lost. In
@@ -610,13 +583,13 @@ class CollapsableHeaderViewController: UIViewController, NoResultsViewHost {
         UIView.animate(withDuration: animationSpeed, delay: 0, options: .transitionCrossDissolve, animations: {
             self.defaultActionButton.alpha = alpha
             self.selectedStateButtonsContainer.alpha = selectedStateContainerAlpha
-        }) { (_) in
+        }) { _ in
             self.defaultActionButton.isHidden = hasSelectedItem
             self.selectedStateButtonsContainer.isHidden = !hasSelectedItem
         }
     }
 
-    // MARK: - Seperator styling
+    // MARK: - Separator styling
     private func updateSeperatorStyle(animated: Bool = true) {
         let shouldBeHidden: Bool
         switch separatorStyle {
@@ -644,7 +617,7 @@ extension CollapsableHeaderViewController: UIScrollViewDelegate {
 
     /// Restores the stashed content offset if it appears as if it's been reset.
     private func restoreContentOffsetIfNeeded(_ scrollView: UIScrollView) {
-        guard var stashedOffset = stashedOffset else {
+        guard var stashedOffset else {
             return
         }
 
@@ -759,23 +732,23 @@ extension CollapsableHeaderViewController: UIScrollViewDelegate {
 // MARK: - Keyboard Adjustments
 extension CollapsableHeaderViewController {
     private func startObservingKeyboardChanges() {
-        let willShowObserver = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] (notification) in
+        let willShowObserver = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] notification in
             guard let self else { return }
-            UIView.animate(withKeyboard: notification) { (_, endFrame) in
+            UIView.animate(withKeyboard: notification) { _, endFrame in
                 self.scrollableContainerBottomConstraint.constant = endFrame.height - self.footerHeight
             }
         }
 
-        let willHideObserver = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] (notification) in
+        let willHideObserver = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] notification in
             guard let self else { return }
-            UIView.animate(withKeyboard: notification) { (_, _) in
+            UIView.animate(withKeyboard: notification) { _, _ in
                 self.scrollableContainerBottomConstraint.constant = 0
             }
         }
 
-        let willChangeFrameObserver = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] (notification) in
+        let willChangeFrameObserver = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] notification in
             guard let self else { return }
-            UIView.animate(withKeyboard: notification) { (_, endFrame) in
+            UIView.animate(withKeyboard: notification) { _, endFrame in
                 self.scrollableContainerBottomConstraint.constant = endFrame.height - self.footerHeight
             }
         }
@@ -786,7 +759,7 @@ extension CollapsableHeaderViewController {
     }
 
     private func stopObservingKeyboardChanges() {
-        notificationObservers.forEach { (observer) in
+        notificationObservers.forEach { observer in
             NotificationCenter.default.removeObserver(observer)
         }
         notificationObservers = []

@@ -1,4 +1,5 @@
 import UIKit
+import WordPressData
 
 struct LinkSettings {
     var  url: String = ""
@@ -7,7 +8,6 @@ struct LinkSettings {
     var  isNewLink: Bool = true
 
     init() {
-
     }
 
     init(url: String, text: String, openInNewWindow: Bool, isNewLink: Bool = true) {
@@ -27,7 +27,7 @@ enum LinkAction {
 
 class LinkSettingsViewController: UITableViewController {
 
-    private var linkSettings =  LinkSettings()
+    private var linkSettings = LinkSettings()
     private var viewModel: ImmuTable!
     private var viewHandler: ImmuTableViewHandler!
 
@@ -40,7 +40,7 @@ class LinkSettingsViewController: UITableViewController {
     init(settings: LinkSettings, callback: @escaping LinkCallback) {
         linkSettings = settings
         self.callback = callback
-        super.init(style: .grouped)
+        super.init(style: .insetGrouped)
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -73,7 +73,7 @@ class LinkSettingsViewController: UITableViewController {
     private func titleOfExistingContent() -> String {
         var titleOfPost: String = ""
         let permaLink = linkSettings.url
-        if let blog = blog, !permaLink.isEmpty {
+        if let blog, !permaLink.isEmpty {
             titleOfPost = PostCoordinator.shared.titleOfPost(withPermaLink: linkSettings.url, in: blog) ?? ""
         }
         return titleOfPost
@@ -91,7 +91,6 @@ class LinkSettingsViewController: UITableViewController {
         let openInNewWindowRow = SwitchRow(title: NSLocalizedString("Open in a new Window/Tab", comment: "Label for the description of openening a link using a new window"),
                                            value: linkSettings.openInNewWindow,
                                            onChange: editOpenInNewWindow)
-
 
         let linkToExistingContentRow = EditableTextRow(title: NSLocalizedString("Link to existing content", comment: "Action. Label for navigate and display links to other posts on the site"),
                                       value: titleOfExistingContent(),
@@ -125,7 +124,7 @@ class LinkSettingsViewController: UITableViewController {
         let editableRow = row as! EditableTextRow
         pushSettingsController(for: editableRow, hint: nil,
                                onValueChanged: { [weak self] value in
-                                self?.linkSettings.url  = value
+                                self?.linkSettings.url = value
                                 self?.reloadViewModel()
         }, mode: .URL)
     }
@@ -134,7 +133,7 @@ class LinkSettingsViewController: UITableViewController {
         let editableRow = row as! EditableTextRow
         pushSettingsController(for: editableRow, hint: nil,
                                onValueChanged: { [weak self] value in
-                                self?.linkSettings.text  = value
+                                self?.linkSettings.text = value
                                 self?.reloadViewModel()
         })
     }
@@ -148,18 +147,17 @@ class LinkSettingsViewController: UITableViewController {
     }
 
     private func selectExistingContent(row: ImmuTableRow) {
-        guard let blog = blog else {
+        guard let blog else {
             return
         }
-        let selectPostViewController = SelectPostViewController(blog: blog, isSelectedPost: { [weak self] in $0.permaLink == self?.linkSettings.url }, callback: { [weak self] (post) in
+        let selectPostViewController = SelectPostViewController(blog: blog, isSelectedPost: { [weak self] in $0.permaLink == self?.linkSettings.url }, callback: { [weak self] post in
             guard let strongSelf = self,
-                    let url = post.permaLink,
-                    let title = post.titleForDisplay() else {
+                    let url = post.permaLink else {
                 return
             }
             strongSelf.linkSettings.url = url
             if strongSelf.linkSettings.text.isEmpty {
-                strongSelf.linkSettings.text = title
+                strongSelf.linkSettings.text = post.titleForDisplay()
             }
             strongSelf.navigationController?.popViewController(animated: true)
             strongSelf.reloadViewModel()

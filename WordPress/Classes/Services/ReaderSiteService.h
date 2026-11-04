@@ -1,6 +1,8 @@
 #import <Foundation/Foundation.h>
-#import "CoreDataService.h"
-#import "ReaderTopicService.h"
+
+@protocol CoreDataStack;
+
+NS_ASSUME_NONNULL_BEGIN
 
 typedef NS_ENUM(NSUInteger, ReaderSiteServiceError) {
     ReaderSiteServiceErrorNotLoggedIn,
@@ -9,7 +11,13 @@ typedef NS_ENUM(NSUInteger, ReaderSiteServiceError) {
 
 extern NSString * const ReaderSiteServiceErrorDomain;
 
-@interface ReaderSiteService : CoreDataService
+@interface ReaderSiteService : NSObject
+
+@property (nonatomic, strong, readonly) id<CoreDataStack> coreDataStack;
+
+- (instancetype)initWithCoreDataStack:(id<CoreDataStack>)coreDataStack NS_DESIGNATED_INITIALIZER;
+
+- (instancetype)init NS_UNAVAILABLE;
 
 /**
  Follow a site by its URL.
@@ -68,22 +76,6 @@ extern NSString * const ReaderSiteServiceErrorDomain;
                   success:(void(^)(void))success
                   failure:(void(^)(NSError *error))failure;
 
-/**
- Sync posts for the 'sites I follow endpoint if it exists. Maybe called whenever
- a site/feed is followed or unfollowed.
- */
-- (void)syncPostsForFollowedSites;
-
-/**
- Returns a ReaderSiteTopic for the given site URL.
- 
- @param siteURL The URL of the site.
- @param success block called on a successful fetch containing the ReaderSiteTopic.
- @param failure block called if there is any error. `error` can be any underlying network error.
- */
-- (void)topicWithSiteURL:(NSURL *)siteURL
-                 success:(void (^)(ReaderSiteTopic *topic))success
-                 failure:(void(^)(NSError *error))failure;
-
-
 @end
+
+NS_ASSUME_NONNULL_END

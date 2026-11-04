@@ -4,7 +4,9 @@ extension DashboardCard: BlogDashboardPersonalizable {
 
     var blogDashboardPersonalizationKey: String? {
         switch self {
-        case .todaysStats:
+        case .todaysStats, .todaysStatsNew:
+            // Both renderings share one key, so the single Personalize Home Tab
+            // toggle and either card's "Hide this" control both of them.
             return "todays-stats-card-enabled-site-settings"
         case .draftPosts:
             return "draft-posts-card-enabled-site-settings"
@@ -12,8 +14,6 @@ extension DashboardCard: BlogDashboardPersonalizable {
             return "scheduled-posts-card-enabled-site-settings"
         case .blaze:
             return "blaze-card-enabled-site-settings"
-        case .bloganuaryNudge:
-            return "bloganuary-nudge-card-enabled-site-settings"
         case .prompts:
             // Warning: there is an irregularity with the prompts key that doesn't
             // have a "-card" component in the key name. Keeping it like this to
@@ -29,12 +29,8 @@ extension DashboardCard: BlogDashboardPersonalizable {
             return "activity-log-card-enabled-site-settings"
         case .pages:
             return "pages-card-enabled-site-settings"
-        case .quickStart:
-            // The "Quick Start" cell used to use `BlogDashboardPersonalizationService`.
-            // It no longer does, but it's important to keep the flag around for
-            // users that hidden it using this flag.
-            return "quick-start-card-enabled-site-settings"
-        case .dynamic, .jetpackBadge, .jetpackInstall, .jetpackSocial, .failure, .ghost, .personalize, .empty:
+        case .dynamic, .jetpackBadge, .jetpackInstall, .failure, .ghost, .personalize, .empty,
+            .extensiveLogging:
             return nil
         }
     }

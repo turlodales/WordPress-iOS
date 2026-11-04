@@ -1,30 +1,41 @@
-Fixes #
+## Description
+<!-- Describe the changes, why they are needed, and how they address the issue -->
 
-To test:
+## What I ran
+<!--
 
-## Regression Notes
-1. Potential unintended areas of impact
+CI does not run on pull requests from forks, so a maintainer is the first person to build your change. Before you open a pull request:
 
+1. Build your change and run the tests for the code you changed. This needs macOS and Xcode.
+2. Run each affected test suite with this command. If you don't have an `iPhone 18 Pro` simulator, use any iPhone simulator listed by `xcrun simctl list devices available`.
 
-2. What I did to test those areas of impact (or what existing automated tests I relied on)
+    ```bash
+    xcodebuild -workspace WordPress.xcworkspace -scheme WordPress -testPlan WordPressUnitTests -destination 'platform=iOS Simulator,name=iPhone 18 Pro' test -only-testing:<TestTarget>/<Suite>
+    ```
 
+    For example, `-only-testing:WordPressTest/RemoteFeatureFlagTests`. Repeat `-only-testing:` once for each suite.
+3. If you're opening the pull request from a fork, add a "What I ran" section to the description. List the test suites you ran and paste the result line each one printed. XCTest prints a line like `Executed 3 tests, with 0 failures`. Swift Testing prints a line like `Test run with 6 tests in 1 suite passed`. If your change has no tests to run (for example, a documentation change), write `No tests apply:` followed by the reason.
+4. If you could not build the change or run its tests (for example, because you aren't on macOS), don't open a pull request. Comment on the issue with your proposed approach instead.
 
-3. What automated tests I added (or what prevented me from doing so)
+-->
 
-PR submission checklist:
+- [ ] I built this change and ran the affected tests locally
 
-- [ ] I have completed the Regression Notes.
-- [ ] I have considered adding unit tests for my changes.
-- [ ] I have considered adding accessibility improvements for my changes.
-- [ ] I have considered if this change warrants user-facing release notes and have added them to `RELEASE-NOTES.txt` if necessary.
+## Testing instructions
+<!-- Consider listing specific testing steps for helping reviewers evaluate the efficacy of the changes -->
 
-UI Changes testing checklist:
-- [ ] Portrait and landscape orientations.
-- [ ] Light and dark modes.
-- [ ] Fonts: Larger, smaller and bold text.
-- [ ] High contrast.
-- [ ] VoiceOver.
-- [ ] Languages with large words or with letters/accents not frequently used in English.
-- [ ] Right-to-left languages. (Even if translation isn’t complete, formatting should still respect the right-to-left layout)
-- [ ] iPhone and iPad. 
-- [ ] Multi-tasking: Split view and Slide over. (iPad)
+<!--
+
+Consider testing the following *yourself* before requesting a review:
+
+- Compatibility with WordPress.com sites and self-hosted Jetpack sites
+- Both portrait and landscape orientations
+- Light and dark modes
+- Dynamic font sizes: larger, smaller and bold text
+- High contrast mode
+- Screen reader experience (e.g., VoiceOver)
+- Languages with large words or with letters/accents not frequently used in English
+- Right-to-left languages layout
+- Multi-tasking: split view and slide over
+
+-->

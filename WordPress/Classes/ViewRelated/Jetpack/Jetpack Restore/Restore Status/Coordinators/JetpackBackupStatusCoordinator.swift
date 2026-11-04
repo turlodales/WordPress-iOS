@@ -1,4 +1,6 @@
 import Foundation
+import WordPressData
+import WordPressKit
 
 protocol JetpackBackupStatusView {
     func render(_ backup: JetpackBackup)
@@ -25,7 +27,7 @@ class JetpackBackupStatusCoordinator {
          downloadID: Int,
          view: JetpackBackupStatusView,
          service: JetpackBackupService? = nil,
-         coreDataStack: CoreDataStack = ContextManager.sharedInstance()) {
+         coreDataStack: CoreDataStack = ContextManager.shared) {
         self.service = service ?? JetpackBackupService(coreDataStack: coreDataStack)
         self.site = site
         self.downloadID = downloadID
@@ -67,7 +69,7 @@ class JetpackBackupStatusCoordinator {
         isLoading = true
 
         service.getBackupStatus(for: self.site, downloadID: downloadID, success: { [weak self] backup in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
@@ -80,11 +82,10 @@ class JetpackBackupStatusCoordinator {
             }
 
             self.view.render(backup)
-
         }, failure: { [weak self] error in
             DDLogError("Error fetching backup object: \(error.localizedDescription)")
 
-            guard let self = self else {
+            guard let self else {
                 return
             }
 

@@ -1,9 +1,14 @@
-class MediaHelper: NSObject {
+import Foundation
+import AsyncImageKit
+import WordPressData
+import WordPressKit
+
+public class MediaHelper: NSObject {
 
     @objc(updateMedia:withRemoteMedia:)
-    static func update(media: Media, with remoteMedia: RemoteMedia) {
+    public static func update(media: Media, with remoteMedia: RemoteMedia) {
         if media.mediaID != remoteMedia.mediaID {
-            media.mediaID =  remoteMedia.mediaID
+            media.mediaID = remoteMedia.mediaID
         }
         if media.remoteURL != remoteMedia.url?.absoluteString {
             media.remoteURL = remoteMedia.url?.absoluteString
@@ -65,39 +70,9 @@ class MediaHelper: NSObject {
         if media.error != nil {
             media.error = nil
         }
-
-    }
-
-    static func advertiseImageOptimization(completion: @escaping (() -> Void)) {
-        guard MediaSettings().advertiseImageOptimization else {
-            completion()
-            return
+        if media.formattedSize != remoteMedia.formattedSize {
+            media.formattedSize = remoteMedia.formattedSize
         }
-
-        let title = NSLocalizedString("appSettings.optimizeImagesPopup.title", value: "Keep optimizing images?",
-                                        comment: "Title of an alert informing users to enable image optimization in uploads.")
-        let message = NSLocalizedString("appSettings.optimizeImagesPopup.message", value: "Image optimization shrinks images for faster uploading.\n\nThis option is enabled by default, but you can change it in the app settings at any time.",
-                                        comment: "Message of an alert informing users to enable image optimization in uploads.")
-        let turnOffTitle = NSLocalizedString("appSettings.optimizeImagesPopup.turnOff", value: "No, turn off", comment: "Title of button for turning off image optimization, displayed in the alert informing users to enable image optimization in uploads.")
-        let leaveOnTitle = NSLocalizedString("appSettings.optimizeImagesPopup.turnOn", value: "Yes, leave on", comment: "Title of button for leaving on image optimization, displayed in the alert informing users to enable image optimization in uploads.")
-
-        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        let turnOffAction = UIAlertAction(title: turnOffTitle, style: .default) { _ in
-            MediaSettings().imageOptimizationEnabled = false
-            WPAnalytics.track(.appSettingsOptimizeImagesPopupTapped, properties: ["option": "off"])
-            completion()
-        }
-        let leaveOnAction = UIAlertAction(title: leaveOnTitle, style: .default) { _ in
-            MediaSettings().imageOptimizationEnabled = true
-            WPAnalytics.track(.appSettingsOptimizeImagesPopupTapped, properties: ["option": "on"])
-            completion()
-        }
-        alert.addAction(turnOffAction)
-        alert.addAction(leaveOnAction)
-        alert.preferredAction = leaveOnAction
-        alert.presentFromRootViewController()
-
-        MediaSettings().advertiseImageOptimization = false
     }
 }
 
@@ -111,7 +86,7 @@ extension Media {
             return configuration
         }())
         let authenticator = MediaRequestAuthenticator()
-        let host = MediaHost(with: blog)
+        let host = MediaHost(blog)
         let temporaryDirectory = Media.remoteDataTemporaryDirectoryURL
 
         var output: [URL] = []
@@ -153,13 +128,11 @@ extension Media {
     }
 
     static func removeTemporaryData() {
-        _ =  remoteDataTemporaryDirectoryURL
+        _ = remoteDataTemporaryDirectoryURL
     }
 
     private static let remoteDataTemporaryDirectoryURL: URL = {
-        var tempDirectoryURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("org.automattic.RemoteMediaTEmporaryDirectory", isDirectory: true)
-        // Remove data from the previous sessions.
+        let tempDirectoryURL = URL.Helpers.temporaryDirectory(named: "org.automattic.RemoteMediaTEmporaryDirectory")
         try? FileManager.default.removeItem(at: tempDirectoryURL)
         try? FileManager.default.createDirectory(at: tempDirectoryURL, withIntermediateDirectories: true)
         return tempDirectoryURL

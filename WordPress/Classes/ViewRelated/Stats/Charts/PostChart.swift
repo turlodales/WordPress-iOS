@@ -1,5 +1,7 @@
-import Foundation
+import UIKit
 import DGCharts
+import WordPressKit
+import WordPressUI
 
 // MARK: - PostChartType
 
@@ -25,7 +27,7 @@ extension PostChartType {
         case .latest:
             return nil
         case .selected:
-            return .accent(.shade30)
+            return UIAppColor.accent(.shade30)
         }
     }
 }
@@ -35,14 +37,12 @@ extension PostChartType {
 final class PostChart {
 
     private let chartType: PostChartType
-    private let rawPostViews: [StatsPostViews]
     private let transformedPostData: BarChartData
 
     let barChartStyling: BarChartStyling
 
     init(type: PostChartType = .selected, postViews: [StatsPostViews]) {
         chartType = type
-        rawPostViews = postViews
 
         let (data, styling) = PostChartDataTransformer.transform(type: type, postViews: postViews)
 
@@ -126,26 +126,25 @@ private final class PostChartDataTransformer {
     }
 
     static func primaryBarColor(forCount count: Int) -> UIColor {
-        return count > 0 ? .primaryLight : .neutral(.shade0)
+        return count > 0 ? UIAppColor.primaryLight : UIAppColor.neutral(.shade0)
     }
 
     static func primaryHighlightColor(forType type: PostChartType, withCount count: Int) -> UIColor? {
         return count > 0 ? type.highlightColor : nil
     }
-
 }
 
 // MARK: - PostChartStyling
 
 private struct PostChartStyling: BarChartStyling {
     let primaryBarColor: UIColor
-    let secondaryBarColor: UIColor?                 = nil
+    let secondaryBarColor: UIColor? = nil
     let primaryHighlightColor: UIColor?
-    let secondaryHighlightColor: UIColor?           = nil
-    let labelColor: UIColor                         = .neutral(.shade30)
-    let legendColor: UIColor?                       = nil
-    let legendTitle: String?                        = nil
-    let lineColor: UIColor                          = .neutral(.shade5)
+    let secondaryHighlightColor: UIColor? = nil
+    let labelColor: UIColor = UIAppColor.neutral(.shade30)
+    let legendColor: UIColor? = nil
+    let legendTitle: String? = nil
+    let lineColor: UIColor = UIAppColor.neutral(.shade5)
     let xAxisValueFormatter: AxisValueFormatter
-    let yAxisValueFormatter: AxisValueFormatter    = VerticalAxisFormatter()
+    let yAxisValueFormatter: AxisValueFormatter = VerticalAxisFormatter()
 }

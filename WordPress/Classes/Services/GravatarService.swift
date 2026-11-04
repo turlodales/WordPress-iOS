@@ -1,15 +1,28 @@
 import Foundation
-import CocoaLumberjack
+import WordPressData
 import WordPressKit
-
+import Gravatar
 
 @objc public enum GravatarServiceError: Int, Error {
     case invalidAccountInfo
 }
 
+public protocol GravatarImageUploader {
+    @discardableResult
+    func upload(_ image: UIImage, selectionBehavior: AvatarSelection, accessToken: String) async throws -> AvatarType
+}
+
+extension AvatarService: GravatarImageUploader { }
+
 /// This Service exposes all of the valid operations we can execute, to interact with the Gravatar Service.
 ///
-open class GravatarService {
+public class GravatarService {
+
+    let imageUploader: GravatarImageUploader
+
+    init(imageUploader: GravatarImageUploader? = nil) {
+        self.imageUploader = imageUploader ?? AvatarService()
+    }
 
     /// This method fetches the Gravatar profile for the specified email address.
     ///
@@ -18,7 +31,7 @@ open class GravatarService {
     ///     - completion: A completion block.
     ///
     open func fetchProfile(email: String, onCompletion: @escaping ((_ profile: GravatarProfile?) -> Void)) {
-        let remote = gravatarServiceRemote()
+        let remote = GravatarServiceRemote()
         remote.fetchProfile(email, success: { remoteProfile in
             var profile = GravatarProfile()
             profile.profileID = remoteProfile.profileID
@@ -30,13 +43,11 @@ open class GravatarService {
             profile.name = remoteProfile.name
             profile.displayName = remoteProfile.displayName
             onCompletion(profile)
-
         }, failure: { error in
-            DDLogError(error.debugDescription)
+            DDLogError("\(error.debugDescription)")
             onCompletion(nil)
         })
     }
-
 
     /// This method hits the Gravatar Endpoint, and uploads a new image, to be used as profile.
     ///
@@ -45,31 +56,28 @@ open class GravatarService {
     ///     - account: The WPAccount instance for which to upload a new image.
     ///     - completion: An optional closure to be executed on completion.
     ///
-    open func uploadImage(_ image: UIImage, forAccount account: WPAccount, completion: ((_ error: NSError?) -> ())? = nil) {
+    open func uploadImage(_ image: UIImage, forAccount account: WPAccount, completion: ((_ error: Error?) -> ())? = nil) {
         guard
             let accountToken = account.authToken, !accountToken.isEmpty,
             let accountEmail = account.email, !accountEmail.isEmpty else {
-                completion?(GravatarServiceError.invalidAccountInfo as NSError)
+                completion?(GravatarServiceError.invalidAccountInfo)
                 return
         }
 
         let email = accountEmail.trimmingCharacters(in: CharacterSet.whitespaces).lowercased()
 
-        let remote = gravatarServiceRemote()
-        remote.uploadImage(image, accountEmail: email, accountToken: accountToken) { (error) in
-            if let theError = error {
-                DDLogError("GravatarService.uploadImage Error: \(theError)")
-            } else {
+        Task {
+            do {
+                // The `/v3` gravatar upload endpoint expects the image to be a perfect square, otherwise fails.
+                // Thus, we call `.squared()` (which will do nothing if the image is already square).
+                // cropping(to: ...) sometimes generates edges a few pixels uneven. So `.squared()` will compensate.
+                try await imageUploader.upload(image.squared(), selectionBehavior: .selectUploadedImage(for: Email(email)), accessToken: accountToken)
                 DDLogInfo("GravatarService.uploadImage Success!")
+                completion?(nil)
+            } catch {
+                DDLogError("GravatarService.uploadImage Error: \(error)")
+                completion?(error)
             }
-
-            completion?(error)
         }
-    }
-
-    /// Overridden by tests for mocking.
-    ///
-    func gravatarServiceRemote() -> GravatarServiceRemote {
-        return GravatarServiceRemote()
     }
 }

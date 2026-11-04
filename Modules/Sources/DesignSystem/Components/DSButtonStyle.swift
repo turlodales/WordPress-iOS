@@ -1,4 +1,5 @@
 import SwiftUI
+import BuildSettingsKit
 
 public struct DSButtonStyle {
     public enum Emphasis: CaseIterable {
@@ -17,7 +18,11 @@ public struct DSButtonStyle {
     public let size: Size
     public let isJetpack: Bool
 
-    public init(emphasis: Emphasis, size: Size, isJetpack: Bool) {
+    public init(
+        emphasis: Emphasis,
+        size: Size,
+        isJetpack: Bool = BuildSettings.current.brand == .jetpack
+    ) {
         self.emphasis = emphasis
         self.size = size
         self.isJetpack = isJetpack
@@ -27,28 +32,24 @@ public struct DSButtonStyle {
 // MARK: - SwiftUI.Button DSButtonStyle helpers
 extension DSButtonStyle {
     var foregroundColor: Color {
-        switch self.emphasis {
-        case .primary:
-            return .DS.Background.primary
-        case .secondary:
-            return .DS.Foreground.primary
-        case .tertiary:
-            return .DS.Foreground.brand(isJetpack: isJetpack)
+        return switch self.emphasis {
+        case .primary: Color(.systemBackground)
+        case .secondary: Color(.label)
+        case .tertiary: .accentColor
         }
     }
 
     var backgroundColor: Color {
-        switch self.emphasis {
-        case .primary:
-            return .DS.Foreground.primary
-        case .secondary, .tertiary:
-            return .clear
+        return switch self.emphasis {
+        case .primary: Color(.label)
+        case .secondary: Color(.secondarySystemBackground)
+        case .tertiary: .clear
         }
     }
 }
 
 public struct ScalingButtonStyle: ButtonStyle {
-    @SwiftUI.Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme) private var colorScheme
 
     private let style: DSButtonStyle
 

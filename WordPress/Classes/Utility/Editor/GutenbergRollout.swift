@@ -1,3 +1,6 @@
+import WordPressData
+import WordPressShared
+
 /// This structs helps encapsulate logic related to Gutenberg rollout phases.
 ///
 struct GutenbergRollout {
@@ -6,7 +9,7 @@ struct GutenbergRollout {
     }
     let database: KeyValueDatabase
     private let phase2Percentage = 100
-    private let context = Environment.current.contextManager.mainContext
+    private let context = AppEnvironment.current.contextManager.mainContext
 
     var isUserInRolloutGroup: Bool {
         get {

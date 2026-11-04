@@ -1,20 +1,15 @@
 import UIKit
+import SwiftUI
+import WordPressData
+import WordPressShared
+import WordPressKit
 
 final class DashboardActivityLogCardCell: DashboardCollectionViewCell {
 
-    enum ActivityLogSection: CaseIterable {
-        case activities
-    }
-
-    typealias DataSource = UITableViewDiffableDataSource<ActivityLogSection, Activity>
-    typealias Snapshot = NSDiffableDataSourceSnapshot<ActivityLogSection, Activity>
-
     private(set) var blog: Blog?
     private(set) weak var presentingViewController: BlogDashboardViewController?
-    private(set) lazy var dataSource = createDataSource()
     private var viewModel: DashboardActivityLogViewModel?
-
-    let store = StoreContainer.shared.activity
+    private var hostingController: UIHostingController<DashboardActivityLogListView>?
 
     // MARK: - Views
 
@@ -24,17 +19,6 @@ final class DashboardActivityLogCardCell: DashboardCollectionViewCell {
         frameView.setTitle(Strings.title)
         frameView.accessibilityIdentifier = "dashboard-activity-log-card-frameview"
         return frameView
-    }()
-
-    lazy var tableView: UITableView = {
-        let tableView = DashboardCardTableView()
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.isScrollEnabled = false
-        tableView.backgroundColor = nil
-        let activityCellNib = ActivityTableViewCell.defaultNib
-        tableView.register(activityCellNib, forCellReuseIdentifier: ActivityTableViewCell.defaultReuseID)
-        tableView.separatorStyle = .none
-        return tableView
     }()
 
     // MARK: - Initializers
@@ -57,7 +41,9 @@ final class DashboardActivityLogCardCell: DashboardCollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        tableView.dataSource = nil
+        hostingController?.view.removeFromSuperview()
+        hostingController?.removeFromParent()
+        hostingController = nil
     }
 
     // MARK: - View setup
@@ -65,9 +51,6 @@ final class DashboardActivityLogCardCell: DashboardCollectionViewCell {
     private func setupView() {
         contentView.addSubview(cardFrameView)
         contentView.pinSubviewToAllEdges(cardFrameView, priority: .defaultHigh)
-
-        cardFrameView.add(subview: tableView)
-        tableView.delegate = self
     }
 
     // MARK: - BlogDashboardCardConfigurable
@@ -81,8 +64,8 @@ final class DashboardActivityLogCardCell: DashboardCollectionViewCell {
         self.presentingViewController = viewController
         self.viewModel = DashboardActivityLogViewModel(apiResponse: apiResponse)
 
-        tableView.dataSource = dataSource
-        updateDataSource(with: viewModel?.activitiesToDisplay ?? [])
+        let activities = viewModel?.activitiesToDisplay ?? []
+        configureHostingController(with: activities, parent: viewController)
 
         configureHeaderAction(for: blog)
         configureContextMenu(for: blog)
@@ -90,6 +73,44 @@ final class DashboardActivityLogCardCell: DashboardCollectionViewCell {
         BlogDashboardAnalytics.shared.track(.dashboardCardShown,
                                             properties: ["type": DashboardCard.activityLog.rawValue],
                                             blog: blog)
+    }
+
+    private func configureHostingController(with activities: [Activity], parent: UIViewController?) {
+        guard let parent else { return }
+
+        let listView = DashboardActivityLogListView(activities: activities) { [weak self] activity in
+            self?.didSelectActivity(activity)
+        }
+
+        if let hostingController {
+            hostingController.rootView = listView
+        } else {
+            let hostingController = UIHostingController(rootView: listView)
+            hostingController.view.backgroundColor = .clear
+            hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+            hostingController.willMove(toParent: parent)
+            parent.addChild(hostingController)
+            cardFrameView.add(subview: hostingController.view)
+            hostingController.didMove(toParent: parent)
+            self.hostingController = hostingController
+        }
+
+        hostingController?.view.invalidateIntrinsicContentSize()
+    }
+
+    private func didSelectActivity(_ activity: Activity) {
+        guard let blog,
+              let presentingViewController else {
+            return
+        }
+
+        WPAnalytics.track(.dashboardCardItemTapped,
+                          properties: ["type": DashboardCard.activityLog.rawValue],
+                          blog: blog)
+
+        let detailView = ActivityLogDetailsView(activity: activity, blog: blog)
+        let hostingController = UIHostingController(rootView: detailView)
+        presentingViewController.navigationController?.pushViewController(hostingController, animated: true)
     }
 
     private func configureHeaderAction(for blog: Blog) {
@@ -104,7 +125,6 @@ final class DashboardActivityLogCardCell: DashboardCollectionViewCell {
         }
         cardFrameView.ellipsisButton.showsMenuAsPrimaryAction = true
 
-
         let activityAction = UIAction(title: Strings.allActivity,
                                       image: Style.allActivityImage,
                                       handler: { [weak self] _ in self?.showActivityLog(for: blog, tapSource: Constants.contextMenuTapSource) })
@@ -112,7 +132,6 @@ final class DashboardActivityLogCardCell: DashboardCollectionViewCell {
         // Wrap the activity action in a menu to display a divider between the activity action and hide this action.
         // https://developer.apple.com/documentation/uikit/uimenu/options/3261455-displayinline
         let activitySubmenu = UIMenu(title: String(), options: .displayInline, children: [activityAction])
-
 
         let hideThisAction = BlogDashboardHelpers.makeHideCardAction(for: .activityLog, blog: blog)
 
@@ -125,53 +144,10 @@ final class DashboardActivityLogCardCell: DashboardCollectionViewCell {
     // MARK: - Navigation
 
     private func showActivityLog(for blog: Blog, tapSource: String) {
-        guard let activityLogController = JetpackActivityLogViewController(blog: blog) else {
-            return
-        }
+        let activityLogController = ActivityLogsViewController(blog: blog)
         presentingViewController?.navigationController?.pushViewController(activityLogController, animated: true)
 
-        WPAnalytics.track(.activityLogViewed,
-                          withProperties: [
-                            WPAppAnalyticsKeyTapSource: tapSource
-                          ])
-    }
-
-}
-
-// MARK: - Diffable DataSource
-
-extension DashboardActivityLogCardCell {
-
-    private func createDataSource() -> DataSource {
-        return DataSource(tableView: tableView) { (tableView, indexPath, activity) -> UITableViewCell? in
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: ActivityTableViewCell.defaultReuseID) as? ActivityTableViewCell else {
-                return nil
-            }
-
-            let formattableActivity = FormattableActivity(with: activity)
-            cell.configureCell(formattableActivity, displaysDate: true)
-            return cell
-        }
-    }
-
-    private func updateDataSource(with activities: [Activity]) {
-        var snapshot = Snapshot()
-        snapshot.appendSections(ActivityLogSection.allCases)
-        snapshot.appendItems(activities, toSection: .activities)
-        dataSource.apply(snapshot)
-    }
-}
-
-// MARK: - UITableViewDelegate
-
-extension DashboardActivityLogCardCell: UITableViewDelegate {
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        guard let activity = dataSource.itemIdentifier(for: indexPath) else {
-            return
-        }
-
-        let formattableActivity = FormattableActivity(with: activity)
-        presentDetailsFor(activity: formattableActivity)
+        WPAnalytics.track(.activityLogViewed, withProperties: [WPAppAnalyticsKeyTapSource: tapSource])
     }
 }
 
@@ -182,7 +158,7 @@ extension DashboardActivityLogCardCell {
     static func shouldShowCard(for blog: Blog) -> Bool {
         guard RemoteFeatureFlag.activityLogDashboardCard.enabled(),
               blog.supports(.activity),
-              !blog.isWPForTeams() else {
+              !blog.isWPForTeams else {
             return false
         }
 

@@ -1,4 +1,5 @@
-import Foundation
+import UIKit
+import WordPressUI
 
 // UITableViewCell that displays an editable UITextField to allow text to be modified inline.
 // The text field and keyboard styles are set based on the TextFieldStyle. The default is `text`.
@@ -15,21 +16,53 @@ enum TextFieldStyle {
     case email
 }
 
-
-class InlineEditableSingleLineCell: UITableViewCell, NibReusable {
+class InlineEditableSingleLineCell: UITableViewCell, Reusable {
 
     // MARK: - Properties
 
-    @IBOutlet weak var textField: UITextField!
+    let textField: UITextField = {
+        let textField = UITextField()
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        textField.adjustsFontForContentSizeCategory = true
+        textField.autocapitalizationType = .none
+        textField.minimumFontSize = 17
+        textField.clearButtonMode = .whileEditing
+        textField.enablesReturnKeyAutomatically = true
+        return textField
+    }()
     weak var delegate: InlineEditableSingleLineCellDelegate?
     private(set) var textFieldStyle: TextFieldStyle = .text
     private(set) var isValid: Bool = true
 
     // MARK: - View
 
-    override func awakeFromNib() {
-        super.awakeFromNib()
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+
+        clipsToBounds = true
+        preservesSuperviewLayoutMargins = true
+        selectionStyle = .none
+        contentView.isOpaque = false
+        contentView.clipsToBounds = true
+        contentView.contentMode = .center
+        contentView.preservesSuperviewLayoutMargins = true
+        contentView.insetsLayoutMarginsFromSafeArea = false
+
+        textField.delegate = self
+        textField.addTarget(self, action: #selector(textFieldChanged), for: .editingChanged)
+        contentView.addSubview(textField)
+        NSLayoutConstraint.activate([
+            textField.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
+            textField.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            contentView.trailingAnchor.constraint(equalTo: textField.trailingAnchor, constant: 16),
+            contentView.bottomAnchor.constraint(equalTo: textField.bottomAnchor, constant: 11)
+        ])
+
         configureCell()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     func configure(text: String? = nil, style: TextFieldStyle = .text, disabled: Bool = false) {
@@ -45,11 +78,10 @@ class InlineEditableSingleLineCell: UITableViewCell, NibReusable {
             return
         }
 
-        contentView.layer.borderColor = UIColor.error.cgColor
+        contentView.layer.borderColor = UIAppColor.error.cgColor
         contentView.layer.borderWidth = 1.0
         contentView.layer.cornerRadius = 10
     }
-
 }
 
 // MARK: - UITextFieldDelegate
@@ -61,10 +93,9 @@ extension InlineEditableSingleLineCell: UITextFieldDelegate {
         return true
     }
 
-    @IBAction func textFieldChanged(_ sender: UITextField) {
+    @objc func textFieldChanged(_ sender: UITextField) {
         validateText(sender.text)
     }
-
 }
 
 // MARK: - Private Extension
@@ -73,7 +104,7 @@ private extension InlineEditableSingleLineCell {
 
     func configureCell() {
         textField.font = .preferredFont(forTextStyle: .body)
-        textField.textColor = .text
+        textField.textColor = .label
     }
 
     func applyTextFieldStyle() {
@@ -106,7 +137,6 @@ private extension InlineEditableSingleLineCell {
 
     func configureInteraction(_ disabled: Bool) {
         isUserInteractionEnabled = !disabled
-        textField.textColor = disabled ? .neutral(.shade20) : .text
+        textField.textColor = disabled ? .secondaryLabel : .label
     }
-
 }

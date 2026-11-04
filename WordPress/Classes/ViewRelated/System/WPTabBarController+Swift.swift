@@ -1,8 +1,62 @@
+import UIKit
+import WordPressData
+import WordPressShared
+import WordPressUI
 
 // MARK: - Tab Access Tracking
 
+@objc public enum WPTab: Int {
+    case mySites
+    case reader
+    case notifications
+    case me
+}
+
 extension WPTabBarController {
-    private static let tabIndexToStatMap: [WPTab: WPAnalyticsStat] = [.mySites: .mySitesTabAccessed, .reader: .readerAccessed]
+    /// Whether `tab` shows the Moved-to-Jetpack poster instead of its live screen.
+    func showsPoster(in tab: WPTab) -> Bool {
+        switch tab {
+        case .reader: shouldUseStaticReader
+        case .notifications: shouldUseStaticNotifications
+        case .mySites, .me: false
+        }
+    }
+
+    /// Keeps ``tabBarMinimizeBehavior`` in sync with the selected tab.
+    ///
+    /// This is driven from the selection itself rather than from `UITabBarControllerDelegate`.
+    /// UIKit only sends the delegate messages when the user taps the tab bar, so every
+    /// programmatic selection – deep links, push notifications, `reloadTabs`, the key
+    /// commands – would otherwise leave the behavior set for whichever tab was tapped last.
+    @objc public func updateTabBarMinimizeBehavior() {
+        guard #available(iOS 26.0, *) else { return }
+        tabBarMinimizeBehavior = selectedIndex == WPTab.reader.rawValue ? .onScrollDown : .never
+    }
+
+    @objc public class func readerLocalizedTitle() -> String {
+        SharedStrings.Reader.title
+    }
+
+    func showReader(path: ReaderNavigationPath?) {
+        showReader(path: path, animated: true)
+    }
+
+    func showReader(path: ReaderNavigationPath?, animated: Bool) {
+        showReaderTab()
+        if let path {
+            self.readerPresenter?.navigate(to: path, animated: animated)
+        } else { // navigate back to the reader root
+            self.readerPresenter?.navigate(to: .discover, animated: animated)
+        }
+    }
+
+    @objc public class var wpSigninDidFinishNotification: String {
+        WordPressAuthenticationManager.WPSigninDidFinishNotification
+    }
+
+    private static let tabIndexToStatMap: [WPTab: WPAnalyticsStat] = [
+        .mySites: .mySitesTabAccessed, .reader: .readerAccessed
+    ]
 
     private struct AssociatedKeys {
         static var shouldTrackTabAccessOnViewDidAppear = 0
@@ -14,33 +68,39 @@ extension WPTabBarController {
             return storedVal as? Bool ?? false
         }
         set(value) {
-            objc_setAssociatedObject(self,
-                                     &AssociatedKeys.shouldTrackTabAccessOnViewDidAppear,
-                                     value,
-                                     .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            objc_setAssociatedObject(
+                self,
+                &AssociatedKeys.shouldTrackTabAccessOnViewDidAppear,
+                value,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
         }
     }
 
-    @objc func startObserversForTabAccessTracking() {
+    @objc public func startObserversForTabAccessTracking() {
         let nc = NotificationCenter.default
-        nc.addObserver(self,
-                       selector: #selector(trackTabAccessOnAppDidBecomeActive),
-                       name: UIApplication.didBecomeActiveNotification,
-                       object: nil)
-        nc.addObserver(self,
-                       selector: #selector(resetViewDidAppearFlagOnWPComAccountChange),
-                       name: NSNotification.Name.WPAccountDefaultWordPressComAccountChanged,
-                       object: nil)
+        nc.addObserver(
+            self,
+            selector: #selector(trackTabAccessOnAppDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        nc.addObserver(
+            self,
+            selector: #selector(resetViewDidAppearFlagOnWPComAccountChange),
+            name: NSNotification.Name.wpAccountDefaultWordPressComAccountChanged,
+            object: nil
+        )
     }
 
-    @objc func trackTabAccessOnAppDidBecomeActive() {
+    @objc public func trackTabAccessOnAppDidBecomeActive() {
         trackTabAccessForTabIndex(selectedIndex)
     }
 
     /// Reset `shouldTrackTabAccessOnViewDidAppear` if the user has logged out.
     ///
     /// This allows us to track tab access on `-viewDidAppear` when the user logs back in again.
-    @objc func resetViewDidAppearFlagOnWPComAccountChange(_ notification: NSNotification) {
+    @objc public func resetViewDidAppearFlagOnWPComAccountChange(_ notification: NSNotification) {
         guard notification.object == nil else {
             return
         }
@@ -51,7 +111,7 @@ extension WPTabBarController {
     /// Track tab access on viewDidAppear but only once.
     ///
     /// This covers the scenario when the user has just logged in.
-    @objc func trackTabAccessOnViewDidAppear() {
+    @objc public func trackTabAccessOnViewDidAppear() {
         guard shouldTrackTabAccessOnViewDidAppear else {
             return
         }
@@ -66,11 +126,10 @@ extension WPTabBarController {
     /// We want to call this when the user is logged in and:
     ///
     /// - The app has been placed in the foreground
-    /// - The app was just launched and we restored the previously selected tab
-    ///   (in `decodeRestorableStateWithCoder`)
     /// - The user selected a different tab
     /// - After logging in (and this VC is shown)
-    @objc @discardableResult func trackTabAccessForTabIndex(_ tabIndex: Int) -> Bool {
+    @objc @discardableResult
+    public func trackTabAccessForTabIndex(_ tabIndex: Int) -> Bool {
         // Since this ViewController is a singleton, it can be active **behind** the login view.
         // The `isViewonScreen()` prevents us from tracking this. It also helps us in avoiding
         // tracking events if a modal dialog is shown and the app is placed in the background
@@ -80,8 +139,13 @@ extension WPTabBarController {
         }
 
         guard let tabType = WPTab(rawValue: Int(tabIndex)),
-            let stat = WPTabBarController.tabIndexToStatMap[tabType] else {
-                return false
+            let stat = WPTabBarController.tabIndexToStatMap[tabType]
+        else {
+            return false
+        }
+
+        if showsPoster(in: tabType) {
+            return false
         }
 
         WPAppAnalytics.track(stat)
@@ -89,33 +153,33 @@ extension WPTabBarController {
         return true
     }
 
-    /// Set up the tab bar's colors
-    @objc func setupColors() {
-        tabBar.isTranslucent = false
-    }
-
     open override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         guard let selectedViewController else {
             return super.supportedInterfaceOrientations
         }
-
-        if let splitViewController = selectedViewController as? WPSplitViewController,
-           let topDetailViewController = splitViewController.topDetailViewController {
-            return topDetailViewController.supportedInterfaceOrientations
-        }
-
         return selectedViewController.supportedInterfaceOrientations
     }
 
-    @objc func animateSelectedItem(_ item: UITabBarItem, for tabBar: UITabBar) {
+    @objc public func animateSelectedItem(_ item: UITabBarItem, for tabBar: UITabBar) {
 
-        guard let index = tabBar.items?.firstIndex(of: item), tabBar.subviews.count > index + 1 else {
+        // Order of subviews may not be guaranteed, so filter and sort them
+        let tabBarButtons = tabBar.subviews
+            .filter { $0 is UIControl }
+            .sorted { $0.frame.minX < $1.frame.minX }
+
+        // The number of buttons should be the same as the number of tab bar items
+        guard tabBarButtons.count == tabBar.items?.count else {
             return
         }
 
-        let button = tabBar.subviews[(index + 1)]
+        // Get the button that corresponds to the selected tab bar item
+        guard let index = tabBar.items?.firstIndex(of: item),
+            let button = tabBarButtons[safe: index]
+        else {
+            return
+        }
 
-        guard let imageView = button.subviews.lazy.compactMap({ $0 as? UIImageView }).first else {
+        guard let imageView = button.getImageView() else {
             return
         }
 
@@ -124,5 +188,24 @@ extension WPTabBarController {
         bounceAnimation.duration = TimeInterval(0.2)
         bounceAnimation.calculationMode = CAAnimationCalculationMode.cubic
         imageView.layer.add(bounceAnimation, forKey: nil)
+    }
+
+    @objc public func switchNotificationsTabToNotificationSettings() {
+        showNotificationsTab()
+        notificationsNavigationController?.popToRootViewController(animated: false)
+        notificationsViewController?.showNotificationSettings()
+    }
+}
+
+private extension UIView {
+    func getImageView() -> UIImageView? {
+        var views = self.subviews
+        while let view = views.popLast() {
+            if let imageView = view as? UIImageView {
+                return imageView
+            }
+            views += view.subviews
+        }
+        return nil
     }
 }

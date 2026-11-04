@@ -1,6 +1,7 @@
 import Foundation
+import WordPressData
 
-@objc final class FreeToPaidPlansDashboardCardHelper: NSObject {
+@objc public final class FreeToPaidPlansDashboardCardHelper: NSObject {
 
     /// Checks conditions for showing free to paid plans dashboard cards
     static func shouldShowCard(
@@ -20,7 +21,7 @@ import Foundation
             .setEnabled(false, for: .freeToPaidPlansDashboardCard)
     }
 
-    @objc static func isFeatureEnabled() -> Bool {
-        return AppConfiguration.isJetpack
+    @objc public static func isFeatureEnabled() -> Bool {
+        AppConfiguration.isJetpack
     }
 }

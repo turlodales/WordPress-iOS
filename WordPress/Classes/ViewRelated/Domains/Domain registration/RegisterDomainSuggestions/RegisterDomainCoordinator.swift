@@ -1,6 +1,10 @@
-import Foundation
+import UIKit
 import AutomatticTracks
+import SwiftUI
+import SVProgressHUD
+import WordPressData
 import WordPressKit
+import WordPressShared
 
 class RegisterDomainCoordinator {
 
@@ -101,38 +105,29 @@ class RegisterDomainCoordinator {
     /// Related to the `purchaseFromDomainManagement` Domain selection type.
     /// Adds the selected domain to the cart then presents a site picker view.
     func handleExistingSiteChoice(on viewController: UIViewController) {
-        let config = BlogListConfiguration(
-            shouldShowCancelButton: false,
-            shouldShowNavBarButtons: false,
-            navigationTitle: TextContent.sitePickerNavigationTitle,
-            backButtonTitle: TextContent.sitePickerNavigationTitle,
+        let configuration = BlogListConfiguration(
             shouldHideSelfHostedSites: true,
             shouldHideBlogsNotSupportingDomains: true,
             analyticsSource: analyticsSource
         )
-        let blogListViewController = BlogListViewController(configuration: config, meScenePresenter: nil)
-
-        blogListViewController.blogSelected = { [weak self] controller, selectedBlog in
-            guard let self else {
-                return
-            }
-            controller.showLoading()
+        let sitePickerView = SitePickerView(viewModel: BlogListViewModel(configuration: configuration)) { [weak self] selectedBlog in
+            guard let self else { return }
+            SVProgressHUD.show()
             self.createCart { [weak self] result in
-                guard let self else {
-                    return
-                }
+                guard let self else { return }
                 switch result {
                 case .success(let domain):
                     self.site = selectedBlog
-                    self.domainAddedToCartAndLinkedToSiteCallback?(controller, domain.domainName, selectedBlog)
+                    self.domainAddedToCartAndLinkedToSiteCallback?(viewController, domain.domainName, selectedBlog)
                 case .failure:
-                    controller.displayActionableNotice(title: TextContent.errorTitle, actionTitle: TextContent.errorDismiss)
+                    viewController.displayActionableNotice(title: TextContent.errorTitle, actionTitle: TextContent.errorDismiss)
                 }
-                controller.hideLoading()
+                SVProgressHUD.dismiss()
             }
         }
-
-        viewController.navigationController?.pushViewController(blogListViewController, animated: true)
+        let sitePickerViewController = UIHostingController(rootView: sitePickerView)
+        sitePickerViewController.navigationItem.title = TextContent.sitePickerNavigationTitle // important to set on `UIViewContoller`
+        viewController.navigationController?.pushViewController(sitePickerViewController, animated: true)
     }
 
     func trackDomainPurchasingCompleted() {
@@ -181,7 +176,7 @@ class RegisterDomainCoordinator {
         // This was last checked by @diegoreymendez on 2021-09-22.
         //
         webViewURLChangeObservation = webViewController.webView.observe(\.url, options: .new) { [weak self] _, change in
-            guard let self = self,
+            guard let self,
                   let newURL = change.newValue as? URL else {
                 return
             }
@@ -221,8 +216,8 @@ class RegisterDomainCoordinator {
         }
     }
 
-    /// Handles URL changes in the web view.  We only allow the user to stay within certain URLs.  Falling outside these URLs
-    /// results in the web view being dismissed.  This method also handles the success condition for a successful domain registration
+    /// Handles URL changes in the web view. We only allow the user to stay within certain URLs. Falling outside these URLs
+    /// results in the web view being dismissed. This method also handles the success condition for a successful domain registration
     /// through said web view.
     ///
     /// - Parameters:
@@ -248,7 +243,6 @@ class RegisterDomainCoordinator {
 
         if domainRegistrationSucceeded {
             onSuccess(domain)
-
         }
     }
 
@@ -257,7 +251,7 @@ class RegisterDomainCoordinator {
     private func track(_ event: WPAnalyticsEvent, properties: [AnyHashable: Any]? = nil) {
         let defaultProperties: [AnyHashable: Any] = [WPAppAnalyticsKeySource: analyticsSource]
 
-        let properties = defaultProperties.merging(properties ?? [:]) { first, second in
+        let properties = defaultProperties.merging(properties ?? [:]) { first, _ in
             return first
         }
 

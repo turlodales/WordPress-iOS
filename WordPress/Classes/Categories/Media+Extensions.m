@@ -1,9 +1,9 @@
 #import "Media+Extensions.h"
 #import "MediaService.h"
-#import "Blog.h"
-#import "CoreDataStack.h"
+@import WordPressData;
+@import WordPressShared;
+@import WordPressKitModels;
 #import "WordPress-Swift.h"
-
 @implementation Media (Extensions)
 
 - (NSError *)errorWithMessage:(NSString *)errorMessage {

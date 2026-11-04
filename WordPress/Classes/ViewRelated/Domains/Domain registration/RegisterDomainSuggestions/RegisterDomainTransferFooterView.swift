@@ -47,7 +47,7 @@ final class RegisterDomainTransferFooterView: UIView {
     private let titleLabel: UILabel = {
         let label = UILabel()
         label.font = WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular)
-        label.textColor = UIColor.DS.Foreground.primary
+        label.textColor = .label
         label.numberOfLines = 2
         label.adjustsFontForContentSizeCategory = true
         return label
@@ -66,7 +66,7 @@ final class RegisterDomainTransferFooterView: UIView {
         self.analyticsSource = analyticsSource
         super.init(frame: .zero)
         self.backgroundColor = UIColor(light: .systemBackground, dark: .secondarySystemBackground)
-        self.addTopBorder(withColor: .divider)
+        self.addTopBorder(withColor: .separator)
         self.setup(with: configuration)
     }
 
@@ -80,16 +80,16 @@ final class RegisterDomainTransferFooterView: UIView {
         let stackView = UIStackView(arrangedSubviews: [titleLabel, primaryButton])
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .vertical
-        stackView.spacing = Length.Padding.double
+        stackView.spacing = .DS.Padding.double
         stackView.distribution = .fill
 
         self.addSubview(stackView)
 
         self.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: Length.Padding.double,
-            leading: Length.Padding.double,
-            bottom: Length.Padding.double,
-            trailing: Length.Padding.double
+            top: .DS.Padding.double,
+            leading: .DS.Padding.double,
+            bottom: .DS.Padding.double,
+            trailing: .DS.Padding.double
         )
 
         NSLayoutConstraint.activate([

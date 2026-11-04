@@ -1,12 +1,13 @@
 import UIKit
 import simd
+import WordPressUI
 
 class SparklineView: UIView {
     private let lineLayer = CAShapeLayer()
     private let maskLayer = CAShapeLayer()
     private let gradientLayer = CAGradientLayer()
 
-    private static let defaultChartColor = UIColor.muriel(name: .blue, .shade50)
+    private static let defaultChartColor = UIAppColor.blue(.shade50)
     var chartColor: UIColor! = SparklineView.defaultChartColor {
         didSet {
             if chartColor == nil {
@@ -69,7 +70,7 @@ class SparklineView: UIView {
     }
 
     private func interpolateData(_ inputData: [CGFloat]) -> [CGFloat] {
-        guard inputData.count > 0,
+        guard !inputData.isEmpty,
               let first = inputData.first else {
             return []
         }
@@ -108,7 +109,7 @@ class SparklineView: UIView {
               }
 
         // Calculate points to fit along X axis, using existing interpolated Y values
-        let segmentWidth = bounds.width / CGFloat(chartData.count-1)
+        let segmentWidth = bounds.width / CGFloat(chartData.count - 1)
         let points = chartData.enumerated().map({ CGPoint(x: CGFloat($0.offset) * segmentWidth, y: $0.element) })
 
         // Scale Y values to fit within our bounds
@@ -135,7 +136,7 @@ class SparklineView: UIView {
         // ... then the bottom gradient
         if let maskLayerPath = lineLayerPath.mutableCopy() {
             maskLayerPath.addLine(to: CGPoint(x: bounds.width, y: 0))
-            maskLayerPath.addLine(to: CGPoint(x: 0, y: 0))
+            maskLayerPath.addLine(to: CGPoint.zero)
             maskLayer.path = maskLayerPath
         }
 

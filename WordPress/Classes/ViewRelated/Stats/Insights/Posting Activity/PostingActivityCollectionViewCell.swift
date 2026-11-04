@@ -1,4 +1,5 @@
 import UIKit
+import WordPressKit
 
 class PostingActivityCollectionViewCell: UICollectionViewCell {
 
@@ -9,7 +10,7 @@ class PostingActivityCollectionViewCell: UICollectionViewCell {
     // MARK: - Configure
 
     func configure(withData monthData: [PostingStreakEvent], postingActivityDayDelegate: PostingActivityDayDelegate? = nil) {
-        let monthView = PostingActivityMonth.loadFromNib()
+        let monthView = PostingActivityMonth()
         monthView.configure(monthData: monthData, postingActivityDayDelegate: postingActivityDayDelegate)
         monthView.frame.size = frame.size
         addSubview(monthView)
@@ -19,5 +20,4 @@ class PostingActivityCollectionViewCell: UICollectionViewCell {
         super.prepareForReuse()
         subviews.forEach({ $0.removeFromSuperview()})
     }
-
 }

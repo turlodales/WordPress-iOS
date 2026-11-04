@@ -1,11 +1,12 @@
 import BackgroundTasks
 import SwiftUI
+import WordPressShared
 
 struct BlueButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding()
-            .background(configuration.isPressed ?  Color.white : Color(red: 0.5, green: 0.5, blue: 0.8))
+            .background(configuration.isPressed ? Color.white : Color(red: 0.5, green: 0.5, blue: 0.8))
             .foregroundColor(.white)
             .clipShape(Capsule())
     }
@@ -30,7 +31,7 @@ struct WeeklyRoundupDebugScreen: View {
         }
     }
 
-    @SwiftUI.Environment(\.presentationMode) var presentationMode
+    @Environment(\.presentationMode) var presentationMode
     @State private var scheduledDate: Date? = nil
     @State private var running: Bool = false
     @State private var errorScheduling: Bool = false
@@ -40,7 +41,7 @@ struct WeeklyRoundupDebugScreen: View {
         VStack(alignment: .center) {
             if errorScheduling {
                 Group {
-                    Text("Error scheduling Weekly Roundup!")
+                    Text(verbatim: "Error scheduling Weekly Roundup!")
                         .foregroundColor(.red)
                 }
 
@@ -55,7 +56,6 @@ struct WeeklyRoundupDebugScreen: View {
                     settings.isEnabledForA8cP2s = isOn
                 }))
                 .padding()
-
 
                 Spacer()
                     .frame(height: 16)
@@ -88,37 +88,7 @@ struct WeeklyRoundupDebugScreen: View {
                     Spacer()
 
                     Button("Schedule in 10 sec") {
-                        self.scheduleDelayed(taskRunDelay: 10, staticNotificationDelay: 5 * 60)
-                    }
-                    .buttonStyle(BlueButton())
-                    .frame(width: 350)
-
-                    Spacer()
-                }
-
-                Spacer()
-                    .frame(height: settings.spacerHeight)
-
-                HStack {
-                    Spacer()
-
-                    Button("Schedule in 10 sec") {
-                        self.scheduleDelayed(taskRunDelay: 10, staticNotificationDelay: 30 * 60)
-                    }
-                    .buttonStyle(BlueButton())
-                    .frame(width: 350)
-
-                    Spacer()
-                }
-
-                Spacer()
-                    .frame(height: settings.spacerHeight)
-
-                HStack {
-                    Spacer()
-
-                    Button("Schedule in 10 sec") {
-                        self.scheduleDelayed(taskRunDelay: 10, staticNotificationDelay: 60 * 60)
+                        self.scheduleDelayed(taskRunDelay: 10)
                     }
                     .buttonStyle(BlueButton())
                     .frame(width: 350)
@@ -130,7 +100,7 @@ struct WeeklyRoundupDebugScreen: View {
                     .frame(height: settings.spacerHeight)
             }
 
-            Text("The values represent when the dynamic notification is scheduled at the earliest.  It can take a lot more time to be sent since iOS basically decides when to deliver it.")
+            Text(verbatim: "The value represents when the dynamic notification is scheduled at the earliest.  It can take a lot more time to be sent since iOS basically decides when to deliver it.")
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(settings.defaultPadding)
 
@@ -153,18 +123,18 @@ struct WeeklyRoundupDebugScreen: View {
 
     func scheduleDetailsView() -> some View {
         guard !running else {
-            return AnyView(Text("Running..."))
+            return AnyView(Text(verbatim: "Running..."))
         }
 
         if let scheduledDate = self.scheduledDate {
             return AnyView(HStack {
-                Text("Earliest begin date:")
+                Text(verbatim: "Earliest begin date:")
                 Spacer()
-                Text("\(scheduledDate.shortStringWithTime())")
+                Text(verbatim: "\(scheduledDate.shortStringWithTime())")
             })
         } else {
             return AnyView(HStack {
-                Text("Not scheduled.")
+                Text(verbatim: "Not scheduled.")
             })
         }
     }
@@ -195,22 +165,18 @@ struct WeeklyRoundupDebugScreen: View {
         }
     }
 
-    func scheduleDelayed(taskRunDelay: TimeInterval, staticNotificationDelay: TimeInterval) {
+    func scheduleDelayed(taskRunDelay: TimeInterval) {
         updateBackgroundTaskDate()
 
         InteractiveNotificationsManager.shared.requestAuthorization { authorized in
             if authorized {
                 DispatchQueue.main.async {
                     let taskRunDate = Date(timeIntervalSinceNow: taskRunDelay)
-                    let staticNotificationDate = Date(timeIntervalSinceNow: staticNotificationDelay)
                     let calendar = Calendar.current
 
                     let runDateComponents = calendar.dateComponents([.hour, .minute, .second], from: taskRunDate)
-                    let staticNotificationDateComponents = calendar.dateComponents([.hour, .minute, .second], from: staticNotificationDate)
 
-                    let backgroundTask = WeeklyRoundupBackgroundTask(
-                        runDateComponents: runDateComponents,
-                        staticNotificationDateComponents: staticNotificationDateComponents)
+                    let backgroundTask = WeeklyRoundupBackgroundTask(runDateComponents: runDateComponents)
 
                     WordPressAppDelegate.shared?.backgroundTasksCoordinator.schedule(backgroundTask) { result in
                         switch result {

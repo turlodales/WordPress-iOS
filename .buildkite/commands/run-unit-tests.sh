@@ -1,18 +1,16 @@
 #!/bin/bash -eu
 
-# Run this at the start to fail early if value not available
-echo '--- :test-analytics: Configuring Test Analytics'
-export BUILDKITE_ANALYTICS_TOKEN=$BUILDKITE_ANALYTICS_TOKEN_UNIT_TESTS
+if "$(dirname "${BASH_SOURCE[0]}")/should-skip-job.sh" --job-type validation; then
+  exit 0
+fi
 
 echo "--- 📦 Downloading Build Artifacts"
 download_artifact build-products-wordpress.tar
 tar -xf build-products-wordpress.tar
 
+# Only the gems are needed here, given we run the tests on a pre-built binary
 echo "--- :rubygems: Setting up Gems"
 install_gems
-
-echo "--- :swift: Setting up Swift Packages"
-install_swiftpm_dependencies
 
 echo "--- 🔬 Testing"
 set +e
@@ -38,9 +36,9 @@ else
 fi
 
 if [[ $BUILDKITE_BRANCH == trunk ]] || [[ $BUILDKITE_BRANCH == release/* ]]; then
-    annotate_test_failures "build/results/WordPress.xml" --slack "build-and-ship"
+    annotate_test_failures "build/results/report.junit" --slack "build-and-ship"
 else
-    annotate_test_failures "build/results/WordPress.xml"
+    annotate_test_failures "build/results/report.junit"
 fi
 
 exit $TESTS_EXIT_STATUS

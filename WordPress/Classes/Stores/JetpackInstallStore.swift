@@ -1,4 +1,5 @@
 import WordPressFlux
+import WordPressKit
 
 enum JetpackInstallAction: Action {
     case install(url: String, username: String, password: String)
@@ -41,8 +42,8 @@ private extension JetpackInstallStore {
         }
 
         state.current = .loading
-        service.installJetpack(url: url, username: username, password: password) { [weak self] (success, error) in
-            self?.transaction({ (state) in
+        service.installJetpack(url: url, username: username, password: password) { [weak self] success, error in
+            self?.transaction({ state in
                 if success {
                     state.current = .success
                 } else {

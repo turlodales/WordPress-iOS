@@ -1,4 +1,7 @@
 import Foundation
+import WordPressData
+import WordPressShared
+import WordPressKit
 
 protocol JetpackRestoreWarningView {
     func showNoInternetConnection()
@@ -48,7 +51,6 @@ class JetpackRestoreWarningCoordinator {
             }
 
             self?.view.showRestoreStarted()
-
         }, failure: { [weak self] error in
             DDLogError("Error restoring site: \(error.localizedDescription)")
 

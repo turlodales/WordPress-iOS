@@ -6,8 +6,7 @@ class ReaderDetailNoCommentCell: UITableViewCell, NibReusable {
 
     override func awakeFromNib() {
         super.awakeFromNib()
-        contentView.backgroundColor = .basicBackground
-        titleLabel.textColor = .textSubtle
+        contentView.backgroundColor = .systemBackground
+        titleLabel.textColor = .secondaryLabel
     }
-
 }

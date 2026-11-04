@@ -1,4 +1,6 @@
 import Foundation
+import WordPressKit
+import WordPressShared
 
 class StatsPeriodHelper {
     private lazy var calendar: Calendar = {
@@ -9,7 +11,7 @@ class StatsPeriodHelper {
 
     func dateAvailableBeforeDate(_ dateIn: Date, period: StatsPeriodUnit, backLimit: Int, mostRecentDate: Date? = nil) -> Bool {
         // Use dates without time
-        let currentDate =  mostRecentDate?.normalizedDate() ?? StatsDataHelper.currentDateForSite().normalizedForSite()
+        let currentDate = mostRecentDate?.normalizedDate() ?? StatsDataHelper.currentDateForSite().normalizedForSite()
 
         guard var oldestDate = calendar.date(byAdding: period.calendarComponent, value: backLimit, to: currentDate) else {
             return false
@@ -19,6 +21,9 @@ class StatsPeriodHelper {
         oldestDate = oldestDate.normalizedDate()
 
         switch period {
+        case .hour:
+            wpAssertionFailure("StatsPeriodHelper.hour period is unsupported in the legacy stats")
+            return date > oldestDate
         case .day:
             return date > oldestDate
         case .week:
@@ -42,10 +47,13 @@ class StatsPeriodHelper {
 
     func dateAvailableAfterDate(_ dateIn: Date, period: StatsPeriodUnit, mostRecentDate: Date? = nil) -> Bool {
         // Use dates without time
-        let currentDate =  mostRecentDate?.normalizedDate() ?? StatsDataHelper.currentDateForSite().normalizedForSite()
+        let currentDate = mostRecentDate?.normalizedDate() ?? StatsDataHelper.currentDateForSite().normalizedForSite()
         let date = dateIn.normalizedDate()
 
         switch period {
+        case .hour:
+            wpAssertionFailure("StatsPeriodHelper.hour period is unsupported in the legacy stats")
+            return date < currentDate.normalizedDate()
         case .day:
             return date < currentDate.normalizedDate()
         case .week:
@@ -67,8 +75,11 @@ class StatsPeriodHelper {
         }
     }
 
-    func endDate(from intervalStartDate: Date, period: StatsPeriodUnit, offsetBy count: Int = 1) -> Date {
+    func endDate(from intervalStartDate: Date, period: StatsPeriodUnit) -> Date {
         switch period {
+        case .hour:
+            wpAssertionFailure("StatsPeriodHelper.hour period is unsupported in the legacy stats")
+            return intervalStartDate.normalizedDate()
         case .day:
             return intervalStartDate.normalizedDate()
         case .week:
@@ -102,32 +113,20 @@ class StatsPeriodHelper {
         }
 
         switch unit {
+        case .hour:
+            wpAssertionFailure("StatsPeriodHelper.hour period is unsupported in the legacy stats")
+            return adjustedDate.normalizedDate()
+
         case .day:
             return adjustedDate.normalizedDate()
 
         case .week:
-            if FeatureFlag.statsNewInsights.enabled {
-                guard let endDate = currentDate.lastDayOfTheWeek(in: calendar, with: count) else {
-                    DDLogError("[Stats] Couldn't determine the last day of the week for a given date in Stats. Returning original value.")
-                    return currentDate
-                }
-
-                return endDate.normalizedDate()
-            } else {
-                // The hours component here is because the `dateInterval` returned by Calendar is a closed range
-                // — so the "end" of a specific week is also simultenously a 'start' of the next one.
-                // This causes problem when calling this math on dates that _already are_ an end/start of a week.
-                // This doesn't work for our calculations, so we force it to rollover using this hack.
-                // (I *think* that's what's happening here. Doing Calendar math on this method has broken my brain.
-                // I spend like 10h on this ~50 LoC method. Beware.)
-                let components = DateComponents(day: 7 * count, hour: -12)
-
-                guard let weekAdjusted = calendar.date(byAdding: components, to: currentDate.normalizedDate()) else {
-                    DDLogError("[Stats] Couldn't add a multiple of 7 days and -12 hours to a date in Stats. Returning original value.")
-                    return currentDate
-                }
-                return calendar.dateInterval(of: .weekOfYear, for: weekAdjusted)?.end.normalizedDate()
+            guard let endDate = currentDate.lastDayOfTheWeek(in: calendar, with: count) else {
+                DDLogError("[Stats] Couldn't determine the last day of the week for a given date in Stats. Returning original value.")
+                return currentDate
             }
+
+            return endDate.normalizedDate()
         case .month:
             guard let endDate = adjustedDate.lastDayOfTheMonth(in: calendar) else {
                 DDLogError("[Stats] Couldn't determine number of days in a given month in Stats. Returning original value.")

@@ -1,10 +1,13 @@
+import UIKit
+import FormattableContentKit
+import WordPressData
 
 struct NotificationContentRouter {
     private let coordinator: ContentCoordinator
-    private let notification: Notification
+    private let notification: WordPressData.Notification
     private let expirationFiveMinutes = TimeInterval(60 * 5)
 
-    init(activity: Notification, coordinator: ContentCoordinator) {
+    init(activity: WordPressData.Notification, coordinator: ContentCoordinator) {
         self.coordinator = coordinator
         self.notification = activity
     }
@@ -90,9 +93,10 @@ struct NotificationContentRouter {
         case .stats:
             /// Backup notifications are configured as "stat" notifications
             /// For now this is just a workaround to fix the routing
-            if url.absoluteString.matches(regex: "\\/backup\\/").count > 0 {
+            if !url.absoluteString.matches(regex: "\\/backup\\/").isEmpty {
                 try coordinator.displayBackupWithSiteID(range.siteID)
             } else {
+                trackStatsRoute()
                 try coordinator.displayStatsWithSiteID(range.siteID, url: url)
             }
         case .follow:
@@ -109,5 +113,13 @@ struct NotificationContentRouter {
 
     private func getRange(with url: URL) -> FormattableContentRange? {
         return notification.contentRange(with: url)
+    }
+
+    private func trackStatsRoute() {
+        var properties: [AnyHashable: Any] = [WPAppAnalyticsKeyTapSource: "notification"]
+        if FeatureFlag.newStats.enabled {
+            properties[WPAnalyticsEvent.isNewStatsKey] = "1"
+        }
+        WPAppAnalytics.track(.statsAccessed, withProperties: properties)
     }
 }

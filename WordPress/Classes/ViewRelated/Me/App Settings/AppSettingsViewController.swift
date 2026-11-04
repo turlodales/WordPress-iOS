@@ -1,11 +1,17 @@
 import Foundation
+import BuildSettingsKit
 import UIKit
 import SwiftUI
 import Gridicons
+import WordPressData
 import WordPressShared
+import ShareExtensionCore
 import SVProgressHUD
+import PulseUI
 import WordPressFlux
 import DesignSystem
+import WordPressUI
+import Support
 
 class AppSettingsViewController: UITableViewController {
     fileprivate var handler: ImmuTableViewHandler!
@@ -39,7 +45,7 @@ class AppSettingsViewController: UITableViewController {
             ImageSizingRow.self,
             SwitchRow.self,
             NavigationItemRow.self
-            ], tableView: self.tableView)
+        ], tableView: self.tableView)
 
         handler = ImmuTableViewHandler(takeOver: self)
         reloadViewModel()
@@ -68,7 +74,7 @@ class AppSettingsViewController: UITableViewController {
     }
 
     @objc
-    private func accountSettingsDidChange(_ notification: Notification) {
+    private func accountSettingsDidChange(_ notification: Foundation.Notification) {
         reloadViewModel()
     }
 
@@ -103,7 +109,7 @@ class AppSettingsViewController: UITableViewController {
     }
 
     fileprivate func setMediaCacheRowDescription(allocatedSize: Int64?) {
-        guard let allocatedSize = allocatedSize else {
+        guard let allocatedSize else {
             setMediaCacheRowDescription(status: .unknown)
             return
         }
@@ -129,7 +135,7 @@ class AppSettingsViewController: UITableViewController {
 
     fileprivate func updateMediaCacheSize() {
         setMediaCacheRowDescription(status: .calculatingSize)
-        MediaFileManager.calculateSizeOfMediaDirectories { [weak self] (allocatedSize) in
+        MediaFileManager.calculateSizeOfMediaDirectories { [weak self] allocatedSize in
             self?.setMediaCacheRowDescription(allocatedSize: allocatedSize)
         }
     }
@@ -151,7 +157,7 @@ class AppSettingsViewController: UITableViewController {
     @objc func imageSizeChanged() -> (Int) -> Void {
         return { value in
             MediaSettings().maxImageSizeSetting = value
-            ShareExtensionService.configureShareExtensionMaximumMediaDimension(value)
+            ShareExtensionService().storeMaximumMediaDimension(value)
 
             self.debounce(#selector(self.trackImageSizeChanged), afterDelay: 0.5)
         }
@@ -163,7 +169,7 @@ class AppSettingsViewController: UITableViewController {
     }
 
     func pushVideoResolutionSettings() -> ImmuTableAction {
-        return { [weak self] row in
+        return { [weak self] _ in
             let values = [MediaSettings.VideoResolution.size640x480,
                           MediaSettings.VideoResolution.size1280x720,
                           MediaSettings.VideoResolution.size1920x1080,
@@ -195,7 +201,7 @@ class AppSettingsViewController: UITableViewController {
     }
 
     func pushImageQualitySettings() -> ImmuTableAction {
-        return { [weak self] row in
+        return { [weak self] _ in
             let values = [MediaSettings.ImageQuality.low,
                           MediaSettings.ImageQuality.medium,
                           MediaSettings.ImageQuality.high,
@@ -206,9 +212,9 @@ class AppSettingsViewController: UITableViewController {
             let title = NSLocalizedString("appSettings.media.imageQuality.title", value: "Quality", comment: "The quality of image used when uploading")
 
             let settingsSelectionConfiguration = [SettingsSelectionDefaultValueKey: currentImageQuality,
-                                                         SettingsSelectionTitleKey: title,
-                                                        SettingsSelectionTitlesKey: titles,
-                                                        SettingsSelectionValuesKey: values] as [String: Any]
+                                                  SettingsSelectionTitleKey: title,
+                                                  SettingsSelectionTitlesKey: titles,
+                                                  SettingsSelectionValuesKey: values] as [String: Any]
 
             let viewController = SettingsSelectionViewController(dictionary: settingsSelectionConfiguration)
 
@@ -217,7 +223,7 @@ class AppSettingsViewController: UITableViewController {
                 MediaSettings().imageQualitySetting = newQuality
 
                 // Track setting changes
-                WPAnalytics.track(.appSettingsImageQualityChanged, properties: ["quality": newQuality.description])
+                WPAnalytics.track(.appSettingsImageQualityChanged, properties: ["quality": newQuality.rawValue])
             }
 
             self?.navigationController?.pushViewController(viewController!, animated: true)
@@ -261,7 +267,7 @@ class AppSettingsViewController: UITableViewController {
     }
 
     func pushAppearanceSettings() -> ImmuTableAction {
-        return { [weak self] row in
+        return { [weak self] _ in
             let values = UIUserInterfaceStyle.allStyles
 
             let rawValues = values.map({ $0.rawValue })
@@ -291,7 +297,7 @@ class AppSettingsViewController: UITableViewController {
     }
 
     private func overrideAppAppearance(with style: UIUserInterfaceStyle) {
-        let transitionView: UIView = WordPressAppDelegate.shared?.window ?? view
+        let transitionView: UIView = view.window ?? view
         UIView.transition(with: transitionView,
                           duration: 0.3,
                           options: .transitionCrossDissolve,
@@ -301,21 +307,28 @@ class AppSettingsViewController: UITableViewController {
     }
 
     func pushDebugMenu() -> ImmuTableAction {
-        return { [weak self] row in
+        return { [weak self] _ in
             let controller = DebugMenuViewController()
             self?.navigationController?.pushViewController(controller, animated: true)
         }
     }
 
     func pushDesignSystemGallery() -> ImmuTableAction {
-        return { [weak self] row in
+        return { [weak self] _ in
             let controller = UIHostingController(rootView: DesignSystemGallery())
             self?.navigationController?.pushViewController(controller, animated: true)
         }
     }
 
+    func pushSavedPostsSettings() -> ImmuTableAction {
+        return { [weak self] _ in
+            let controller = UIHostingController(rootView: ReaderSavedPostsSettingsView())
+            self?.navigationController?.pushViewController(controller, animated: true)
+        }
+    }
+
     func pushAppIconSwitcher() -> ImmuTableAction {
-        return { [weak self] row in
+        return { [weak self] _ in
             let controller = AppIconViewController()
             self?.navigationController?.pushViewController(controller, animated: true)
         }
@@ -328,12 +341,11 @@ class AppSettingsViewController: UITableViewController {
     }
 
     func openApplicationSettings() -> ImmuTableAction {
-        return { [weak self] row in
+        return { [weak self] _ in
             WPAnalytics.track(.appSettingsOpenDeviceSettingsTapped)
 
             if let targetURL = URL(string: UIApplication.openSettingsURLString) {
                 UIApplication.shared.open(targetURL)
-
             } else {
                 assertionFailure("Couldn't unwrap Settings URL")
             }
@@ -342,21 +354,8 @@ class AppSettingsViewController: UITableViewController {
         }
     }
 
-    func clearSiriActivityDonations() -> ImmuTableAction {
-        return { [tableView] _ in
-            WPAnalytics.track(.appSettingsClearSiriSuggestionsTapped)
-
-            tableView?.deselectSelectedRowWithAnimation(true)
-
-            NSUserActivity.deleteAllSavedUserActivities {}
-
-            let notice = Notice(title: NSLocalizedString("Siri Reset Confirmation", value: "Successfully cleared Siri Shortcut Suggestions", comment: "Notice displayed to the user after clearing the Siri activity donations."), feedbackType: .success)
-            ActionDispatcher.dispatch(NoticeAction.post(notice))
-        }
-    }
-
     func clearSpotlightCache() -> ImmuTableAction {
-        return { [weak self] row in
+        return { [weak self] _ in
             WPAnalytics.track(.appSettingsClearSpotlightIndexTapped)
 
             self?.tableView.deselectSelectedRowWithAnimation(true)
@@ -368,12 +367,26 @@ class AppSettingsViewController: UITableViewController {
     }
 
     func presentWhatIsNew() -> ImmuTableAction {
-        return { [weak self] row in
-            guard let self = self else {
+        return { [weak self] _ in
+            guard let self else {
                 return
             }
             self.tableView.deselectSelectedRowWithAnimation(true)
             RootViewCoordinator.shared.presentWhatIsNew(on: self)
+        }
+    }
+
+    private let experimentalFeaturesVM = ExperimentalFeaturesViewModel(dataProvider: ExperimentalFeaturesDataProvider())
+
+    func pushExperimentalFeatures() -> ImmuTableAction {
+        return { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            let vc = ExperimentalFeaturesList.asViewController(viewModel: self.experimentalFeaturesVM)
+            self.tableView.deselectSelectedRowWithAnimation(true)
+            self.navigationController?.pushViewController(vc, animated: true)
         }
     }
 }
@@ -408,8 +421,7 @@ fileprivate struct ImageSizingRow: ImmuTableRow {
     typealias CellType = MediaSizeSliderCell
 
     static let cell: ImmuTableCell = {
-        let nib = UINib(nibName: "MediaSizeSliderCell", bundle: Bundle(for: CellType.self))
-        return ImmuTableCell.nib(nib, CellType.self)
+        return ImmuTableCell.class(CellType.self)
     }()
 
     let title: String
@@ -507,13 +519,6 @@ private extension AppSettingsViewController {
             spotlightClearCacheRow
         ]
 
-        let siriClearCacheRow = BrandedNavigationRow(
-            title: NSLocalizedString("Siri Reset Prompt", value: "Clear Siri Shortcut Suggestions", comment: "Label for button that clears user activities donated to Siri."),
-            action: clearSiriActivityDonations(),
-            accessibilityIdentifier: "spotlightClearCacheButton")
-
-        tableRows.append(siriClearCacheRow)
-
         tableRows.append(mediaRemoveLocation)
         let removeLocationFooterText = NSLocalizedString("Removes location metadata from photos before uploading them to your site.", comment: "Explanatory text for removing the location from uploaded media.")
 
@@ -541,35 +546,53 @@ private extension AppSettingsViewController {
 
         let iconRow = NavigationItemRow(
             title: NSLocalizedString("App Icon", comment: "Navigates to picker screen to change the app's icon"),
+            icon: UIImage(systemName: "app.dashed"),
             action: pushAppIconSwitcher()
+        )
+
+        let experimentalFeaturesRow = NavigationItemRow(
+            title: Strings.experimentalFeatures,
+            icon: UIImage(systemName: "testtube.2"),
+            action: pushExperimentalFeatures()
         )
 
         let settingsRow = NavigationItemRow(
             title: NSLocalizedString("Open Device Settings", comment: "Opens iOS's Device Settings for WordPress App"),
+            icon: UIImage(systemName: "gear"),
             action: openApplicationSettings()
         )
 
-        var rows: [ImmuTableRow] = [settingsRow]
+        let savedPostsRow = NavigationItemRow(
+            title: NSLocalizedString("reader.savedPosts.settings.row", value: "Saved Posts", comment: "Navigates to saved Reader posts export and import screen"),
+            icon: UIImage(systemName: "bookmark"),
+            action: pushSavedPostsSettings()
+        )
 
-        if AppConfiguration.allowsCustomAppIcons && UIApplication.shared.supportsAlternateIcons {
+        var rows: [ImmuTableRow] = [experimentalFeaturesRow, savedPostsRow, settingsRow]
+
+        if UIApplication.shared.supportsAlternateIcons {
             // We don't show custom icons for Jetpack
             rows.insert(iconRow, at: 0)
         }
 
-        if FeatureFlag.debugMenu.enabled {
+        if BuildConfiguration.current.isInternal {
             rows.append(debugRow)
             rows.append(designSystem)
         }
 
         if let presenter = RootViewCoordinator.shared.whatIsNewScenePresenter as? WhatIsNewScenePresenter,
             presenter.versionHasAnnouncements,
-            AppConfiguration.showsWhatIsNew {
-            let whatIsNewRow = NavigationItemRow(title: AppConstants.Settings.whatIsNewTitle,
-                                                 action: presentWhatIsNew())
+            FeatureFlag.whatsNew.enabled {
+            let whatIsNewRow = NavigationItemRow(title: WhatIsNewScenePresenter.title, action: presentWhatIsNew())
             rows.append(whatIsNewRow)
         }
 
-        let appearanceRow = NavigationItemRow(title: NSLocalizedString("Appearance", comment: "The title of the app appearance settings screen"), detail: AppAppearance.current.appearanceDescription, action: pushAppearanceSettings())
+        let appearanceRow = NavigationItemRow(
+            title: NSLocalizedString("Appearance", comment: "The title of the app appearance settings screen"),
+            detail: AppAppearance.current.appearanceDescription,
+            icon: UIImage(systemName: "circle.lefthalf.filled"),
+            action: pushAppearanceSettings()
+        )
 
         rows.insert(appearanceRow, at: 0)
 
@@ -588,7 +611,7 @@ extension AppSettingsViewController {
               JetpackBrandingVisibility.all.enabled else {
             return nil
         }
-        let textProvider = JetpackBrandingTextProvider(screen: JetpackBadgeScreen.appSettings)
+        let textProvider = JetpackBrandingTextProvider()
         let jetpackButton = JetpackButton.makeBadgeView(title: textProvider.brandingText(),
                                                         target: self,
                                                         selector: #selector(jetpackButtonTapped))
@@ -599,5 +622,13 @@ extension AppSettingsViewController {
     @objc private func jetpackButtonTapped() {
         JetpackBrandingCoordinator.presentOverlay(from: self)
         JetpackBrandingAnalyticsHelper.trackJetpackPoweredBadgeTapped(screen: .appSettings)
+    }
+
+    enum Strings {
+        static let experimentalFeatures = NSLocalizedString(
+            "application-settings.experimental-features",
+            value: "Experimental Features",
+            comment: "The list item of experimental features that users can choose to enable"
+        )
     }
 }

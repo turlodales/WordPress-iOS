@@ -1,4 +1,8 @@
 import UIKit
+import AutomatticTracks
+import WordPressData
+import WordPressUI
+import WordPressKit
 
 protocol ReaderDiscoverFlowDelegate: AnyObject {
     func didCompleteReaderDiscoverFlow()
@@ -9,24 +13,55 @@ struct ReaderSelectInterestsConfiguration {
     let subtitle: String?
     let buttonTitle: (enabled: String, disabled: String)?
     let loading: String
+    let showsSkipButton: Bool
+
+    init(
+        title: String,
+        subtitle: String?,
+        buttonTitle: (enabled: String, disabled: String)?,
+        loading: String,
+        showsSkipButton: Bool = false
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.buttonTitle = buttonTitle
+        self.loading = loading
+        self.showsSkipButton = showsSkipButton
+    }
 }
 
 class ReaderSelectInterestsViewController: UIViewController {
     private struct Constants {
         static let reuseIdentifier = ReaderInterestsCollectionViewCell.classNameWithoutNamespaces()
-        static let interestsLabelMargin: CGFloat = 10
+        static let defaultCellIdentifier = "DefaultCell"
+        static let interestsLabelMargin: CGFloat = 12
 
-        static let cellCornerRadius: CGFloat = 8
+        static let cellCornerRadius: CGFloat = 5
         static let cellSpacing: CGFloat = 6
-        static let cellHeight: CGFloat = 40
+        static let cellHeight: CGFloat = 36
         static let animationDuration: TimeInterval = 0.2
         static let isCentered: Bool = true
     }
 
     private struct Strings {
-        static let noSearchResultsTitle = NSLocalizedString("No new topics to follow", comment: "Message shown when there are no new topics to follow.")
-        static let tryAgainNoticeTitle = NSLocalizedString("Something went wrong. Please try again.", comment: "Error message shown when the app fails to save user selected interests")
-        static let tryAgainButtonTitle = NSLocalizedString("Try Again", comment: "Try to load the list of interests again.")
+        static let noSearchResultsTitle = NSLocalizedString(
+            "reader.select.tags.no.results.follow.title",
+            value: "No new tags to follow",
+            comment: "Message shown when there are no new topics to follow."
+        )
+        static let tryAgainNoticeTitle = NSLocalizedString(
+            "Something went wrong. Please try again.",
+            comment: "Error message shown when the app fails to save user selected interests"
+        )
+        static let tryAgainButtonTitle = NSLocalizedString(
+            "Try Again",
+            comment: "Try to load the list of interests again."
+        )
+        static let skipButtonTitle = NSLocalizedString(
+            "reader.select.tags.skip",
+            value: "Skip",
+            comment: "Button title. Lets the user continue without selecting any tags."
+        )
     }
 
     // MARK: - IBOutlets
@@ -34,7 +69,7 @@ class ReaderSelectInterestsViewController: UIViewController {
     @IBOutlet weak var subTitleLabel: UILabel!
     @IBOutlet weak var collectionView: UICollectionView!
     @IBOutlet weak var buttonContainerView: UIView!
-    @IBOutlet weak var nextButton: FancyButton!
+    @IBOutlet weak var nextButton: UIButton!
     @IBOutlet weak var contentContainerView: UIStackView!
 
     @IBOutlet weak var activityIndicatorView: UIActivityIndicatorView!
@@ -43,28 +78,12 @@ class ReaderSelectInterestsViewController: UIViewController {
 
     @IBOutlet weak var bottomSpaceHeightConstraint: NSLayoutConstraint!
 
-    // MARK: - Views
-
-    private let spotlightView: UIView = {
-        let spotlightView = QuickStartSpotlightView()
-        spotlightView.translatesAutoresizingMaskIntoConstraints = false
-        spotlightView.isHidden = true
-        return spotlightView
-    }()
-
-    /// Whether or not to show the spotlight animation to illustrate tapping the icon.
-    var spotlightIsShown: Bool = false {
-        didSet {
-            spotlightView.isHidden = !spotlightIsShown
-        }
-    }
-
     // MARK: - Data
     private lazy var dataSource: ReaderInterestsDataSource = {
-        return ReaderInterestsDataSource(topics: topics)
+        ReaderInterestsDataSource(topics: topics)
     }()
 
-    private let coordinator: ReaderSelectInterestsCoordinator = ReaderSelectInterestsCoordinator()
+    private let coordinator = ReaderSelectInterestsCoordinator()
 
     private let noResultsViewController = NoResultsViewController.controller()
 
@@ -77,10 +96,10 @@ class ReaderSelectInterestsViewController: UIViewController {
     weak var readerDiscoverFlowDelegate: ReaderDiscoverFlowDelegate?
 
     // MARK: - Init
-    init(configuration: ReaderSelectInterestsConfiguration, topics: [ReaderTagTopic] = []) {
+    init(configuration: ReaderSelectInterestsConfiguration = .default, topics: [ReaderTagTopic] = []) {
         self.configuration = configuration
         self.topics = topics
-        super.init(nibName: nil, bundle: nil)
+        super.init(nibName: "ReaderSelectInterestsViewController", bundle: .keystone)
     }
 
     required init?(coder: NSCoder) {
@@ -96,14 +115,21 @@ class ReaderSelectInterestsViewController: UIViewController {
         configureNavigationBar()
         configureI18N()
         configureCollectionView()
+
+        registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self, UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
+            (self.collectionView.collectionViewLayout as? ReaderInterestsCollectionViewFlowLayout)?.invalidateLayout()
+        }
+
         configureNoResultsViewController()
+        configureSkipButton()
         applyStyles()
         updateNextButtonState()
         refreshData()
 
         // If the view is being presented overCurrentContext take into account tab bar height
         if modalPresentationStyle == .overCurrentContext {
-            bottomSpaceHeightConstraint.constant = presentingViewController?.tabBarController?.tabBar.bounds.size.height ?? 0
+            bottomSpaceHeightConstraint.constant =
+                presentingViewController?.tabBarController?.tabBar.bounds.size.height ?? 0
         }
     }
 
@@ -115,14 +141,6 @@ class ReaderSelectInterestsViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-
-        view.addSubview(spotlightView)
-        view.bringSubviewToFront(spotlightView)
-
-        NSLayoutConstraint.activate([
-            collectionView.centerXAnchor.constraint(equalTo: spotlightView.centerXAnchor),
-            collectionView.centerYAnchor.constraint(equalTo: spotlightView.centerYAnchor)
-        ])
 
         WPAnalytics.trackReader(.selectInterestsShown)
     }
@@ -138,30 +156,18 @@ class ReaderSelectInterestsViewController: UIViewController {
         }
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        guard let layout = collectionView.collectionViewLayout as? ReaderInterestsCollectionViewFlowLayout else {
-            return
-        }
-
-        layout.invalidateLayout()
-    }
-
     // MARK: - IBAction's
     @IBAction func nextButtonTapped(_ sender: Any) {
         saveSelectedInterests()
     }
 
-    // MARK: - Display logic
-    func userIsFollowingTopics(completion: @escaping (Bool) -> Void) {
-        coordinator.isFollowingInterests(completion: completion)
-    }
-
     // MARK: - Private: Configuration
     private func configureCollectionView() {
-        let nib = UINib(nibName: String(describing: ReaderInterestsCollectionViewCell.self), bundle: nil)
-        collectionView.register(nib, forCellWithReuseIdentifier: Constants.reuseIdentifier)
+        collectionView.register(
+            ReaderInterestsCollectionViewCell.defaultNib,
+            forCellWithReuseIdentifier: Constants.reuseIdentifier
+        )
+        collectionView.register(UICollectionViewCell.self, forCellWithReuseIdentifier: Constants.defaultCellIdentifier)
 
         guard let layout = collectionView.collectionViewLayout as? ReaderInterestsCollectionViewFlowLayout else {
             return
@@ -176,6 +182,41 @@ class ReaderSelectInterestsViewController: UIViewController {
         noResultsViewController.delegate = self
     }
 
+    /// Adds a "Skip" button below the primary button, letting the user continue
+    /// without selecting any tags. Only used by the Discover flow.
+    private func configureSkipButton() {
+        guard configuration.showsSkipButton else {
+            return
+        }
+
+        let button = UIButton(type: .system)
+        button.setTitle(Strings.skipButtonTitle, for: .normal)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(skipButtonTapped(_:)), for: .touchUpInside)
+        ReaderInterestsStyleGuide.applySkipButtonStyle(button: button)
+
+        if let index = contentContainerView.arrangedSubviews.firstIndex(of: buttonContainerView) {
+            contentContainerView.insertArrangedSubview(button, at: index + 1)
+        } else {
+            contentContainerView.addArrangedSubview(button)
+        }
+    }
+
+    @objc private func skipButtonTapped(_ sender: UIButton) {
+        // Disable on first tap so a fast double-tap can't complete the flow
+        // (re-triggering dismiss / stream refresh) twice, matching the primary
+        // button, which disables itself before dismissing.
+        sender.isEnabled = false
+
+        WPAnalytics.trackReader(.selectInterestsSkipped)
+
+        didSaveInterests?([])
+        // Keep skip symmetric with the save-success path so a flow that both
+        // shows the Skip button and sets `readerDiscoverFlowDelegate` still
+        // completes. The only current Skip flow (Discover) leaves this nil.
+        readerDiscoverFlowDelegate?.didCompleteReaderDiscoverFlow()
+    }
+
     private func applyStyles() {
         let styleGuide = ReaderInterestsStyleGuide.self
         styleGuide.applyTitleLabelStyles(label: titleLabel)
@@ -186,7 +227,6 @@ class ReaderSelectInterestsViewController: UIViewController {
 
         styleGuide.applyLoadingLabelStyles(label: loadingLabel)
         styleGuide.applyActivityIndicatorStyles(indicator: activityIndicatorView)
-
     }
 
     private func configureNavigationBar() {
@@ -194,20 +234,16 @@ class ReaderSelectInterestsViewController: UIViewController {
             return
         }
 
-        navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done,
-                                                           target: self,
-                                                           action: #selector(saveSelectedInterests))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .done,
+            target: self,
+            action: #selector(saveSelectedInterests)
+        )
     }
 
     private func configureI18N() {
-
-        if isModal() {
-            title = configuration.title
-            titleLabel.isHidden = true
-        } else {
-            titleLabel.text = configuration.title
-            titleLabel.isHidden = false
-        }
+        titleLabel.text = configuration.title
+        titleLabel.isHidden = false
 
         if let subtitle = configuration.subtitle {
             subTitleLabel.text = subtitle
@@ -280,7 +316,7 @@ class ReaderSelectInterestsViewController: UIViewController {
 
     // MARK: - Private: UI Helpers
     private func updateNextButtonState() {
-        nextButton.isEnabled = dataSource.selectedInterests.count > 0
+        nextButton.isEnabled = !dataSource.selectedInterests.isEmpty
     }
 
     private func startLoading(hideLabel: Bool = false) {
@@ -298,10 +334,13 @@ class ReaderSelectInterestsViewController: UIViewController {
     private func stopLoading() {
         activityIndicatorView.stopAnimating()
 
-        UIView.animate(withDuration: Constants.animationDuration, animations: {
-            self.contentContainerView.alpha = 1
-            self.loadingView.alpha = 0
-        }) { _ in
+        UIView.animate(
+            withDuration: Constants.animationDuration,
+            animations: {
+                self.contentContainerView.alpha = 1
+                self.loadingView.alpha = 0
+            }
+        ) { _ in
             self.loadingView.isHidden = true
         }
     }
@@ -314,20 +353,41 @@ class ReaderSelectInterestsViewController: UIViewController {
 // MARK: - UICollectionViewDataSource
 extension ReaderSelectInterestsViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return dataSource.count
+        dataSource.count
     }
 
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: Constants.reuseIdentifier,
-                                                          for: indexPath) as? ReaderInterestsCollectionViewCell else {
+    func collectionView(
+        _ collectionView: UICollectionView,
+        cellForItemAt indexPath: IndexPath
+    ) -> UICollectionViewCell {
+        guard
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: Constants.reuseIdentifier,
+                for: indexPath
+            ) as? ReaderInterestsCollectionViewCell
+        else {
             fatalError("Expected a ReaderInterestsCollectionViewCell for identifier: \(Constants.reuseIdentifier)")
         }
 
-        let interest: ReaderInterestViewModel = dataSource.interest(for: indexPath.row)
+        guard let interest = dataSource.interest(for: indexPath.row) else {
+            CrashLogging.main.logMessage(
+                "ReaderSelectInterestsViewController: Requested for data at invalid row",
+                properties: ["row": indexPath.row],
+                level: .warning
+            )
+            return collectionView.dequeueReusableCell(
+                withReuseIdentifier: Constants.defaultCellIdentifier,
+                for: indexPath
+            )
+        }
 
-        ReaderInterestsStyleGuide.applyCellLabelStyle(label: cell.label,
-                                                      isSelected: interest.isSelected)
+        ReaderInterestsStyleGuide.applyCellLabelStyle(
+            label: cell.label,
+            isSelected: interest.isSelected
+        )
 
+        cell.layer.borderWidth = interest.isSelected ? 0 : 1
+        cell.borderColor = .separator
         cell.layer.cornerRadius = Constants.cellCornerRadius
         cell.label.text = interest.title
         cell.label.accessibilityTraits = interest.isSelected ? [.selected, .button] : .button
@@ -339,15 +399,11 @@ extension ReaderSelectInterestsViewController: UICollectionViewDataSource {
 // MARK: - UICollectionViewDelegate
 extension ReaderSelectInterestsViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-
-        if spotlightIsShown {
-            spotlightIsShown = false
+        guard let interest = dataSource.interest(for: indexPath.row) else {
+            return
         }
 
-        // End reader quick start tour if user selects a topic.
-        QuickStartTourGuide.shared.visited(.readerDiscoverSettings)
-
-        dataSource.interest(for: indexPath.row).toggleSelected()
+        interest.toggleSelected()
         updateNextButtonState()
 
         UIView.animate(withDuration: 0) {
@@ -358,8 +414,14 @@ extension ReaderSelectInterestsViewController: UICollectionViewDelegate {
 
 // MARK: - UICollectionViewFlowLayout
 extension ReaderSelectInterestsViewController: UICollectionViewDelegateFlowLayout {
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let interest: ReaderInterestViewModel = dataSource.interest(for: indexPath.row)
+    func collectionView(
+        _ collectionView: UICollectionView,
+        layout collectionViewLayout: UICollectionViewLayout,
+        sizeForItemAt indexPath: IndexPath
+    ) -> CGSize {
+        guard let interest = dataSource.interest(for: indexPath.row) else {
+            return .zero
+        }
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: ReaderInterestsStyleGuide.cellLabelTitleFont
@@ -377,7 +439,8 @@ extension ReaderSelectInterestsViewController: UICollectionViewDelegateFlowLayou
 // MARK: - ReaderInterestsDataDelegate
 extension ReaderSelectInterestsViewController: ReaderInterestsDataDelegate {
     func readerInterestsDidUpdate(_ dataSource: ReaderInterestsDataSource) {
-        if dataSource.count > 0 {
+        // swiftlint:disable:next empty_count
+        if dataSource.count != 0 {
             hideLoadingView()
             reloadData()
         } else if !topics.isEmpty {
@@ -403,9 +466,11 @@ extension ReaderSelectInterestsViewController {
     }
 
     func displayLoadingViewWithWebAction(title: String, accessoryView: UIView? = nil) {
-        noResultsViewController.configure(title: title,
-                                          buttonTitle: Strings.tryAgainButtonTitle,
-                                          accessoryView: accessoryView)
+        noResultsViewController.configure(
+            title: title,
+            buttonTitle: Strings.tryAgainButtonTitle,
+            accessoryView: accessoryView
+        )
         showLoadingView()
     }
 
@@ -418,5 +483,79 @@ extension ReaderSelectInterestsViewController {
 
     func hideLoadingView() {
         noResultsViewController.removeFromView()
+    }
+}
+
+extension ReaderSelectInterestsConfiguration {
+    static let `default` = ReaderSelectInterestsConfiguration(
+        title: NSLocalizedString(
+            "reader.select.interests.follow.title",
+            value: "Follow tags",
+            comment: "Screen title. Reader select interests title label text."
+        ),
+        subtitle: nil,
+        buttonTitle: nil,
+        loading: NSLocalizedString(
+            "reader.select.interests.following",
+            value: "Following new tags...",
+            comment: "Label displayed to the user while loading their selected interests"
+        )
+    )
+
+    /// Configuration for the "Discover" screen.
+    static var discover: ReaderSelectInterestsConfiguration {
+        let title = NSLocalizedString(
+            "reader.select.tags.title",
+            value: "Discover and follow blogs you love",
+            comment: "Reader select interests title label text"
+        )
+        let subtitle = NSLocalizedString(
+            "reader.select.tags.subtitle",
+            value: "Choose your tags",
+            comment: "Reader select interests subtitle label text"
+        )
+        let buttonTitleEnabled = NSLocalizedString(
+            "reader.select.tags.done",
+            value: "Done",
+            comment: "Reader select interests next button enabled title text"
+        )
+        let buttonTitleDisabled = NSLocalizedString(
+            "reader.select.tags.continue",
+            value: "Select a few to continue",
+            comment: "Reader select interests next button disabled title text"
+        )
+        let loading = NSLocalizedString(
+            "reader.select.tags.loading",
+            value: "Finding blogs and stories you’ll love...",
+            comment: "Label displayed to the user while loading their selected interests"
+        )
+
+        return ReaderSelectInterestsConfiguration(
+            title: title,
+            subtitle: subtitle,
+            buttonTitle: (enabled: buttonTitleEnabled, disabled: buttonTitleDisabled),
+            loading: loading,
+            showsSkipButton: true
+        )
+    }
+}
+
+extension ReaderSelectInterestsViewController {
+    static func show(
+        from presentingViewController: UIViewController,
+        viewContext: NSManagedObjectContext = ContextManager.shared.mainContext
+    ) {
+        let tags = viewContext.allObjects(
+            ofType: ReaderTagTopic.self,
+            matching: ReaderSidebarTagsSection.predicate,
+            sortedBy: [NSSortDescriptor(SortDescriptor<ReaderTagTopic>(\.title, order: .forward))]
+        )
+        let interestsVC = ReaderSelectInterestsViewController(topics: tags)
+        interestsVC.didSaveInterests = { [weak interestsVC] _ in
+            interestsVC?.presentingViewController?.dismiss(animated: true)
+        }
+        let navigationVC = UINavigationController(rootViewController: interestsVC)
+        navigationVC.modalPresentationStyle = .formSheet
+        presentingViewController.present(navigationVC, animated: true, completion: nil)
     }
 }

@@ -1,3 +1,7 @@
+import UIKit
+import WordPressData
+import WordPressShared
+
 class BloggingPromptTableViewCell: UITableViewCell, NibReusable {
 
     // MARK: - Properties
@@ -20,7 +24,6 @@ class BloggingPromptTableViewCell: UITableViewCell, NibReusable {
         return formatter
     }()
 
-
     // MARK: Init
 
     override func awakeFromNib() {
@@ -40,13 +43,13 @@ class BloggingPromptTableViewCell: UITableViewCell, NibReusable {
 private extension BloggingPromptTableViewCell {
 
     func configureView() {
-        titleLabel.textColor = .text
+        titleLabel.textColor = .label
         titleLabel.font = WPStyleGuide.notoBoldFontForTextStyle(.headline)
 
-        dateLabel.textColor = .text
-        dateToAnswersSeparatorDot.textColor = .text
-        answerCountLabel.textColor = .text
-        answersToStateSeparatorDot.textColor = .text
+        dateLabel.textColor = .label
+        dateToAnswersSeparatorDot.textColor = .label
+        answerCountLabel.textColor = .label
+        answersToStateSeparatorDot.textColor = .label
 
         answeredStateLabel.text = Strings.answeredLabel
         answeredStateLabel.textColor = WPStyleGuide.BloggingPrompts.answeredLabelColor

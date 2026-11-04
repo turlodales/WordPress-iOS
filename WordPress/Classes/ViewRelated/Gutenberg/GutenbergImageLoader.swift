@@ -1,17 +1,23 @@
 import Foundation
 import Gutenberg
 import React
+import WordPressData
 
 class GutenbergImageLoader: NSObject, RCTImageURLLoader {
 
     public var post: AbstractPost
 
+    /// The trait collection of the view that displays the loaded images. The owner
+    /// must update it when the display scale changes.
+    public var traitCollection: UITraitCollection
+
     private lazy var mediaUtility: EditorMediaUtility = {
         return EditorMediaUtility()
     }()
 
-    public init(post: AbstractPost) {
+    public init(post: AbstractPost, traitCollection: UITraitCollection) {
         self.post = post
+        self.traitCollection = traitCollection
     }
 
     func canLoadImageURL(_ requestURL: URL) -> Bool {
@@ -19,28 +25,29 @@ class GutenbergImageLoader: NSObject, RCTImageURLLoader {
     }
 
     func loadImage(for imageURL: URL, size: CGSize, scale: CGFloat, resizeMode: RCTResizeMode, progressHandler: RCTImageLoaderProgressBlock, partialLoadHandler: RCTImageLoaderPartialLoadBlock, completionHandler: @escaping RCTImageLoaderCompletionBlock) -> RCTImageLoaderCancellationBlock? {
-        let cacheKey = getCacheKey(for: imageURL, size: size)
-
-        if let image = AnimatedImageCache.shared.cachedStaticImage(url: cacheKey) {
-            completionHandler(nil, image)
-            return {}
-        }
 
         var finalSize = size
         var finalScale = scale
 
         if let size = sizeWidthFromURLQueryItem(from: imageURL) {
             finalScale = 1
-            let screenScale = UIScreen.main.scale // The provided scale does not always correspond to the UIScreen scale.
+            let screenScale = traitCollection.displayScale // The provided scale does not always correspond to the display scale.
             finalSize = CGSize(width: size.width / screenScale, height: size.height / screenScale)
         }
 
-        let task = mediaUtility.downloadImage(from: imageURL, size: finalSize, scale: finalScale, post: post, success: { (image) in
-            AnimatedImageCache.shared.cacheStaticImage(url: cacheKey, image: image)
-            completionHandler(nil, image)
-        }, onFailure: { (error) in
-            completionHandler(error, nil)
-        })
+        let task = mediaUtility.downloadImage(
+            from: imageURL,
+            size: finalSize,
+            scale: finalScale,
+            post: post,
+            traitCollection: traitCollection,
+            success: { image in
+                completionHandler(nil, image)
+            },
+            onFailure: { error in
+                completionHandler(error, nil)
+            }
+        )
 
         return { task.cancel() }
     }
@@ -56,17 +63,6 @@ class GutenbergImageLoader: NSObject, RCTImageURLLoader {
         return nil
     }
 
-    private func getCacheKey(for url: URL, size: CGSize) -> URL? {
-        guard size != CGSize.zero else {
-            return url
-        }
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: true)
-        let queryItems = components?.queryItems
-        let newQueryItems = (queryItems ?? []) + [URLQueryItem(name: "cachekey", value: "\(size)")]
-        components?.queryItems = newQueryItems
-        return components?.url
-    }
-
     static func moduleName() -> String! {
         return String(describing: self)
     }
@@ -74,6 +70,4 @@ class GutenbergImageLoader: NSObject, RCTImageURLLoader {
     func loaderPriority() -> Float {
         return 100
     }
-
-
 }

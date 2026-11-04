@@ -1,10 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1400"
+   LastUpgradeVersion = "2600"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
-      buildImplicitDependencies = "YES">
+      buildImplicitDependencies = "YES"
+      buildArchitectures = "Automatic">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Download Gutenberg XCFrameworks"
+               scriptText = "&quot;${SRCROOT}/../Scripts/download-gutenberg-xcframeworks.sh&quot;&#10;"
+               shellToInvoke = "/bin/bash">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "FABB1F8F2602FC2C00C8785C"
+                     BuildableName = "Jetpack.app"
+                     BlueprintName = "Jetpack"
+                     ReferencedContainer = "container:WordPress.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"
@@ -26,13 +46,8 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES">
-      <TestPlans>
-         <TestPlanReference
-            reference = "container:UITests/JetpackUITests.xctestplan"
-            default = "YES">
-         </TestPlanReference>
-      </TestPlans>
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      shouldAutocreateTestPlan = "YES">
       <Testables>
          <TestableReference
             skipped = "NO">
@@ -102,6 +117,18 @@
             argument = "-debugJetpackConnectionFlow"
             isEnabled = "NO">
          </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-com.apple.TipKit.ShowAllTips 1"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-com.apple.TipKit.HideAllTips 1"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-com.apple.TipKit.ResetDataStore 1"
+            isEnabled = "NO">
+         </CommandLineArgument>
       </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
@@ -109,20 +136,20 @@
             value = "disable"
             isEnabled = "NO">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "GUTENBERG_EDITOR_URL"
+            value = "http://localhost:5173/"
+            isEnabled = "NO">
+         </EnvironmentVariable>
       </EnvironmentVariables>
       <AdditionalOptions>
-         <AdditionalOption
-            key = "MallocStackLogging"
-            value = ""
-            isEnabled = "YES">
-         </AdditionalOption>
          <AdditionalOption
             key = "PrefersMallocStackLoggingLite"
             value = ""
             isEnabled = "YES">
          </AdditionalOption>
          <AdditionalOption
-            key = "MallocScribble"
+            key = "MallocStackLogging"
             value = ""
             isEnabled = "YES">
          </AdditionalOption>

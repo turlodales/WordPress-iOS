@@ -1,3 +1,6 @@
+import UIKit
+import WordPressData
+
 enum GravatarUploaderStatus {
     case idle
     case uploading(image: UIImage)
@@ -11,7 +14,7 @@ protocol GravatarUploader: AnyObject {
 extension GravatarUploader {
     func uploadGravatarImage(_ newGravatar: UIImage) {
 
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
 
         guard let account = try? WPAccount.lookupDefaultWordPressComAccount(in: context) else {
             return
@@ -20,7 +23,7 @@ extension GravatarUploader {
         updateGravatarStatus(.uploading(image: newGravatar))
 
         let service = GravatarService()
-        service.uploadImage(newGravatar, forAccount: account) { [weak self] error in
+        service.uploadImage(newGravatar, forAccount: account) { [weak self] _ in
             DispatchQueue.main.async(execute: {
                 WPAppAnalytics.track(.gravatarUploaded)
                 self?.updateGravatarStatus(.finished)

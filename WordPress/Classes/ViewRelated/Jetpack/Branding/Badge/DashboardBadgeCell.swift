@@ -1,10 +1,11 @@
 import UIKit
+import WordPressData
 
 /// A collection view cell with a "Jetpack powered" badge
 class DashboardBadgeCell: UICollectionViewCell, Reusable {
 
     private lazy var jetpackButton: JetpackButton = {
-        let textProvider = JetpackBrandingTextProvider(screen: JetpackBadgeScreen.home)
+        let textProvider = JetpackBrandingTextProvider()
         let button = JetpackButton(style: .badge, title: textProvider.brandingText())
         button.translatesAutoresizingMaskIntoConstraints = false
         button.addTarget(self, action: #selector(jetpackButtonTapped), for: .touchUpInside)
@@ -23,7 +24,7 @@ class DashboardBadgeCell: UICollectionViewCell, Reusable {
     }
 
     private func setup() {
-        contentView.backgroundColor = .listBackground
+        contentView.backgroundColor = .systemGroupedBackground
         contentView.addSubview(jetpackButton)
         NSLayoutConstraint.activate([
             jetpackButton.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),

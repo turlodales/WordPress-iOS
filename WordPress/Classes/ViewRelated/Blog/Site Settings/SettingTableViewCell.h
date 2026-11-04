@@ -1,8 +1,8 @@
-#import <WordPressShared/WPTableViewCell.h>
+@import UIKit;
 
 extern NSString * const SettingsTableViewCellReuseIdentifier;
 
-@interface SettingTableViewCell : WPTableViewCell
+@interface SettingTableViewCell : UITableViewCell
 
 - (instancetype)initWithLabel:(NSString *)label editable:(BOOL)editable reuseIdentifier:(NSString *)reuseIdentifier;
 

@@ -1,7 +1,5 @@
-import Foundation
-import WordPressShared
 import UIKit
-
+import WordPressUI
 
 /// This ViewController allows the user to resize and crop any given UIImage.
 ///
@@ -18,10 +16,9 @@ class ImageCropViewController: UIViewController, UIScrollViewDelegate {
 
     @objc convenience init(image: UIImage) {
         let nibName = ImageCropViewController.classNameWithoutNamespaces()
-        self.init(nibName: nibName, bundle: nil)
+        self.init(nibName: nibName, bundle: .keystone)
         rawImage = image
     }
-
 
     // MARK: - UIViewController Methods
 
@@ -31,7 +28,7 @@ class ImageCropViewController: UIViewController, UIScrollViewDelegate {
         // Title
         title = NSLocalizedString("Resize & Crop", comment: "Screen title. Resize and crop an image.")
 
-        view.backgroundColor = .basicBackground
+        view.backgroundColor = .systemBackground
 
         // Setup: NavigationItem
         let useButtonTitle = NSLocalizedString("Use", comment: "Use the current image")
@@ -58,11 +55,10 @@ class ImageCropViewController: UIViewController, UIScrollViewDelegate {
         scrollView.zoomScale = minimumScale
 
         // Setup: Overlay
-        overlayView.borderColor = .primary(.shade40)
+        overlayView.borderColor = UIAppColor.primary(.shade40)
         overlayView.outerColor = overlayColor
         overlayView.maskShape = maskShape
     }
-
 
     // MARK: - UIScrollViewDelegate Methods
 
@@ -75,15 +71,14 @@ class ImageCropViewController: UIViewController, UIScrollViewDelegate {
         // Required to enable scrollView Zooming
     }
 
-
     // MARK: - Action Handlers
     @IBAction func cropWasPressed() {
         // Calculations!
-        let screenScale     = UIScreen.main.scale
-        let zoomScale       = scrollView.zoomScale
-        let oldSize         = rawImage.size
-        let resizeRect      = CGRect(x: 0, y: 0, width: oldSize.width * zoomScale, height: oldSize.height * zoomScale)
-        let clippingRect    = CGRect(x: scrollView.contentOffset.x * screenScale,
+        let screenScale = traitCollection.displayScale
+        let zoomScale = scrollView.zoomScale
+        let oldSize = rawImage.size
+        let resizeRect = CGRect(x: 0, y: 0, width: oldSize.width * zoomScale, height: oldSize.height * zoomScale)
+        let clippingRect = CGRect(x: scrollView.contentOffset.x * screenScale,
                                      y: scrollView.contentOffset.y * screenScale,
                                      width: scrollView.frame.width * screenScale,
                                      height: scrollView.frame.height * screenScale)
@@ -115,10 +110,10 @@ class ImageCropViewController: UIViewController, UIScrollViewDelegate {
         onCancel?()
     }
 
-    private let overlayColor = UIColor.basicBackground.withAlphaComponent(0.78)
+    private let overlayColor = UIColor.systemBackground.withAlphaComponent(0.78)
 
     // MARK: - Private Constants
-    private let maximumScaleFactor  = CGFloat(3)
+    private let maximumScaleFactor = CGFloat(3)
 
     // MARK: - Private Properties
     private var rawImage: UIImage!
@@ -126,7 +121,7 @@ class ImageCropViewController: UIViewController, UIScrollViewDelegate {
     // MARK: - IBOutlets
     @IBOutlet private var scrollView: UIScrollView! {
         didSet {
-            scrollView.backgroundColor = .basicBackground
+            scrollView.backgroundColor = .systemBackground
         }
     }
     @IBOutlet private var imageView: UIImageView!

@@ -1,6 +1,6 @@
-import Foundation
+import UIKit
 import WordPressShared
-
+import WordPressUI
 
 /// This class will simply render the collection of Streams available for a given NotificationSettings
 /// collection.
@@ -39,10 +39,8 @@ class NotificationSettingStreamsViewController: UITableViewController {
     ///
     private let rowsCount = 1
 
-
-
     convenience init(settings: NotificationSettings) {
-        self.init(style: .grouped)
+        self.init(style: .insetGrouped)
         setupWithSettings(settings)
     }
 
@@ -62,7 +60,6 @@ class NotificationSettingStreamsViewController: UITableViewController {
         WPAnalytics.track(.openedNotificationSettingStreams)
     }
 
-
     // MARK: - Setup Helpers
     private func startListeningToNotifications() {
         let notificationCenter = NotificationCenter.default
@@ -70,17 +67,8 @@ class NotificationSettingStreamsViewController: UITableViewController {
     }
 
     private func setupTableView() {
-        // Empty Back Button
         navigationItem.backBarButtonItem = UIBarButtonItem(title: String(), style: .plain, target: nil, action: nil)
-
-        // Hide the separators, whenever the table is empty
-        tableView.tableFooterView = UIView()
-
-        // Style!
-        WPStyleGuide.configureColors(view: view, tableView: tableView)
-        WPStyleGuide.configureAutomaticHeightRows(for: tableView)
     }
-
 
     // MARK: - Public Helpers
     func setupWithSettings(_ streamSettings: NotificationSettings) {
@@ -97,20 +85,19 @@ class NotificationSettingStreamsViewController: UITableViewController {
         }
 
         // Structures
-        settings       = streamSettings
-        sortedStreams  = streamSettings.streams.sorted {  $0.kind.description() > $1.kind.description() }
+        settings = streamSettings
+        sortedStreams = streamSettings.streams.sorted {  $0.kind.description() > $1.kind.description() }
 
         tableView.reloadData()
     }
 
-
     // MARK: - UITableView Delegate Methods
     override func numberOfSections(in tableView: UITableView) -> Int {
-        return sortedStreams?.count ?? emptySectionCount
+        sortedStreams?.count ?? emptySectionCount
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return rowsCount
+        rowsCount
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -132,8 +119,6 @@ class NotificationSettingStreamsViewController: UITableViewController {
         WPStyleGuide.configureTableViewSectionFooter(view)
     }
 
-
-
     // MARK: - UITableView Delegate Methods
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let stream = streamAtSection(indexPath.section)
@@ -141,18 +126,16 @@ class NotificationSettingStreamsViewController: UITableViewController {
         navigationController?.pushViewController(detailsViewController, animated: true)
     }
 
-
-
     // MARK: - Helpers
     private func configureCell(_ cell: UITableViewCell, indexPath: IndexPath) {
-        let stream                  = streamAtSection(indexPath.section)
-        let disabled                = stream.kind == .Device && pushNotificationsAuthorized == false
+        let stream = streamAtSection(indexPath.section)
+        let disabled = stream.kind == .device && pushNotificationsAuthorized == false
 
-        cell.imageView?.image       = imageForStreamKind(stream.kind)
-        cell.imageView?.tintColor   = .neutral(.shade20)
-        cell.textLabel?.text        = stream.kind.description()
-        cell.detailTextLabel?.text  = disabled ? NSLocalizedString("Off", comment: "Disabled") : String()
-        cell.accessoryType          = .disclosureIndicator
+        cell.imageView?.image = imageForStreamKind(stream.kind)
+        cell.imageView?.tintColor = UIAppColor.neutral(.shade20)
+        cell.textLabel?.text = stream.kind.description()
+        cell.detailTextLabel?.text = disabled ? NSLocalizedString("Off", comment: "Disabled") : String()
+        cell.accessoryType = .disclosureIndicator
 
         WPStyleGuide.configureTableViewCell(cell)
     }
@@ -164,17 +147,16 @@ class NotificationSettingStreamsViewController: UITableViewController {
     private func imageForStreamKind(_ streamKind: NotificationSettings.Stream.Kind) -> UIImage? {
         let imageName: String
         switch streamKind {
-        case .Email:
-            imageName = "notifications-email"
-        case .Timeline:
-            imageName = "notifications-bell"
-        case .Device:
-            imageName = "notifications-phone"
+        case .email:
+            imageName = "wpl-mail"
+        case .timeline:
+            imageName = "wpl-bell"
+        case .device:
+            imageName = "wpl-phone"
         }
 
         return UIImage(named: imageName)?.withRenderingMode(.alwaysTemplate)
     }
-
 
     // MARK: - Disabled Push Notifications Helpers
     @objc func refreshPushAuthorizationStatus() {
@@ -186,13 +168,13 @@ class NotificationSettingStreamsViewController: UITableViewController {
     // MARK: - Footers
     private func footerForStream(_ stream: NotificationSettings.Stream) -> String {
         switch stream.kind {
-        case .Device:
+        case .device:
             return NSLocalizedString("Settings for push notifications that appear on your mobile device.",
                 comment: "Descriptive text for the Push Notifications Settings")
-        case .Email:
+        case .email:
             return NSLocalizedString("Settings for notifications that are sent to the email tied to your account.",
                 comment: "Descriptive text for the Email Notifications Settings")
-        case .Timeline:
+        case .timeline:
             return NSLocalizedString("Settings for notifications that appear in the Notifications tab.",
                 comment: "Descriptive text for the Notifications Tab Settings")
         }

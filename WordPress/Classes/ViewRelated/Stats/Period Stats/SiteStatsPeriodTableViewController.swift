@@ -1,6 +1,9 @@
 import UIKit
+import WordPressData
 import WordPressFlux
-
+import WordPressKit
+import WordPressUI
+import Combine
 
 @objc protocol SiteStatsPeriodDelegate {
     @objc optional func displayWebViewWithURL(_ url: URL)
@@ -14,48 +17,38 @@ protocol SiteStatsReferrerDelegate: AnyObject {
     func showReferrerDetails(_ data: StatsTotalRowData)
 }
 
-class SiteStatsPeriodTableViewController: UITableViewController, StoryboardLoadable {
-    static var defaultStoryboardName: String = "SiteStatsDashboard"
-
+final class SiteStatsPeriodTableViewController: SiteStatsBaseTableViewController {
     weak var bannerView: JetpackBannerView?
 
     // MARK: - Properties
 
     private lazy var mainContext: NSManagedObjectContext = {
-        return ContextManager.sharedInstance().mainContext
+        return ContextManager.shared.mainContext
     }()
 
-    var selectedDate: Date?
-    var selectedPeriod: StatsPeriodUnit? {
-        didSet {
-
-            guard selectedPeriod != nil else {
-                return
-            }
-
-            clearExpandedRows()
-
-            // If this is the first time setting the Period, need to initialize the view model.
-            // Otherwise, just refresh the data.
-            if oldValue == nil {
-                initViewModel()
-            } else {
-                refreshData()
-            }
-        }
-    }
-
-    private let store = StoreContainer.shared.statsPeriod
+    private let store = StatsPeriodStore()
     private var changeReceipt: Receipt?
 
-    private var viewModel: SiteStatsPeriodViewModel?
-    private var tableHeaderView: SiteStatsTableHeaderView?
+    private var viewModel: SiteStatsPeriodViewModel!
+    private let datePickerViewModel: StatsTrafficDatePickerViewModel
+    private let datePickerView: StatsTrafficDatePickerView
+    private var cancellables: Set<AnyCancellable> = []
 
     private let analyticsTracker = BottomScrollAnalyticsTracker()
 
-    private lazy var tableHandler: ImmuTableViewHandler = {
-        return ImmuTableViewHandler(takeOver: self, with: analyticsTracker)
+    private lazy var tableHandler: ImmuTableDiffableViewHandler = {
+        return ImmuTableDiffableViewHandler(takeOver: self, with: analyticsTracker)
     }()
+
+    init(date: Date, period: StatsPeriodUnit) {
+        datePickerViewModel = StatsTrafficDatePickerViewModel(period: period, date: date)
+        datePickerView = StatsTrafficDatePickerView(viewModel: datePickerViewModel)
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     // MARK: - View
 
@@ -64,42 +57,91 @@ class SiteStatsPeriodTableViewController: UITableViewController, StoryboardLoada
 
         clearExpandedRows()
         WPStyleGuide.Stats.configureTable(tableView)
-        refreshControl?.addTarget(self, action: #selector(userInitiatedRefresh), for: .valueChanged)
+        refreshControl.addTarget(self, action: #selector(userInitiatedRefresh), for: .valueChanged)
         ImmuTable.registerRows(tableRowTypes(), tableView: tableView)
         tableView.estimatedRowHeight = 500
         tableView.estimatedSectionHeaderHeight = SiteStatsTableHeaderView.estimatedHeight
+        tableView.cellLayoutMarginsFollowReadableWidth = true
         sendScrollEventsToBanner()
+
+        viewModel = SiteStatsPeriodViewModel(store: store,
+                                             selectedDate: datePickerViewModel.date,
+                                             selectedPeriod: datePickerViewModel.period,
+                                             periodDelegate: self,
+                                             referrerDelegate: self)
+        viewModel?.statsBarChartViewDelegate = self
+        Publishers.CombineLatest(datePickerViewModel.$date, datePickerViewModel.$period)
+            .sink(receiveValue: { [weak self] _, _ in
+                DispatchQueue.main.async {
+                    self?.refreshData()
+                }
+            })
+            .store(in: &cancellables)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        if !isMovingToParent {
-            guard let date = selectedDate, let period = selectedPeriod else {
-                return
-            }
-            addViewModelListeners()
-            viewModel?.refreshPeriodOverviewData(withDate: date, forPeriod: period)
+
+        addViewModelListeners()
+        viewModel.addListeners()
+        viewModel.refreshTrafficOverviewData(withDate: datePickerViewModel.date, forPeriod: datePickerViewModel.period)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+
+        removeViewModelListeners()
+        viewModel.removeListeners()
+    }
+
+    override func initTableView() {
+        let embeddedDatePickerView = UIView.embedSwiftUIView(datePickerView)
+        view.addSubview(embeddedDatePickerView)
+        embeddedDatePickerView.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(tableView)
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: embeddedDatePickerView.topAnchor, constant: 0),
+            view.readableContentGuide.leadingAnchor.constraint(equalTo: embeddedDatePickerView.leadingAnchor, constant: 0),
+            view.readableContentGuide.trailingAnchor.constraint(equalTo: embeddedDatePickerView.trailingAnchor, constant: 0),
+            embeddedDatePickerView.bottomAnchor.constraint(equalTo: tableView.topAnchor, constant: 0),
+            view.leadingAnchor.constraint(equalTo: tableView.leadingAnchor, constant: 0),
+            view.trailingAnchor.constraint(equalTo: tableView.trailingAnchor, constant: 0),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: 0),
+        ])
+
+        let divider = UIView()
+        divider.backgroundColor = .separator
+
+        view.addSubview(divider)
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            divider.heightAnchor.constraint(equalToConstant: 0.5),
+            divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            divider.bottomAnchor.constraint(equalTo: embeddedDatePickerView.bottomAnchor)
+        ])
+
+        tableView.refreshControl = refreshControl
+    }
+
+    override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        if section == 0 {
+            return UITableView.automaticDimension
+        } else {
+            return super.tableView(tableView, heightForHeaderInSection: section)
         }
     }
 
-    override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        guard let cell = Bundle.main.loadNibNamed("SiteStatsTableHeaderView", owner: nil, options: nil)?.first as? SiteStatsTableHeaderView else {
-            return nil
+    func refreshData() {
+        guard viewIsVisible() else {
+            refreshControl.endRefreshing()
+            return
         }
-
-        cell.configure(date: selectedDate, period: selectedPeriod, delegate: self)
-        cell.animateGhostLayers(viewModel?.isFetchingChart() == true)
-        tableHeaderView = cell
-        return cell
-    }
-
-}
-
-extension SiteStatsPeriodTableViewController: StatsBarChartViewDelegate {
-    func statsBarChartValueSelected(_ statsBarChartView: StatsBarChartView, entryIndex: Int, entryCount: Int) {
-        if let intervalDate = viewModel?.chartDate(for: entryIndex) {
-            tableHeaderView?.updateDate(with: intervalDate)
-        }
+        addViewModelListeners()
+        viewModel.refreshTrafficOverviewData(withDate: datePickerViewModel.date, forPeriod: datePickerViewModel.period)
     }
 }
 
@@ -109,29 +151,12 @@ private extension SiteStatsPeriodTableViewController {
 
     // MARK: - View Model
 
-    func initViewModel() {
-
-        guard let selectedDate = selectedDate,
-            let selectedPeriod = selectedPeriod else {
-                return
-        }
-
-        viewModel = SiteStatsPeriodViewModel(store: store,
-                                             selectedDate: selectedDate,
-                                             selectedPeriod: selectedPeriod,
-                                             periodDelegate: self,
-                                             referrerDelegate: self)
-        viewModel?.statsBarChartViewDelegate = self
-        addViewModelListeners()
-        viewModel?.startFetchingOverview()
-    }
-
     func addViewModelListeners() {
         if changeReceipt != nil {
             return
         }
 
-        changeReceipt = viewModel?.onChange { [weak self] in
+        changeReceipt = viewModel.onChange { [weak self] in
             self?.refreshTableView()
         }
     }
@@ -151,19 +176,16 @@ private extension SiteStatsPeriodTableViewController {
                 TableFooterRow.self,
                 StatsErrorRow.self,
                 StatsGhostChartImmutableRow.self,
-                StatsGhostTopImmutableRow.self]
+                StatsGhostTopImmutableRow.self,
+                TwoColumnStatsRow.self]
     }
 
     // MARK: - Table Refreshing
 
     func refreshTableView() {
-        guard let viewModel = viewModel else {
-            return
-        }
+        tableHandler.diffableDataSource.apply(viewModel.tableViewSnapshot(), animatingDifferences: false)
 
-        tableHandler.viewModel = viewModel.tableViewModel()
-
-        refreshControl?.endRefreshing()
+        refreshControl.endRefreshing()
 
         if viewModel.fetchingFailed() {
             displayFailureViewIfNecessary()
@@ -172,24 +194,12 @@ private extension SiteStatsPeriodTableViewController {
 
     @objc func userInitiatedRefresh() {
         clearExpandedRows()
-        refreshControl?.beginRefreshing()
+        refreshControl.beginRefreshing()
         refreshData()
     }
 
-    func refreshData() {
-        guard let selectedDate = selectedDate,
-            let selectedPeriod = selectedPeriod,
-            viewIsVisible() else {
-                refreshControl?.endRefreshing()
-                return
-        }
-        addViewModelListeners()
-        viewModel?.refreshPeriodOverviewData(withDate: selectedDate, forPeriod: selectedPeriod)
-    }
-
     func applyTableUpdates() {
-        tableView.performBatchUpdates({
-        })
+        tableHandler.diffableDataSource.apply(viewModel.tableViewSnapshot(), animatingDifferences: false)
     }
 
     func clearExpandedRows() {
@@ -205,7 +215,7 @@ private extension SiteStatsPeriodTableViewController {
 
 extension SiteStatsPeriodTableViewController: NoResultsViewHost {
     private func displayFailureViewIfNecessary() {
-        guard tableHandler.viewModel.sections.isEmpty else {
+        guard tableHandler.diffableDataSource.snapshot().numberOfSections == 0 else {
             return
         }
 
@@ -242,7 +252,7 @@ extension SiteStatsPeriodTableViewController: SiteStatsPeriodDelegate {
 
     func displayWebViewWithURL(_ url: URL) {
         let webViewController = WebViewControllerFactory.controllerAuthenticatedWithDefaultAccount(url: url, source: "site_stats_period")
-        let navController = UINavigationController.init(rootViewController: webViewController)
+        let navController = UINavigationController(rootViewController: webViewController)
         present(navController, animated: true)
     }
 
@@ -287,8 +297,8 @@ extension SiteStatsPeriodTableViewController: SiteStatsPeriodDelegate {
 
         let detailTableViewController = SiteStatsDetailTableViewController.loadFromStoryboard()
         detailTableViewController.configure(statSection: statSection,
-                                            selectedDate: selectedDate,
-                                            selectedPeriod: selectedPeriod)
+                                            selectedDate: datePickerViewModel.date,
+                                            selectedPeriod: datePickerViewModel.period)
         navigationController?.pushViewController(detailTableViewController, animated: true)
     }
 
@@ -302,6 +312,18 @@ extension SiteStatsPeriodTableViewController: SiteStatsPeriodDelegate {
     }
 }
 
+extension SiteStatsPeriodTableViewController: StatsBarChartViewDelegate {
+    func statsBarChartTabSelected(_ tabIndex: Int) {
+        viewModel.currentTabIndex = tabIndex
+    }
+
+    func statsBarChartValueSelected(_ statsBarChartView: StatsBarChartView, entryIndex: Int, entryCount: Int) {
+        if let selectedChartDate = viewModel?.chartDate(for: entryIndex) {
+            datePickerViewModel.updateDate(selectedChartDate)
+        }
+    }
+}
+
 // MARK: - SiteStatsReferrerDelegate
 
 extension SiteStatsPeriodTableViewController: SiteStatsReferrerDelegate {
@@ -310,27 +332,12 @@ extension SiteStatsPeriodTableViewController: SiteStatsReferrerDelegate {
     }
 }
 
-// MARK: - SiteStatsTableHeaderDelegate Methods
-
-extension SiteStatsPeriodTableViewController: SiteStatsTableHeaderDateButtonDelegate {
-    func dateChangedTo(_ newDate: Date?) {
-        selectedDate = newDate
-        refreshData()
-    }
-
-    func didTouchHeaderButton(forward: Bool) {
-        if let intervalDate = viewModel?.updateDate(forward: forward) {
-            tableHeaderView?.updateDate(with: intervalDate)
-        }
-    }
-}
-
 // MARK: Jetpack powered banner
 
 private extension SiteStatsPeriodTableViewController {
 
     func sendScrollEventsToBanner() {
-        if let bannerView = bannerView {
+        if let bannerView {
             analyticsTracker.addTranslationObserver(bannerView)
         }
     }

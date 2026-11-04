@@ -1,6 +1,7 @@
-
+import BuildSettingsKit
 import Foundation
 import WordPressKit
+import WordPressShared
 
 // MARK: SiteCreationRequest
 
@@ -30,7 +31,10 @@ extension SiteCreationRequest {
          siteURLString: String,
          isPublic: Bool,
          siteCreationFlow: String?,
-         findAvailableURL: Bool) {
+         findAvailableURL: Bool,
+         clientIdentifier: String = BuildSettings.current.secrets.oauth.client,
+         clientSecret: String = BuildSettings.current.secrets.oauth.secret
+    ) {
 
         self.init(segmentIdentifier: segmentIdentifier,
                   siteDesign: siteDesign,
@@ -39,10 +43,10 @@ extension SiteCreationRequest {
                   tagline: tagline,
                   siteURLString: siteURLString,
                   isPublic: true,
-                  languageIdentifier: WordPressComLanguageDatabase().deviceLanguageIdNumber().stringValue,
+                  languageIdentifier: WordPressComLanguageDatabase.shared.deviceLanguage.id,
                   shouldValidate: true,
-                  clientIdentifier: ApiCredentials.client,
-                  clientSecret: ApiCredentials.secret,
+                  clientIdentifier: clientIdentifier,
+                  clientSecret: clientSecret,
                   timezoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
                   siteCreationFlow: siteCreationFlow,
                   findAvailableURL: findAvailableURL

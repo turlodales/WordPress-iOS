@@ -1,4 +1,5 @@
 import UIKit
+import WordPressData
 import WordPressShared
 
 class DashboardStatsCardCell: UICollectionViewCell, Reusable {
@@ -61,7 +62,7 @@ class DashboardStatsCardCell: UICollectionViewCell, Reusable {
 
 extension DashboardStatsCardCell: BlogDashboardCardConfigurable {
     func configure(blog: Blog, viewController: BlogDashboardViewController?, apiResponse: BlogDashboardRemoteEntity?) {
-        guard let viewController = viewController, let apiResponse = apiResponse else {
+        guard let viewController, let apiResponse else {
             return
         }
 
@@ -114,8 +115,7 @@ extension DashboardStatsCardCell: BlogDashboardCardConfigurable {
         WPAnalytics.track(.dashboardCardItemTapped,
                           properties: ["type": DashboardCard.todaysStats.rawValue],
                           blog: blog)
-        StatsViewController.show(for: blog, from: sourceController)
-        WPAppAnalytics.track(.statsAccessed, withProperties: [WPAppAnalyticsKeyTabSource: "dashboard", WPAppAnalyticsKeyTapSource: "todays_stats_card"], with: blog)
+        RootViewCoordinator.sharedPresenter.showStats(for: blog, source: .todayStatsCard, tab: .traffic, unit: .day, date: nil)
     }
 
     private func showNudgeHint(for blog: Blog, from sourceController: UIViewController) {

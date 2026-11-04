@@ -1,14 +1,9 @@
+@import CocoaLumberjack;
+@import WordPressShared;
+@import WordPressSharedObjC;
+
 #import "WPLogger.h"
 #import "WordPress-Swift.h"
-
-@import CocoaLumberjack;
-
-DDLogLevel ddLogLevel = DDLogLevelInfo;
-
-void SetCocoaLumberjackObjCLogLevel(NSUInteger ddLogLevelRawValue)
-{
-    ddLogLevel = (DDLogLevel)ddLogLevelRawValue;
-}
 
 @interface WPLogger ()
 @property (nonatomic, strong, readwrite) DDFileLogger * _Nonnull fileLogger;
@@ -30,11 +25,11 @@ void SetCocoaLumberjackObjCLogLevel(NSUInteger ddLogLevelRawValue)
 - (instancetype)init
 {
     self = [super init];
-    
+
     if (self) {
         [self configureLogging];
     }
-    
+
     return self;
 }
 
@@ -47,14 +42,14 @@ void SetCocoaLumberjackObjCLogLevel(NSUInteger ddLogLevelRawValue)
     NSString *documentsDirectory = [paths objectAtIndex:0];
     NSString *filePath = [documentsDirectory stringByAppendingPathComponent:@"wordpress.log"];
     NSFileManager *fileManager = [NSFileManager defaultManager];
-    
+
     if ([fileManager fileExistsAtPath:filePath]) {
         [fileManager removeItemAtPath:filePath error:nil];
     }
-    
+
     // Sets up the CocoaLumberjack logging; debug output to console and file
 #ifdef DEBUG
-    [DDLog addLogger:[DDTTYLogger sharedInstance]];
+    [DDLog addLogger:[DDOSLogger sharedInstance]];
 #endif
     [DDLog addLogger:self.fileLogger];
 
@@ -73,39 +68,8 @@ void SetCocoaLumberjackObjCLogLevel(NSUInteger ddLogLevelRawValue)
 
         _fileLogger = fileLogger;
     }
-    
+
     return _fileLogger;
-}
-
-#pragma mark - Reading from the log
-
-// get the log content with a maximum byte size
-- (NSString *)getLogFilesContentWithMaxSize:(NSInteger)maxSize
-{
-    NSMutableString *description = [NSMutableString string];
-    
-    NSArray *sortedLogFileInfos = [[self.fileLogger logFileManager] sortedLogFileInfos];
-    NSInteger count = [sortedLogFileInfos count];
-    
-    // we start from the last one
-    for (NSInteger index = 0; index < count; index++) {
-        DDLogFileInfo *logFileInfo = [sortedLogFileInfos objectAtIndex:index];
-        
-        NSData *logData = [[NSFileManager defaultManager] contentsAtPath:[logFileInfo filePath]];
-        if ([logData length] > 0) {
-            NSString *result = [[NSString alloc] initWithBytes:[logData bytes]
-                                                        length:[logData length]
-                                                      encoding: NSUTF8StringEncoding];
-            
-            [description appendString:result];
-        }
-    }
-    
-    if ([description length] > maxSize) {
-        description = (NSMutableString *)[description substringWithRange:NSMakeRange(0, maxSize)];
-    }
-    
-    return description;
 }
 
 #pragma mark - Deleting
@@ -116,20 +80,8 @@ void SetCocoaLumberjackObjCLogLevel(NSUInteger ddLogLevelRawValue)
     for (DDLogFileInfo *logFileInfo in logFiles) {
         [[NSFileManager defaultManager] removeItemAtPath:logFileInfo.filePath error:nil];
     }
-    
-    DDLogWarn(@"All log files erased.");
-}
 
-- (void)deleteArchivedLogs
-{
-    NSArray *logFiles = self.fileLogger.logFileManager.sortedLogFileInfos;
-    for (DDLogFileInfo *logFileInfo in logFiles) {
-        if (logFileInfo.isArchived) {
-            [[NSFileManager defaultManager] removeItemAtPath:logFileInfo.filePath error:nil];
-        }
-    }
-    
-    DDLogWarn(@"All archived log files erased.");
+    WPLogWarning(@"All log files erased.");
 }
 
 #pragma mark - Public static methods

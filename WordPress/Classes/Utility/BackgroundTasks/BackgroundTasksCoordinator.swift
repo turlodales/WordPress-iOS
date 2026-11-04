@@ -42,7 +42,7 @@ protocol BackgroundTaskEventHandler {
     func handle(_ event: BackgroundTaskEvent)
 }
 
-/// The task coordinator.  This is the entry point for registering and scheduling background tasks.
+/// The task coordinator. This is the entry point for registering and scheduling background tasks.
 ///
 class BackgroundTasksCoordinator {
     enum SchedulingError: Error {
@@ -50,11 +50,11 @@ class BackgroundTasksCoordinator {
         case schedulingFailed(task: String, error: Error)
     }
 
-    /// Event handler.  Useful for logging or tracking purposes.
+    /// Event handler. Useful for logging or tracking purposes.
     ///
     private let eventHandler: BackgroundTaskEventHandler
 
-    /// The task scheduler.  It's a weak reference because the scheduler retains the coordinator through the
+    /// The task scheduler. It's a weak reference because the scheduler retains the coordinator through the
     ///
     private let scheduler: BGTaskScheduler
 
@@ -62,7 +62,7 @@ class BackgroundTasksCoordinator {
     ///
     private let registeredTasks: [BackgroundTask]
 
-    /// Default initializer.  Immediately registers the task handlers with the scheduler.
+    /// Default initializer. Immediately registers the task handlers with the scheduler.
     ///
     /// - Parameters:
     ///     - scheduler: The scheduler to use.
@@ -71,7 +71,8 @@ class BackgroundTasksCoordinator {
     init(
         scheduler: BGTaskScheduler = BGTaskScheduler.shared,
         tasks: [BackgroundTask],
-        eventHandler: BackgroundTaskEventHandler) {
+        eventHandler: BackgroundTaskEventHandler
+    ) {
 
         self.eventHandler = eventHandler
         self.scheduler = scheduler
@@ -84,9 +85,17 @@ class BackgroundTasksCoordinator {
             //
             // When the old identifier AppRefreshTask is triggered this will re-schedule using the new identifier going forward
             // at some point in future when this FeatureFlag is removed and most users are on new version of app this can be removed
-            scheduler.register(forTaskWithIdentifier: WeeklyRoundupBackgroundTask.Constants.taskIdentifier, using: nil) { osTask in
-                self.schedule(task) { [weak self] result in
-                    self?.taskScheduledCompleted(osTask, identifier: type(of: task).identifier, result: result, cancelled: false)
+            scheduler.register(
+                forTaskWithIdentifier: WeeklyRoundupBackgroundTask.Constants.taskIdentifier,
+                using: nil
+            ) { osTask in
+                self.schedule(task) { result in
+                    self.taskScheduledCompleted(
+                        osTask,
+                        identifier: type(of: task).identifier,
+                        result: result,
+                        cancelled: false
+                    )
                 }
             }
 
@@ -109,8 +118,13 @@ class BackgroundTasksCoordinator {
                 }) { cancelled in
                     eventHandler.handle(.taskCompleted(identifier: type(of: task).identifier, cancelled: cancelled))
 
-                    self.schedule(task) { [weak self] result in
-                        self?.taskScheduledCompleted(osTask, identifier: type(of: task).identifier, result: result, cancelled: cancelled)
+                    self.schedule(task) { result in
+                        self.taskScheduledCompleted(
+                            osTask,
+                            identifier: type(of: task).identifier,
+                            result: result,
+                            cancelled: cancelled
+                        )
                     }
                 }
             }
@@ -128,7 +142,7 @@ class BackgroundTasksCoordinator {
         osTask.setTaskCompleted(success: !cancelled)
     }
 
-    /// Schedules the registered tasks.  The reason this step is separated from the registration of the tasks, is that we need
+    /// Schedules the registered tasks. The reason this step is separated from the registration of the tasks, is that we need
     /// to make sure the task registration completes before the App finishes launching, while scheduling can be taken care
     /// of separately.
     ///
@@ -138,7 +152,7 @@ class BackgroundTasksCoordinator {
         var tasksAndErrors = [String: Error]()
 
         scheduler.getPendingTaskRequests { [weak self] scheduledRequests in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
@@ -185,7 +199,6 @@ class BackgroundTasksCoordinator {
         bgProcessingTaskRequest.earliestBeginDate = beginDate
         return bgProcessingTaskRequest
     }
-
 
     // MARK: - Querying Data
 

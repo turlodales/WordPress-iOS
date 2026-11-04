@@ -1,5 +1,6 @@
 import UIKit
 import WordPressKit
+import WordPressUI
 
 final class AddressTableViewCell: UITableViewCell {
 
@@ -82,6 +83,9 @@ final class AddressTableViewCell: UITableViewCell {
     }
 
     private func commonInit() {
+        registerForTraitChanges([UITraitLayoutDirection.self]) { (self: Self, _) in
+            self.updateTrailingLabelTextAlignment()
+        }
         self.accessibilityTraits = .button
         self.accessibilityHint = NSLocalizedString(
             "Selects this domain to use for your site.",
@@ -123,15 +127,6 @@ final class AddressTableViewCell: UITableViewCell {
             } else {
                 view.center = CGPoint(x: contentView.frame.width - Appearance.contentMargins.leading / 2, y: bounds.midY)
             }
-        }
-    }
-
-    // MARK: - React to Trait Collection Changes
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.layoutDirection != previousTraitCollection?.layoutDirection {
-            self.updateTrailingLabelTextAlignment()
         }
     }
 
@@ -248,22 +243,22 @@ final class AddressTableViewCell: UITableViewCell {
         static let contentMargins = NSDirectionalEdgeInsets(top: 16, leading: 40, bottom: 16, trailing: 16)
 
         static let domainFont = WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular)
-        static let domainTextColor = UIColor.text
+        static let domainTextColor = UIColor.label
 
         static let regularCostFont = WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular)
         static let semiboldCostFont = WPStyleGuide.fontForTextStyle(.body, fontWeight: .semibold)
         static let smallCostFont = WPStyleGuide.fontForTextStyle(.footnote, fontWeight: .regular)
-        static let saleCostTextColor = UIColor(light: .muriel(name: .jetpackGreen, .shade50), dark: .muriel(name: .jetpackGreen, .shade30))
+        static let saleCostTextColor = UIColor(light: UIAppColor.jetpackGreen(.shade50), dark: UIAppColor.jetpackGreen(.shade30))
 
         static let tagFont = WPStyleGuide.fontForTextStyle(.footnote, fontWeight: .regular)
         static let tagTextColor: (ViewModel.Tag?) -> UIColor = { tag in
             guard let tag else {
                 return .clear
             }
-            switch tag {
-            case .recommended: return UIColor(light: .muriel(name: .jetpackGreen, .shade50), dark: .muriel(name: .jetpackGreen, .shade30))
-            case .bestAlternative: return UIColor(light: .muriel(name: .purple, .shade50), dark: .muriel(name: .purple, .shade30))
-            case .sale: return UIColor(light: .muriel(name: .yellow, .shade50), dark: .muriel(name: .yellow, .shade30))
+            return switch tag {
+            case .recommended: UIColor(light: UIAppColor.jetpackGreen(.shade50), dark: UIAppColor.jetpackGreen(.shade30))
+            case .bestAlternative: UIColor(light: UIAppColor.purple(.shade50), dark: UIAppColor.purple(.shade30))
+            case .sale: UIColor(light: UIAppColor.yellow(.shade50), dark: UIAppColor.yellow(.shade30))
             }
         }
 
@@ -288,7 +283,7 @@ extension AddressTableViewCell {
     }
 
     private func styleCheckmark() {
-        tintColor = .primary(.shade40)
+        tintColor = UIAppColor.primary(.shade40)
     }
 
     override func prepareForReuse() {
@@ -310,6 +305,8 @@ extension AddressTableViewCell {
         }
 
         let completeDomainName = NSMutableAttributedString(string: name, attributes: TextStyleAttributes.defaults)
+        // Domain names are ASCII-only (internationalized domains use Punycode),
+        // so .count == .utf16.count here and this is safe.
         let rangeOfCustomName = NSRange(location: 0, length: customName.count)
         completeDomainName.setAttributes(TextStyleAttributes.customName, range: rangeOfCustomName)
 
@@ -322,8 +319,8 @@ extension AddressTableViewCell {
 
     private struct TextStyleAttributes {
         static let defaults: [NSAttributedString.Key: Any] = [.font: WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular),
-                                                              .foregroundColor: UIColor.textSubtle]
+                                                              .foregroundColor: UIColor.secondaryLabel]
         static let customName: [NSAttributedString.Key: Any] = [.font: WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular),
-                                                                .foregroundColor: UIColor.text]
+                                                                .foregroundColor: UIColor.label]
     }
 }

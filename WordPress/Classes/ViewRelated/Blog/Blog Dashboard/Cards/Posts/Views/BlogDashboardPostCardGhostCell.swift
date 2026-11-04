@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 class BlogDashboardPostCardGhostCell: UITableViewCell, NibReusable {
     @IBOutlet weak var titleLabel: UILabel!
@@ -8,6 +9,7 @@ class BlogDashboardPostCardGhostCell: UITableViewCell, NibReusable {
         super.awakeFromNib()
 
         WPStyleGuide.configureTableViewCell(self)
-        WPStyleGuide.applyPostCardStyle(self)
+
+        backgroundColor = .clear
     }
 }

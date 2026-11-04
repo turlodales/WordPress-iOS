@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 import WordPressKit
 
 /// Service allowing updating of homepage settings
@@ -11,7 +12,7 @@ struct HomepageSettingsService {
     fileprivate let siteID: Int
 
     init?(blog: Blog, coreDataStack: CoreDataStack) {
-        guard let api = blog.wordPressComRestApi(), let dotComID = blog.dotComID as? Int else {
+        guard let api = blog.wordPressComRestApi, let dotComID = blog.dotComID as? Int else {
             return nil
         }
 
@@ -42,14 +43,14 @@ struct HomepageSettingsService {
             switch type {
             case .page:
                 blog.homepageType = .page
-                if let postsPageID = postsPageID {
+                if let postsPageID {
                     blog.homepagePostsPageID = postsPageID
                     if postsPageID == originalHomePageID {
                         // Don't allow the same page to be set for both values
                         blog.homepagePageID = 0
                     }
                 }
-                if let homePageID = homePageID {
+                if let homePageID {
                     blog.homepagePageID = homePageID
                     if homePageID == originalPostsPageID {
                         // Don't allow the same page to be set for both values
@@ -80,7 +81,5 @@ struct HomepageSettingsService {
                 }
             )
         }, on: .main)
-
-
     }
 }

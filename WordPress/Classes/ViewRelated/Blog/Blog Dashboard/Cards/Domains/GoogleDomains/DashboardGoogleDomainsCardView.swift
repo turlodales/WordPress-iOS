@@ -1,5 +1,6 @@
 import SwiftUI
 import DesignSystem
+import WordPressShared
 
 struct DashboardGoogleDomainsCardView: View {
     private var buttonAction: () -> ()
@@ -9,19 +10,19 @@ struct DashboardGoogleDomainsCardView: View {
     }
 
     var body: some View {
-        VStack(spacing: Length.Padding.double) {
+        VStack(spacing: .DS.Padding.double) {
             titleHStack
             descriptionHStack
             transferDomainsButton
         }
-        .padding([.leading, .trailing, .bottom], Length.Padding.double)
+        .padding([.leading, .trailing, .bottom], .DS.Padding.double)
         .onAppear {
             WPAnalytics.track(.domainTransferShown)
         }
     }
 
     private var titleHStack: some View {
-        HStack(spacing: Length.Padding.double) {
+        HStack(spacing: .DS.Padding.double) {
             Image("wp-domains-icon")
             Text(Strings.contentTitle)
                 .font(.headline)
@@ -44,7 +45,7 @@ struct DashboardGoogleDomainsCardView: View {
                 buttonAction()
             } label: {
                 Text(Strings.buttonTitle)
-                    .foregroundColor(Color(UIColor.primary))
+                    .foregroundColor(Color(UIAppColor.primary))
                     .font(.callout)
             }
             Spacer()

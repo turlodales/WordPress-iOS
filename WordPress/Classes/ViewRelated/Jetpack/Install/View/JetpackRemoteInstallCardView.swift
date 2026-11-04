@@ -1,5 +1,6 @@
 import UIKit
 import Lottie
+import WordPressUI
 
 class JetpackRemoteInstallCardView: UIView {
 
@@ -7,14 +8,14 @@ class JetpackRemoteInstallCardView: UIView {
 
     private var viewModel: JetpackRemoteInstallCardViewModel
 
-    private lazy var animation: Animation? = {
+    private lazy var animation: LottieAnimation? = {
         effectiveUserInterfaceLayoutDirection == .leftToRight ?
-        Animation.named(Constants.lottieLTRFileName) :
-        Animation.named(Constants.lottieRTLFileName)
+        LottieAnimation.named(Constants.lottieLTRFileName) :
+        LottieAnimation.named(Constants.lottieRTLFileName)
     }()
 
-    private lazy var logosAnimationView: AnimationView = {
-        let view = AnimationView()
+    private lazy var logosAnimationView: LottieAnimationView = {
+        let view = LottieAnimationView()
         view.translatesAutoresizingMaskIntoConstraints = false
         view.animation = animation
         let animationSize = animation?.size ?? .init(width: 1, height: 1)
@@ -44,7 +45,7 @@ class JetpackRemoteInstallCardView: UIView {
     private lazy var learnMoreButton: UIButton = {
         let button = UIButton()
         button.setTitle(Strings.learnMore, for: .normal)
-        button.setTitleColor(.primary, for: .normal)
+        button.setTitleColor(UIAppColor.primary, for: .normal)
         button.titleLabel?.font = Constants.learnMoreFont
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.contentHorizontalAlignment = .leading
@@ -130,9 +131,7 @@ class JetpackRemoteInstallCardView: UIView {
         static let hideThis = NSLocalizedString("jetpackinstallcard.menu.hide",
                                                  value: "Hide this",
                                                  comment: "Title for a menu action in the context menu on the Jetpack install card.")
-
     }
-
 }
 
 // MARK: - JetpackRemoteInstallCardViewModel
@@ -176,5 +175,4 @@ struct JetpackRemoteInstallCardViewModel {
                                                        value: "This site is using individual Jetpack plugins, which don’t support all features of the app yet. Please install the full Jetpack plugin.",
                                                        comment: "Text displayed in the Jetpack install card on the Home screen and Menu screen when a user has multiple installed individual Jetpack plugins but not the full plugin.")
     }
-
 }

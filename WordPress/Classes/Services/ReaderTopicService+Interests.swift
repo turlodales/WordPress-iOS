@@ -1,5 +1,8 @@
 import Foundation
+import WordPressData
 import WordPressKit
+import WordPressShared
+import WordPressSharedUI
 
 // MARK: - ReaderInterestsService
 
@@ -15,13 +18,12 @@ extension ReaderTopicService: ReaderInterestsService {
                                failure: @escaping (Error) -> Void) {
         let service = ReaderTopicServiceRemote(wordPressComRestApi: apiRequest())
 
-        service.fetchInterests({ (interests) in
+        service.fetchInterests({ interests in
             success(interests)
-        }) { (error) in
+        }) { error in
             failure(error)
         }
     }
-
 
     /// Creates a new WP.com API instances that allows us to specify the LocaleKeyV2
     private func apiRequest() -> WordPressComRestApi {

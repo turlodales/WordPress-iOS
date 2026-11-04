@@ -1,4 +1,5 @@
 import UIKit
+import WordPressKit
 
 class SiteDesignPreviewViewController: TemplatePreviewViewController {
     private let createsSite: Bool
@@ -28,7 +29,10 @@ class SiteDesignPreviewViewController: TemplatePreviewViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        navigationItem.leftBarButtonItem = CollapsableHeaderViewController.closeButton(target: self, action: #selector(closeButtonTapped))
+        navigationItem.leftBarButtonItem = UIBarButtonItem.makeCloseButton(
+            target: self,
+            action: #selector(closeButtonTapped)
+        )
         setPrimaryActionButtonTitle()
     }
 

@@ -1,3 +1,5 @@
+import FormattableContentKit
+import Foundation
 
 class ActivityCommentRange: ActivityRange {
     let commentID: Int

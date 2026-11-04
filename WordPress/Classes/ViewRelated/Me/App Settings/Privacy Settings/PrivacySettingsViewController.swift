@@ -1,6 +1,9 @@
 import Gridicons
 import UIKit
 import AutomatticTracks
+import WordPressData
+import WordPressUI
+import WordPressKit
 
 class PrivacySettingsViewController: UITableViewController {
     fileprivate var handler: ImmuTableViewHandler!
@@ -38,7 +41,7 @@ class PrivacySettingsViewController: UITableViewController {
             PaddedInfoRow.self,
             SwitchRow.self,
             PaddedLinkRow.self
-            ], tableView: self.tableView)
+        ], tableView: self.tableView)
 
         handler = ImmuTableViewHandler(takeOver: self)
         reloadViewModel()
@@ -54,7 +57,7 @@ class PrivacySettingsViewController: UITableViewController {
     }
 
     @objc
-    private func accountSettingsDidChange(_ notification: Notification) {
+    private func accountSettingsDidChange(_ notification: Foundation.Notification) {
         reloadViewModel()
     }
 
@@ -125,7 +128,7 @@ class PrivacySettingsViewController: UITableViewController {
                 ccpaLink,
                 otherTracking,
                 otherTrackingLink
-                ]),
+            ]),
             ImmuTableSection(rows: [
                 reportCrashes,
                 reportCrashesInfoText
@@ -158,11 +161,12 @@ class PrivacySettingsViewController: UITableViewController {
     private func persistTrackingUpdateRemotely(_ enabled: Bool) {
         let result = ContextManager.shared.performQuery { context -> (NSNumber, WordPressComRestApi)? in
             guard let account = try? WPAccount.lookupDefaultWordPressComAccount(in: context),
+                  let userID = account.userID,
                   let wordPressComRestApi = account.wordPressComRestApi
             else {
                 return nil
             }
-            return (account.userID, wordPressComRestApi)
+            return (userID, wordPressComRestApi)
         }
 
         if let (accountID, wordPressComRestApi) = result {
@@ -214,7 +218,7 @@ private class InfoCell: WPTableViewCellDefault {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard var imageFrame = imageView?.frame,
-            let textLabel = textLabel,
+            let textLabel,
             let textLabelFont = textLabel.font,
             let text = textLabel.text else {
                 return
@@ -258,7 +262,7 @@ private struct PaddedInfoRow: ImmuTableRow {
     func configureCell(_ cell: UITableViewCell) {
         cell.textLabel?.text = title
         cell.textLabel?.numberOfLines = 10
-        cell.imageView?.image = UIImage(color: .clear, havingSize: Gridicon.defaultSize)
+        cell.imageView?.image = UIImage(color: .clear, size: Gridicon.defaultSize)
         cell.selectionStyle = .none
 
         WPStyleGuide.configureTableViewCell(cell)
@@ -273,9 +277,9 @@ private struct PaddedLinkRow: ImmuTableRow {
 
     func configureCell(_ cell: UITableViewCell) {
         cell.textLabel?.text = title
-        cell.imageView?.image = UIImage(color: .clear, havingSize: Gridicon.defaultSize)
+        cell.imageView?.image = UIImage(color: .clear, size: Gridicon.defaultSize)
 
         WPStyleGuide.configureTableViewActionCell(cell)
-        cell.textLabel?.textColor = .primary
+        cell.textLabel?.textColor = UIAppColor.primary
     }
 }

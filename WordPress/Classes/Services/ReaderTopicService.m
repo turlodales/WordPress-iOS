@@ -1,19 +1,27 @@
 #import "ReaderTopicService.h"
-
 #import "AccountService.h"
-#import "CoreDataStack.h"
-#import "ReaderPost.h"
 #import "ReaderPostService.h"
-#import "WPAccount.h"
-#import <WordPressShared/NSString+XMLExtensions.h>
 #import "WordPress-Swift.h"
+@import WordPressData;
 @import WordPressKit;
-
+@import WordPressKitModels;
+@import WordPressShared;
+@import WordPressSharedObjC;
+@import WordPressSharedUI;
 
 NSString * const ReaderTopicFreshlyPressedPathCommponent = @"freshly-pressed";
 static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTopicPathKey";
 
 @implementation ReaderTopicService
+
+- (instancetype)initWithCoreDataStack:(id<CoreDataStack>)coreDataStack
+{
+    self = [super init];
+    if (self) {
+        _coreDataStack = coreDataStack;
+    }
+    return self;
+}
 
 - (void)fetchReaderMenuWithSuccess:(void (^)(void))success failure:(void (^)(NSError *error))failure
 {
@@ -43,19 +51,6 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
     } completion:nil onQueue:dispatch_get_main_queue()];
 }
 
-- (void)fetchFollowedSitesWithSuccess:(void(^)(void))success failure:(void(^)(NSError *error))failure
-{
-    ReaderTopicServiceRemote *service = [[ReaderTopicServiceRemote alloc] initWithWordPressComRestApi:[self apiForRequest]];
-    [service fetchFollowedSitesWithSuccess:^(NSArray *sites) {
-        [WPAnalytics setSubscriptionCount: sites.count];
-        [self mergeFollowedSites:sites withSuccess:success];
-    } failure:^(NSError *error) {
-        if (failure) {
-            failure(error);
-        }
-    }];
-}
-
 - (ReaderAbstractTopic *)currentTopicInContext:(NSManagedObjectContext *)context
 {
     ReaderAbstractTopic *topic;
@@ -80,7 +75,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
         NSError *error;
         topic = [[context executeFetchRequest:request error:&error] firstObject];
         if (error) {
-            DDLogError(@"%@ error fetching topic: %@", NSStringFromSelector(_cmd), error);
+            WPLogError(@"%@ error fetching topic: %@", NSStringFromSelector(_cmd), error);
         }
     }
     return topic;
@@ -96,7 +91,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
     request.sortDescriptors = @[sortDescriptor];
     NSArray *topics = [context executeFetchRequest:request error:&error];
     if (error) {
-        DDLogError(@"%@ error fetching topic: %@", NSStringFromSelector(_cmd), error);
+        WPLogError(@"%@ error fetching topic: %@", NSStringFromSelector(_cmd), error);
         return nil;
     }
 
@@ -131,37 +126,12 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
         NSError *error;
         NSArray *results = [context executeFetchRequest:request error:&error];
         if (error) {
-            DDLogError(@"%@ error executing fetch request: %@", NSStringFromSelector(_cmd), error);
+            WPLogError(@"%@ error executing fetch request: %@", NSStringFromSelector(_cmd), error);
             return;
         }
 
         for (ReaderAbstractTopic *topic in results) {
-            DDLogInfo(@"Deleting topic: %@", topic.title);
-            [self preserveSavedPostsFromTopic:topic];
-            [context deleteObject:topic];
-        }
-    }];
-}
-
-- (void)deleteNonMenuTopics
-{
-    [self.coreDataStack performAndSaveUsingBlock:^(NSManagedObjectContext *context) {
-        NSFetchRequest *request = [NSFetchRequest fetchRequestWithEntityName:[ReaderAbstractTopic classNameWithoutNamespaces]];
-        request.predicate = [NSPredicate predicateWithFormat:@"showInMenu = false AND inUse = false"];
-
-        NSError *error;
-        NSArray *results = [context executeFetchRequest:request error:&error];
-        if (error) {
-            DDLogError(@"%@ error executing fetch request: %@", NSStringFromSelector(_cmd), error);
-            return;
-        }
-
-        for (ReaderAbstractTopic *topic in results) {
-            // Do not purge site topics that are followed. We want these to stay so they appear immediately when managing followed sites.
-            if ([topic isKindOfClass:[ReaderSiteTopic class]] && topic.following) {
-                continue;
-            }
-            DDLogInfo(@"Deleting topic: %@", topic.title);
+            WPLogInfo(@"Deleting topic: %@", topic.title);
             [self preserveSavedPostsFromTopic:topic];
             [context deleteObject:topic];
         }
@@ -176,7 +146,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
         request.predicate = [NSPredicate predicateWithFormat:@"inUse = true"];
         NSArray *results = [context executeFetchRequest:request error:&error];
         if (error) {
-            DDLogError(@"%@, marking topic not in use.: %@", NSStringFromSelector(_cmd), error);
+            WPLogError(@"%@, marking topic not in use.: %@", NSStringFromSelector(_cmd), error);
             return;
         }
 
@@ -192,7 +162,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
         [self setCurrentTopic:nil];
         NSArray *currentTopics = [ReaderAbstractTopic lookupAllInContext:context error:nil];
         for (ReaderAbstractTopic *topic in currentTopics) {
-            DDLogInfo(@"Deleting topic: %@", topic.title);
+            WPLogInfo(@"Deleting topic: %@", topic.title);
             [self preserveSavedPostsFromTopic:topic];
             [context deleteObject:topic];
         }
@@ -225,7 +195,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
     // Now it's safe to update `post.topic`.
     [posts enumerateObjectsUsingBlock:^(ReaderPost * _Nonnull post, NSUInteger __unused idx, BOOL * _Nonnull __unused stop) {
         if (post.isSavedForLater) {
-            DDLogInfo(@"Preserving saved post: %@", post.titleForDisplay);
+            WPLogInfo(@"Preserving saved post: %@", post.titleForDisplay);
             post.topic = nil;
         }
     }];
@@ -256,10 +226,6 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
         [context obtainPermanentIDsForObjects:@[topic] error:nil];
         topicObjectID = topic.objectID;
     } completion:^{
-        // Save / update the search phrase to use it as a suggestion later.
-        ReaderSearchSuggestionService *suggestionService = [[ReaderSearchSuggestionService alloc] initWithCoreDataStack:self.coreDataStack];
-        [suggestionService createOrUpdateSuggestionForPhrase:phrase];
-
         if (completion) {
             completion(topicObjectID);
         }
@@ -270,11 +236,8 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
 {
     // Optimistically unfollow the topic
     [self.coreDataStack performAndSaveUsingBlock:^(NSManagedObjectContext *context) {
-        ReaderTagTopic *topicInContext = [context existingObjectWithID:topic.objectID error:nil];
-        topicInContext.following = NO;
-        if (!topicInContext.isRecommended) {
-            topicInContext.showInMenu = NO;
-        }
+        ReaderTagTopic *tagTopicInContext = [context existingObjectWithID:topic.objectID error:nil];
+        [tagTopicInContext toggleFollowing:NO];
     }];
 
     ReaderTopicServiceRemote *remoteService = [[ReaderTopicServiceRemote alloc] initWithWordPressComRestApi:[self apiForRequest]];
@@ -306,7 +269,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
         successBlock();
     } failure:^(NSError *error) {
         if (failure) {
-            DDLogError(@"%@ error unfollowing topic: %@", NSStringFromSelector(_cmd), error);
+            WPLogError(@"%@ error unfollowing topic: %@", NSStringFromSelector(_cmd), error);
             failure(error);
         }
     }];
@@ -326,11 +289,18 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
             [WPAnalytics trackReaderStat:WPAnalyticsStatReaderTagFollowed properties:properties];
             [self.coreDataStack performAndSaveUsingBlock:^(NSManagedObjectContext *context) {
                 [self selectTopicWithID:topicID inContext:context];
+
+                // mark tag topic as followed
+                ReaderTagTopic *tag = [ReaderTagTopic lookupWithTagID:topicID inContext:context];
+                if (tag) {
+                    [tag toggleFollowing:YES];
+                }
+
             } completion:success onQueue:dispatch_get_main_queue()];
         } failure:failure];
     } failure:^(NSError *error) {
         if (failure) {
-            DDLogError(@"%@ error following topic by name: %@", NSStringFromSelector(_cmd), error);
+            WPLogError(@"%@ error following topic by name: %@", NSStringFromSelector(_cmd), error);
             failure(error);
         }
     }];
@@ -356,7 +326,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
         successBlock();
     } failure:^(NSError *error) {
         if (failure) {
-            DDLogError(@"%@ error following topic by name: %@", NSStringFromSelector(_cmd), error);
+            WPLogError(@"%@ error following topic by name: %@", NSStringFromSelector(_cmd), error);
             failure(error);
         }
     }];
@@ -370,7 +340,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
     NSError *error;
     ReaderTagTopic *topic = (ReaderTagTopic *)[self.coreDataStack.mainContext existingObjectWithID:tagTopic.objectID error:&error];
     if (error) {
-        DDLogError(error.localizedDescription);
+        WPLogError(@"%@", error.localizedDescription);
         if (failure) {
             failure(error);
         }
@@ -384,10 +354,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
     // Optimistically update and save
     [self.coreDataStack performAndSaveUsingBlock:^(NSManagedObjectContext * __unused context) {
         ReaderTagTopic *topicInContext = (ReaderTagTopic *)[self.coreDataStack.mainContext existingObjectWithID:tagTopic.objectID error:nil];
-        topicInContext.following = !oldFollowingValue;
-        if (topicInContext.following) {
-            topicInContext.showInMenu = YES;
-        }
+        [topicInContext toggleFollowing:!oldFollowingValue];
     }];
 
     // Define failure block
@@ -440,7 +407,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
             success(topicObjectID);
         } onQueue:dispatch_get_main_queue()];
     } failure:^(NSError *error) {
-        DDLogError(@"%@ error fetching site info for site with ID %@: %@", NSStringFromSelector(_cmd), slug, error);
+        WPLogError(@"%@ error fetching site info for site with ID %@: %@", NSStringFromSelector(_cmd), slug, error);
         if (failure) {
             failure(error);
         }
@@ -456,7 +423,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
     NSError *error;
     ReaderSiteTopic *topic = (ReaderSiteTopic *)[self.coreDataStack.mainContext existingObjectWithID:siteTopic.objectID error:&error];
     if (error) {
-        DDLogError(error.localizedDescription);
+        WPLogError(@"%@", error.localizedDescription);
         if (failure) {
             failure(true, error);
         }
@@ -534,7 +501,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
             // results in an HTTP 403 on the v1.1 endpoint.  If this happens try
             // unfollowing via the less reliable URL method.
             [siteService unfollowSiteWithID:[topic.siteID integerValue] success:successBlock failure:^(NSError *error) {
-                if (error.code == WordPressComRestApiErrorAuthorizationRequired) {
+                if (error.code == WordPressComRestApiErrorCodeAuthorizationRequired) {
                     [siteService unfollowSiteAtURL:topic.siteURL success:successBlock failure:failureBlock];
                     return;
                 }
@@ -555,23 +522,6 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
                        success:(void (^)(NSManagedObjectID *objectID, BOOL isFollowing))success
                        failure:(void (^)(NSError *error))failure
 {
-    ReaderSiteTopic * __block siteTopic = nil;
-
-    [self.coreDataStack.mainContext performBlockAndWait:^{
-        if (isFeed) {
-            siteTopic = [ReaderSiteTopic lookupWithFeedID:siteID inContext:self.coreDataStack.mainContext];
-        } else {
-            siteTopic = [ReaderSiteTopic lookupWithSiteID:siteID inContext:self.coreDataStack.mainContext];
-        }
-    }];
-
-    if (siteTopic) {
-        if (success) {
-            success(siteTopic.objectID, siteTopic.following);
-        }
-        return;
-    }
-
     ReaderTopicServiceRemote *remoteService = [[ReaderTopicServiceRemote alloc] initWithWordPressComRestApi:[self apiForRequest]];
     [remoteService fetchSiteInfoForSiteWithID:siteID isFeed:isFeed success:^(RemoteReaderSiteInfo *siteInfo) {
         if (!success) {
@@ -580,6 +530,7 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
 
         NSManagedObjectID * __block topicObjectID = nil;
         [self.coreDataStack performAndSaveUsingBlock:^(NSManagedObjectContext *context) {
+            // always upsert new data to existing site topic.
             ReaderSiteTopic *topic = [self siteTopicForRemoteSiteInfo:siteInfo inContext:context];
             [context obtainPermanentIDsForObjects:@[topic] error:nil];
             topicObjectID = topic.objectID;
@@ -587,8 +538,18 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
             success(topicObjectID, siteInfo.isFollowing);
         } onQueue:dispatch_get_main_queue()];
     } failure:^(NSError *error) {
-        DDLogError(@"%@ error fetching site info for site with ID %@: %@", NSStringFromSelector(_cmd), siteID, error);
-        if (failure) {
+        WPLogError(@"%@ error fetching site info for site with ID %@: %@", NSStringFromSelector(_cmd), siteID, error);
+        ReaderSiteTopic * __block siteTopic = nil;
+        [self.coreDataStack.mainContext performBlockAndWait:^{
+            if (isFeed) {
+                siteTopic = [ReaderSiteTopic lookupWithFeedID:siteID inContext:self.coreDataStack.mainContext];
+            } else {
+                siteTopic = [ReaderSiteTopic lookupWithSiteID:siteID inContext:self.coreDataStack.mainContext];
+            }
+        }];
+        if (siteTopic && success) {
+            success(siteTopic.objectID, siteTopic.following);
+        } else if (failure) {
             failure(error);
         }
     }];
@@ -757,7 +718,6 @@ static NSString * const ReaderTopicCurrentTopicPathKey = @"ReaderTopicCurrentTop
     topic.organizationID = [siteInfo.organizationID integerValue];
     topic.path = siteInfo.postsEndpoint;
     topic.postCount = siteInfo.postCount;
-    topic.showInMenu = NO;
     topic.siteBlavatar = siteInfo.siteBlavatar;
     topic.siteDescription = siteInfo.siteDescription;
     topic.siteID = siteInfo.siteID;
@@ -877,7 +837,7 @@ array are marked as being unfollowed in Core Data.
             if (newTopic != nil) {
                 [topicsToKeep addObject:newTopic];
             } else {
-                DDLogInfo(@"%@ returned a nil topic: %@", NSStringFromSelector(_cmd), remoteTopic);
+                WPLogInfo(@"%@ returned a nil topic: %@", NSStringFromSelector(_cmd), remoteTopic);
             }
         }
 
@@ -890,13 +850,13 @@ array are marked as being unfollowed in Core Data.
                     }
                     if (topic.inUse) {
                         if (!ReaderHelpers.isLoggedIn && [topic isKindOfClass:ReaderTagTopic.class]) {
-                            DDLogInfo(@"Not unfollowing a locally saved topic: %@", topic.title);
+                            WPLogInfo(@"Not unfollowing a locally saved topic: %@", topic.title);
                             continue;
                         }
 
                         // If the topic is in use just set showInMenu to false
                         // and let it be cleaned up like any other non-menu topic.
-                        DDLogInfo(@"Removing topic from menu: %@", topic.title);
+                        WPLogInfo(@"Removing topic from menu: %@", topic.title);
                         topic.showInMenu = NO;
                         // Followed topics are always in the menu, so if we're
                         // removing the topic, if it was once followed its not now.
@@ -907,16 +867,16 @@ array are marked as being unfollowed in Core Data.
                         ReaderTagTopic *tagTopic = (ReaderTagTopic *)topic;
 
                         if (!isLoggedIn && [topic isKindOfClass:ReaderTagTopic.class]) {
-                            DDLogInfo(@"Not deleting a locally saved topic: %@", topic.title);
+                            WPLogInfo(@"Not deleting a locally saved topic: %@", topic.title);
                             continue;
                         }
 
                         if ([topic isKindOfClass:ReaderTagTopic.class] && tagTopic.cards.count > 0) {
-                            DDLogInfo(@"Not deleting a topic related to a card: %@", topic.title);
+                            WPLogInfo(@"Not deleting a topic related to a card: %@", topic.title);
                             continue;
                         }
 
-                        DDLogInfo(@"Deleting topic: %@", topic.title);
+                        WPLogInfo(@"Deleting topic: %@", topic.title);
                         [self preserveSavedPostsFromTopic:topic];
                         [context deleteObject:topic];
                     }

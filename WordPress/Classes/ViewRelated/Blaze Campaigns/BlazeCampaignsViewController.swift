@@ -1,6 +1,8 @@
 import UIKit
+import WordPressData
 import WordPressKit
 import WordPressFlux
+import WordPressUI
 import DesignSystem
 
 final class BlazeCampaignsViewController: UIViewController, NoResultsViewHost, BlazeCampaignsStreamDelegate {
@@ -43,10 +45,6 @@ final class BlazeCampaignsViewController: UIViewController, NoResultsViewHost, B
         self.blog = blog
         self.stream = BlazeCampaignsStream(blog: blog)
         super.init(nibName: nil, bundle: nil)
-    }
-
-    @objc class func makeWithSource(_ source: BlazeSource, blog: Blog) -> BlazeCampaignsViewController {
-        BlazeCampaignsViewController(source: source, blog: blog)
     }
 
     required init?(coder: NSCoder) {
@@ -170,7 +168,7 @@ final class BlazeCampaignsViewController: UIViewController, NoResultsViewHost, B
     // MARK: - Private
 
     private func setupView() {
-        view.backgroundColor = .DS.Background.primary
+        view.backgroundColor = .systemGroupedBackground
         view.addSubview(tableView)
         view.pinSubviewToAllEdges(tableView)
     }

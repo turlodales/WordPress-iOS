@@ -1,3 +1,5 @@
+import WordPressData
+
 // Controller in charge to retrieve the current browser state,
 // used by the RevisionDiffsBrowserViewController
 //
@@ -6,9 +8,8 @@ class RevisionBrowserState {
 
     let revisions: [Revision]
 
-    private (set) var currentIndex: Int
-    private (set) var onRevisionSelected: RevisionSelectedBlock
-
+    private(set) var currentIndex: Int
+    private(set) var onRevisionSelected: RevisionSelectedBlock
 
     init(revisions: [Revision], currentIndex: Int, onRevisionSelected: @escaping RevisionSelectedBlock) {
         self.revisions = revisions

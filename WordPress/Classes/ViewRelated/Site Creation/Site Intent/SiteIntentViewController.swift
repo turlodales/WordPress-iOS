@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 class SiteIntentViewController: CollapsableHeaderViewController {
     private let selection: SiteIntentStep.SiteIntentSelection
@@ -14,7 +15,9 @@ class SiteIntentViewController: CollapsableHeaderViewController {
         let searchBar = UISearchBar()
         searchBar.translatesAutoresizingMaskIntoConstraints = false
         WPStyleGuide.configureSearchBar(searchBar, backgroundColor: .clear, returnKeyType: .search)
-        searchBar.setImage(UIImage(), for: .search, state: .normal)
+        if #unavailable(iOS 26) {
+            searchBar.setImage(UIImage(), for: .search, state: .normal)
+        }
         return searchBar
     }()
 
@@ -24,7 +27,7 @@ class SiteIntentViewController: CollapsableHeaderViewController {
 
     override var alwaysResetHeaderOnRotation: Bool {
         // the default behavior works on iPad, so let's not override it
-        WPDeviceIdentification.isiPhone()
+        traitCollection.userInterfaceIdiom == .phone
     }
 
     init(_ selection: @escaping SiteIntentStep.SiteIntentSelection) {
@@ -77,26 +80,19 @@ class SiteIntentViewController: CollapsableHeaderViewController {
         // Title
         navigationItem.backButtonTitle = Strings.backButtonTitle
         // Skip button
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: Strings.skipButtonTitle,
-                                                            style: .done,
-                                                            target: self,
-                                                            action: #selector(skipButtonTapped))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: Strings.skipButtonTitle, style: .plain, target: self, action: #selector(skipButtonTapped))
         // Cancel button
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: Strings.cancelButtonTitle,
-                                                           style: .done,
-                                                           target: self,
-                                                           action: #selector(closeButtonTapped))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(closeButtonTapped))
         navigationItem.leftBarButtonItem?.accessibilityIdentifier = "site-intent-cancel-button"
     }
 
     private func configureTable() {
         let cellName = IntentCell.cellReuseIdentifier()
-        let nib = UINib(nibName: cellName, bundle: nil)
-        tableView.register(nib, forCellReuseIdentifier: cellName)
+        tableView.register(IntentCell.defaultNib, forCellReuseIdentifier: cellName)
         tableView.register(InlineErrorRetryTableViewCell.self, forCellReuseIdentifier: InlineErrorRetryTableViewCell.cellReuseIdentifier())
         tableView.cellLayoutMarginsFollowReadableWidth = true
-        tableView.backgroundColor = .basicBackground
-        tableView.accessibilityIdentifier  = "Site Intent Table"
+        tableView.backgroundColor = .systemBackground
+        tableView.accessibilityIdentifier = "Site Intent Table"
     }
 
     // MARK: Actions
@@ -110,6 +106,8 @@ class SiteIntentViewController: CollapsableHeaderViewController {
     @objc
     private func closeButtonTapped(_ sender: Any) {
         SiteCreationAnalyticsHelper.trackSiteIntentCanceled()
+        RootViewCoordinator.shared.isSiteCreationActive = false
+        RootViewCoordinator.shared.reloadUIIfNeeded(blog: nil)
         dismiss(animated: true)
     }
 }
@@ -130,8 +128,6 @@ extension SiteIntentViewController {
                                                        comment: "Shortened version of the main title to be used in back navigation")
         static let skipButtonTitle = NSLocalizedString("Skip",
                                                        comment: "Continue without making a selection")
-        static let cancelButtonTitle = NSLocalizedString("Cancel",
-                                                         comment: "Cancel site creation")
         static let searchTextFieldPlaceholder = NSLocalizedString("E.g. Fashion, Poetry, Politics", comment: "Placeholder text for the search field int the Site Intent screen.")
         static let continueButtonTitle = NSLocalizedString("Continue", comment: "Title of the continue button for the Site Intent screen.")
     }
@@ -194,5 +190,46 @@ extension SiteIntentViewController: UISearchBarDelegate {
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         availableVerticals = SiteIntentData.filterVerticals(with: searchText)
         tableView.reloadData()
+    }
+}
+
+private extension UIScrollView {
+
+    // Scroll to a specific view in a vertical scrollview so that it's top is at the top our scrollview
+    func scrollVerticallyToView(_ view: UIView, animated: Bool) {
+        if let origin = view.superview {
+
+            // Get the Y position of your child view
+            let childStartPoint = origin.convert(view.frame.origin, to: self)
+
+            // Scroll to a rectangle starting at the Y of your subview, with a height of the scrollview safe area
+            // if the bottom of the rectangle is within the content size height.
+            //
+            // Otherwise, scroll all the way to the bottom.
+            //
+            if childStartPoint.y + safeAreaLayoutGuide.layoutFrame.height < contentSize.height {
+                let targetRect = CGRect(x: 0,
+                                        y: childStartPoint.y - Constants.targetRectPadding,
+                                        width: Constants.targetRectDimension,
+                                        height: safeAreaLayoutGuide.layoutFrame.height)
+                scrollRectToVisible(targetRect, animated: animated)
+
+                // This ensures scrolling to the correct position, especially when there are layout changes
+                //
+                // See: https://stackoverflow.com/a/35437399
+                //
+                layoutIfNeeded()
+            } else {
+                scrollToBottom(animated: true)
+            }
+        }
+    }
+
+    enum Constants {
+        /// An arbitrary placeholder value for the target rect -- must be some value larger than 0
+        static let targetRectDimension: CGFloat = 1
+
+        /// Padding for the target rect
+        static let targetRectPadding: CGFloat = 20
     }
 }

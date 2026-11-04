@@ -1,7 +1,22 @@
 import Foundation
+import WordPressData
 import WordPressKit
 
 extension ReaderPostService {
+
+    // MARK: – WP.com URL resolution
+
+    /// Ask the server for details about a Reader Post.
+    ///
+    /// It's impossible to resolve a post URL into anything that the API can understand client-side. So we can ask the server to do it for us.
+    func resolvePostUrl(
+        _ url: URL,
+        success: @escaping (ResolvedReaderPost) -> Void,
+        failure: @escaping(Error) -> Void
+    ) {
+        let remoteService = ReaderPostServiceRemote(wordPressComRestApi: apiForRequest())
+        remoteService.resolveUrl(url, success: success, failure: failure)
+    }
 
     // MARK: - Fetch Unblocked Posts
 
@@ -34,7 +49,7 @@ extension ReaderPostService {
             }
             return (
                 date == Date() ? nil : topic.algorithm,
-                URL(string: topic.path),
+                self.getEndpoint(for: topic),
                 self.numberToSync(for: topic)
             )
         }) else {
@@ -61,6 +76,14 @@ extension ReaderPostService {
         } failure: { error in
             failure?(error)
         }
+    }
+
+    private func getEndpoint(for topic: ReaderAbstractTopic) -> URL? {
+        guard let topic = topic as? ReaderSiteTopic, topic.feedID.intValue > 0 else {
+            return URL(string: topic.path)
+        }
+        let path = "read/feed/\(topic.feedID)/posts"
+        return URL(string: WordPressComRESTAPIVersionedPathBuilder.path(forEndpoint: path, withVersion: ._1_2))
     }
 
     private func processFetchedPostsForTopic(
@@ -145,10 +168,10 @@ extension ReaderPostService {
             return
         }
         let shouldContinueRetrying = filteredPosts.isEmpty && retry < maxRetries
-        if shouldContinueRetrying {
+        if shouldContinueRetrying, let sortDate = lastPost.sortDate {
             self.fetchUnblockedPostsWithRetries(
                 topicObjectID: topicObjectID,
-                earlierThan: lastPost.sortDate,
+                earlierThan: sortDate,
                 retryOption: .enabled(retry: retry + 1, maxRetries: maxRetries)
             )
         }

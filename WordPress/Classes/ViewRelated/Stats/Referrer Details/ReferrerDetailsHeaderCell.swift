@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 final class ReferrerDetailsHeaderCell: UITableViewCell {
     private let referrerLabel = UILabel()
@@ -28,7 +29,6 @@ private extension ReferrerDetailsHeaderCell {
     func setupViews() {
         isUserInteractionEnabled = false
         separatorInset = .zero
-        backgroundColor = Style.cellBackgroundColor
         setupReferrerLabel()
         setupViewsLabel()
     }

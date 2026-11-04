@@ -1,3 +1,5 @@
+import Foundation
+import FormattableContentKit
 
 class ActivityPostRange: ActivityRange {
     let postID: Int

@@ -1,5 +1,6 @@
 import UIKit
 import WordPressShared
+import WordPressUI
 
 /// Defines the methods implemented by the LanguageSelectorViewController delegate
 ///
@@ -9,7 +10,6 @@ protocol LanguageSelectorDelegate: AnyObject {
     ///
     func languageSelector(_ selector: LanguageSelectorViewController, didSelect languageId: Int)
 }
-
 
 /// Displays a searchable list of languages supported by WordPress.com, letting the user select one.
 ///
@@ -25,7 +25,7 @@ class LanguageSelectorViewController: UITableViewController, UISearchResultsUpda
     ///
     init(selected languageId: Int?) {
         self.selectedLanguage = languageId.flatMap(database.find(id:))
-        super.init(style: .grouped)
+        super.init(style: .plain)
         searchController.searchResultsUpdater = self
     }
 
@@ -37,11 +37,10 @@ class LanguageSelectorViewController: UITableViewController, UISearchResultsUpda
 
     override func viewDidLoad() {
         super.viewDidLoad()
+
         ImmuTable.registerRows([LanguageSelectorRow.self], tableView: tableView)
-        WPStyleGuide.configureColors(view: view, tableView: tableView)
-        WPStyleGuide.configureAutomaticHeightRows(for: tableView)
-        WPStyleGuide.configureSearchBar(searchController.searchBar)
-        tableView.tableHeaderView = searchController.searchBar
+        navigationItem.searchController = searchController
+        navigationItem.hidesSearchBarWhenScrolling = false
         updateViewModel()
     }
 
@@ -72,8 +71,8 @@ class LanguageSelectorViewController: UITableViewController, UISearchResultsUpda
 
     private func modelForSearch(query: String?) -> ImmuTable {
         let filtered: [Language]
-        if let query = query {
-            filtered = database.all.filter({ (language) -> Bool in
+        if let query {
+            filtered = database.all.filter({ language -> Bool in
                 return language.name.localizedCaseInsensitiveContains(query)
                     || language.description.localizedCaseInsensitiveContains(query)
             })
@@ -82,7 +81,7 @@ class LanguageSelectorViewController: UITableViewController, UISearchResultsUpda
         }
         return ImmuTable(sections: [
             ImmuTableSection(rows: filtered.map(model(language:)))
-            ])
+        ])
     }
 
     private func modelForBrowsing() -> ImmuTable {
@@ -93,7 +92,7 @@ class LanguageSelectorViewController: UITableViewController, UISearchResultsUpda
             ImmuTableSection(
                 headerText: NSLocalizedString("All languages", comment: "Section title for All Languages"),
                 rows: database.all.map(model(language:)))
-            ])
+        ])
     }
 
     private func model(language: Language) -> ImmuTableRow {
@@ -103,7 +102,7 @@ class LanguageSelectorViewController: UITableViewController, UISearchResultsUpda
     }
 
     private func action(language: Language) -> ImmuTableAction {
-        return { [weak self] row in
+        return { [weak self] _ in
             guard let strongSelf = self else {
                 return
             }
@@ -112,9 +111,13 @@ class LanguageSelectorViewController: UITableViewController, UISearchResultsUpda
         }
     }
 
+    override func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+        0 // Hide ghost footer added by ImmuTableViewHandler
+    }
+
     // MARK: - Private properties
 
-    fileprivate typealias Language = WordPressComLanguageDatabase.Language
+    fileprivate typealias Language = WPComLanguage
 
     private let selectedLanguage: Language?
 
@@ -124,8 +127,7 @@ class LanguageSelectorViewController: UITableViewController, UISearchResultsUpda
         return controller
     }()
 
-    private let database = WordPressComLanguageDatabase()
-
+    private let database = WordPressComLanguageDatabase.shared
 }
 
 private struct LanguageSelectorRow: ImmuTableRow {

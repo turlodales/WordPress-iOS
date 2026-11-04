@@ -21,19 +21,19 @@ class JetpackRestoreHeaderView: UIView, NibReusable {
     // MARK: - Styling
 
     private func applyStyles() {
-        icon.tintColor = .success
+        icon.tintColor = UIAppColor.success
 
         titleLabel.font = WPStyleGuide.fontForTextStyle(.title3, fontWeight: .semibold)
-        titleLabel.textColor = .text
+        titleLabel.textColor = .label
 
         descriptionLabel.font = WPStyleGuide.fontForTextStyle(.body)
-        descriptionLabel.textColor = .textSubtle
+        descriptionLabel.textColor = .secondaryLabel
         descriptionLabel.numberOfLines = 0
         descriptionLabel.preferredMaxLayoutWidth = descriptionLabel.bounds.width
 
         actionButton.isPrimary = true
 
-        warningButton.setTitleColor(.text, for: .normal)
+        warningButton.setTitleColor(.label, for: .normal)
         warningButton.titleLabel?.lineBreakMode = .byWordWrapping
         warningButton.titleLabel?.numberOfLines = 0
     }
@@ -50,8 +50,8 @@ class JetpackRestoreHeaderView: UIView, NibReusable {
         descriptionLabel.text = description
         actionButton.setTitle(buttonTitle, for: .normal)
 
-        if let warningButtonTitle = warningButtonTitle {
-            let attributedTitle = WPStyleGuide.Jetpack.highlightString(warningButtonTitle.substring,
+        if let warningButtonTitle {
+            let attributedTitle = StringHighlighter.highlightString(warningButtonTitle.substring,
                                                                        inString: warningButtonTitle.string)
             warningButton.setAttributedTitle(attributedTitle, for: .normal)
 

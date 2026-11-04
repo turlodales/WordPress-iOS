@@ -1,6 +1,7 @@
 import UIKit
 import MobileCoreServices
 import UniformTypeIdentifiers
+import AsyncImageKit
 
 @objc
 public extension NSAttributedString {
@@ -20,8 +21,8 @@ public extension NSAttributedString {
 
         // Proceed embedding!
         let unwrappedEmbeds = embeds!
-        let theString       = self.mutableCopy() as! NSMutableAttributedString
-        var rangeDelta      = 0
+        let theString = self.mutableCopy() as! NSMutableAttributedString
+        var rangeDelta = 0
 
         for (value, image) in unwrappedEmbeds {
             let imageAttachment = NSTextAttachment()
@@ -32,32 +33,29 @@ public extension NSAttributedString {
             if
                 displayAnimatedGifs,
                 let animatedImage = image as? AnimatedImage,
-                animatedImage.gifData != nil
-            {
+                animatedImage.gifData != nil {
                 imageAttachment.contents = animatedImage.gifData
                 imageAttachment.fileType = gifType
-                imageAttachment.bounds   = CGRect(origin: CGPoint.zero, size: animatedImage.targetSize ?? image.size)
+                imageAttachment.bounds = CGRect(origin: CGPoint.zero, size: animatedImage.targetSize ?? image.size)
             } else {
-                imageAttachment.image  = image
+                imageAttachment.image = image
                 imageAttachment.bounds = CGRect(origin: CGPoint.zero, size: image.size)
             }
 
             // Each embed is expected to add 1 char to the string. Compensate for that
-            let attachmentString    = NSAttributedString(attachment: imageAttachment)
-            var correctedRange      = value.rangeValue
+            let attachmentString = NSAttributedString(attachment: imageAttachment)
+            var correctedRange = value.rangeValue
             correctedRange.location += rangeDelta
 
             // Bounds Safety
-            let lastPosition        = correctedRange.location + correctedRange.length
+            let lastPosition = correctedRange.location + correctedRange.length
             if lastPosition <= theString.length {
                 theString.replaceCharacters(in: correctedRange, with: attachmentString)
             }
 
             rangeDelta += attachmentString.length
-
         }
 
         return theString
     }
-
 }

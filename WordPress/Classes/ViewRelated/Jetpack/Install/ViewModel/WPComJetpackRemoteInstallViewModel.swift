@@ -1,4 +1,5 @@
-import WordPressAuthenticator
+import WordPressData
+import WordPressKit
 
 /// Controls the Jetpack Remote Install flow for Jetpack-connected self-hosted sites.
 ///
@@ -21,7 +22,7 @@ class WPComJetpackRemoteInstallViewModel {
     // The flow should always complete after the plugin is installed.
     let shouldConnectToJetpack = false
 
-    let supportSourceTag: WordPressSupportSourceTag? = .jetpackFullPluginInstallErrorSourceTag
+    let supportSourceTag: SupportSourceTag? = .jetpackFullPluginInstallErrorSourceTag
 
     var onChangeState: ((JetpackRemoteInstallState, JetpackRemoteInstallStateViewModel) -> Void)? = nil
 
@@ -137,8 +138,8 @@ private extension WPComJetpackRemoteInstallViewModel {
     }
 }
 
-extension WordPressSupportSourceTag {
-    static var jetpackFullPluginInstallErrorSourceTag: WordPressSupportSourceTag {
+extension SupportSourceTag {
+    static var jetpackFullPluginInstallErrorSourceTag: SupportSourceTag {
         .init(name: "jetpackInstallFullPluginError", origin: "origin:jp-install-full-plugin-error")
     }
 }

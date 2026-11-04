@@ -1,5 +1,9 @@
 import UIKit
-import WordPressAuthenticator
+import SwiftUI
+import WordPressShared
+import WordPressUI
+import Support
+import PulseUI
 
 class SupportTableViewController: UITableViewController {
 
@@ -8,7 +12,7 @@ class SupportTableViewController: UITableViewController {
     /// Configures the appearance of the support screen.
     let configuration: Configuration
 
-    var sourceTag: WordPressSupportSourceTag?
+    var sourceTag: SupportSourceTag?
 
     // If set, the Zendesk views will be shown from this view instead of in the navigation controller.
     // Specifically for Me > Help & Support on the iPad.
@@ -28,7 +32,7 @@ class SupportTableViewController: UITableViewController {
 
     // MARK: - Init
 
-    init(configuration: Configuration = .init(), style: UITableView.Style = .grouped) {
+    init(configuration: Configuration = .init(), style: UITableView.Style = .insetGrouped) {
         self.configuration = configuration
         super.init(style: style)
     }
@@ -38,18 +42,15 @@ class SupportTableViewController: UITableViewController {
     }
 
     required convenience init(dismissTapped: (() -> ())?) {
-        self.init(configuration: .init(), style: .grouped)
+        self.init(configuration: .init(), style: .insetGrouped)
         self.dismissTapped = dismissTapped
-    }
-
-    @objc public convenience init() {
-        self.init(configuration: .init(), style: .grouped)
     }
 
     // MARK: - View
 
     override func viewDidLoad() {
         super.viewDidLoad()
+
         WPAnalytics.track(.openedSupport)
         setupNavBar()
         setupTable()
@@ -80,9 +81,9 @@ class SupportTableViewController: UITableViewController {
     }
 
     func show(from presentingViewController: UIViewController) {
-        let navigationController = UINavigationController.init(rootViewController: self)
+        let navigationController = UINavigationController(rootViewController: self)
 
-        if WPDeviceIdentification.isiPad() {
+        if presentingViewController.view.window?.traitCollection.horizontalSizeClass == .regular {
             navigationController.modalTransitionStyle = .crossDissolve
             navigationController.modalPresentationStyle = .formSheet
         }
@@ -91,20 +92,18 @@ class SupportTableViewController: UITableViewController {
     }
 
     // TODO: Refactor this method to use the general `show(from:)` method
-    @objc func showFromTabBar() {
-        let navigationController = UINavigationController.init(rootViewController: self)
+    func showFromTabBar() {
+        let navigationController = UINavigationController(rootViewController: self)
 
-        if WPDeviceIdentification.isiPad() {
+        let rootViewController = RootViewCoordinator.sharedPresenter.rootViewController
+        let presentingViewController = rootViewController.presentedViewController ?? rootViewController
+
+        if presentingViewController.view.window?.traitCollection.horizontalSizeClass == .regular {
             navigationController.modalTransitionStyle = .crossDissolve
             navigationController.modalPresentationStyle = .formSheet
         }
 
-        let rootViewController = RootViewCoordinator.sharedPresenter.rootViewController
-        if let presentedVC = rootViewController.presentedViewController {
-            presentedVC.present(navigationController, animated: true)
-        } else {
-            rootViewController.present(navigationController, animated: true)
-        }
+        presentingViewController.present(navigationController, animated: true)
     }
 
     // MARK: - Button Actions
@@ -112,6 +111,30 @@ class SupportTableViewController: UITableViewController {
     @IBAction func dismissPressed(_ sender: AnyObject) {
         dismissTapped?()
         dismiss(animated: true)
+    }
+}
+
+struct ExternalLinkButtonRow: ImmuTableRow {
+    typealias CellType = ButtonCell
+
+    static let cell = ImmuTableCell.class(CellType.self)
+
+    let title: String
+    let accessibilityHint: String
+    let action: ImmuTableAction?
+    let accessibilityIdentifier: String?
+
+    func configureCell(_ cell: UITableViewCell) {
+        guard let cell = cell as? CellType else {
+            return
+        }
+        cell.button.setTitle(title, for: .normal)
+        cell.button.accessibilityHint = accessibilityHint
+        cell.accessibilityIdentifier = accessibilityIdentifier
+        cell.button.addAction(UIAction { _ in
+            action?(self)
+            cell.setSelected(false, animated: true)
+        }, for: .touchUpInside)
     }
 }
 
@@ -128,10 +151,7 @@ private extension SupportTableViewController {
         title = LocalizedText.viewTitle
 
         if isModal() {
-            navigationItem.rightBarButtonItem = UIBarButtonItem(title: LocalizedText.closeButton,
-                                                                style: WPStyleGuide.barButtonStyleForBordered(),
-                                                               target: self,
-                                                               action: #selector(SupportTableViewController.dismissPressed(_:)))
+            navigationItem.rightBarButtonItem = UIBarButtonItem(title: LocalizedText.closeButton, style: .plain, target: self, action: #selector(SupportTableViewController.dismissPressed(_:)))
             navigationItem.rightBarButtonItem?.accessibilityIdentifier = "close-button"
         }
     }
@@ -144,13 +164,12 @@ private extension SupportTableViewController {
                                 DestructiveButtonRow.self,
                                 SupportEmailRow.self,
                                 SupportForumRow.self,
-                                ButtonRow.self,
+                                ExternalLinkButtonRow.self,
                                 MigrationRow.self],
                                tableView: tableView)
         tableHandler = ImmuTableViewHandler(takeOver: self)
         reloadViewModel()
-        WPStyleGuide.configureColors(view: view, tableView: tableView)
-        tableView.tableFooterView = UIView() // remove empty cells
+
         if let headerConfig = configuration.meHeaderConfiguration {
             let headerView = MeHeaderView()
             headerView.update(with: headerConfig)
@@ -182,10 +201,10 @@ private extension SupportTableViewController {
             rows.append(SupportForumRow(title: LocalizedText.wpForumPrompt,
                                         action: nil,
                                         accessibilityIdentifier: "visit-wordpress-forums-prompt"))
-            rows.append(ButtonRow(title: LocalizedText.visitWpForumsButton,
-                                  accessibilityHint: LocalizedText.visitWpForumsButtonAccessibilityHint,
-                                  action: visitForumsSelected(),
-                                  accessibilityIdentifier: "visit-wordpress-forums-button"))
+            rows.append(ExternalLinkButtonRow(title: LocalizedText.visitWpForumsButton,
+                                              accessibilityHint: LocalizedText.visitWpForumsButtonAccessibilityHint,
+                                              action: visitForumsSelected(),
+                                              accessibilityIdentifier: "visit-wordpress-forums-button"))
             helpSection = ImmuTableSection(headerText: LocalizedText.wpForumsSectionHeader, rows: rows, footerText: nil)
         }
 
@@ -193,13 +212,38 @@ private extension SupportTableViewController {
         var informationSection: ImmuTableSection?
         if configuration.showsLogsSection {
             let versionRow = TextRow(title: LocalizedText.version, value: Bundle.main.shortVersionString())
-            let switchRow = SwitchRow(title: LocalizedText.debug,
-                                      value: userDefaults.bool(forKey: UserDefaultsKeys.extraDebug),
-                                      onChange: extraDebugToggled())
-            let logsRow = NavigationItemRow(title: LocalizedText.logs, action: activityLogsSelected(), accessibilityIdentifier: "activity-logs-button")
+            let logsRow = NavigationItemRow(
+                title: LocalizedText.logs,
+                action: activityLogsSelected(),
+                accessibilityIdentifier: "activity-logs-button"
+            )
+            let debugSwitchRow = SwitchRow(
+                title: LocalizedText.debug,
+                value: userDefaults.bool(forKey: UserDefaultsKeys.extraDebug),
+                onChange: extraDebugToggled()
+            )
+
+            var rows: [ImmuTableRow] = [versionRow, logsRow, debugSwitchRow]
+
+            let extensiveLoggingSwitchRow = SwitchRow(
+                title: LocalizedText.extensiveLogging,
+                value: ExtensiveLogging.enabled,
+                onChange: extensiveLoggingToggled()
+            )
+            rows.append(extensiveLoggingSwitchRow)
+
+            if ExtensiveLogging.enabled {
+                let extensiveLogsRow = NavigationItemRow(
+                    title: LocalizedText.extensiveLogs,
+                    action: extensiveLogsSelected(),
+                    accessibilityIdentifier: "extensive-logs-button"
+                )
+                rows.append(extensiveLogsRow)
+            }
+
             informationSection = ImmuTableSection(
                 headerText: LocalizedText.advancedSectionHeader,
-                rows: [versionRow, logsRow, switchRow],
+                rows: rows,
                 footerText: LocalizedText.informationFooter
             )
         }
@@ -242,8 +286,8 @@ private extension SupportTableViewController {
     }
 
     func contactUsSelected() -> ImmuTableAction {
-        return { [weak self] row in
-            guard let self = self else { return }
+        return { [weak self] _ in
+            guard let self else { return }
             self.tableView.deselectSelectedRowWithAnimation(true)
 
             self.coordinator.showSupport(onIdentityUpdated: {  [weak self] in
@@ -253,8 +297,8 @@ private extension SupportTableViewController {
     }
 
     func myTicketsSelected() -> ImmuTableAction {
-        return { [weak self] row in
-            guard let self = self else { return }
+        return { [weak self] _ in
+            guard let self else { return }
             showTicketView()
         }
     }
@@ -269,7 +313,7 @@ private extension SupportTableViewController {
     }
 
     func supportEmailSelected() -> ImmuTableAction {
-        return { [unowned self] row in
+        return { [unowned self] _ in
 
             self.tableView.deselectSelectedRowWithAnimation(true)
 
@@ -292,15 +336,15 @@ private extension SupportTableViewController {
     }
 
     func visitForumsSelected() -> ImmuTableAction {
-        return { [weak self] row in
-            guard let self = self else { return }
+        return { [weak self] _ in
+            guard let self else { return }
             self.tableView.deselectSelectedRowWithAnimation(true)
             self.launchForum(url: Constants.forumsURL)
         }
     }
 
     private func launchForum(url: URL?) {
-        guard let url = url else {
+        guard let url else {
             return
         }
         WPAnalytics.track(.supportOpenMobileForumTapped)
@@ -312,7 +356,7 @@ private extension SupportTableViewController {
     ///
     func checkForAutomatticEmail() {
         guard let email = ZendeskUtils.userSupportEmail(),
-            (Constants.automatticEmails.first { email.contains($0) }) != nil else {
+              ZendeskUtils.automatticEmails.contains(where: { email.contains($0) }) else {
                 return
         }
 
@@ -332,15 +376,50 @@ private extension SupportTableViewController {
         }
     }
 
+    func extensiveLoggingToggled() -> (_ newValue: Bool) -> Void {
+        return { [weak self] newValue in
+            guard let self else { return }
+
+            if newValue {
+                let alert = UIAlertController(
+                    title: LocalizedText.extensiveLoggingAlertTitle,
+                    message: LocalizedText.extensiveLoggingAlertMessage,
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: SharedStrings.Button.cancel, style: .cancel) { _ in
+                    self.reloadViewModel()
+                })
+                alert.addAction(UIAlertAction(title: LocalizedText.enable, style: .default) { _ in
+                    ExtensiveLogging.enabled = true
+                    self.reloadViewModel()
+                })
+                self.present(alert, animated: true)
+            } else {
+                ExtensiveLogging.enabled = false
+                self.reloadViewModel()
+            }
+        }
+    }
+
+    func extensiveLogsSelected() -> ImmuTableAction {
+        return { [weak self] _ in
+            guard let self else { return }
+            self.tableView.deselectSelectedRowWithAnimation(true)
+            let mainVC = PulseUI.MainViewController()
+            self.present(mainVC, animated: true)
+        }
+    }
+
     func activityLogsSelected() -> ImmuTableAction {
-        return { [unowned self] row in
-            let activityLogViewController = ActivityLogViewController()
-            self.navigationController?.pushViewController(activityLogViewController, animated: true)
+        return { [unowned self] _ in
+            let activityLogView = SupportActivityLogView()
+            let hostingController = UIHostingController(rootView: activityLogView)
+            self.navigationController?.pushViewController(hostingController, animated: true)
         }
     }
 
     private func logOutTapped() -> ImmuTableAction {
-        return { [weak self] row in
+        return { [weak self] _ in
             guard let self else {
                 return
             }
@@ -360,9 +439,9 @@ private extension SupportTableViewController {
         rows.append(MigrationRow(title: LocalizedText.jetpackMigrationTitle,
                                  description: LocalizedText.jetpackMigrationDescription,
                                  action: nil))
-        rows.append(ButtonRow(title: LocalizedText.jetpackMigrationButton,
-                              accessibilityHint: LocalizedText.jetpackMigrationButtonAccessibilityHint,
-                              action: { _ in
+        rows.append(ExternalLinkButtonRow(title: LocalizedText.jetpackMigrationButton,
+                                          accessibilityHint: LocalizedText.jetpackMigrationButtonAccessibilityHint,
+                                          action: { _ in
             guard let url = Constants.jetpackMigrationFAQURL else {
                 return
             }
@@ -395,7 +474,7 @@ private extension SupportTableViewController {
             let cell = cell as! WPTableViewCellIndicator
             cell.textLabel?.text = title
             WPStyleGuide.configureTableViewCell(cell)
-            cell.textLabel?.textColor = .primary
+            cell.textLabel?.textColor = UIAppColor.primary
             cell.showIndicator = showIndicator
             cell.accessibilityTraits = .button
             cell.accessibilityIdentifier = accessibilityIdentifier
@@ -415,7 +494,7 @@ private extension SupportTableViewController {
             cell.textLabel?.text = title
             cell.detailTextLabel?.text = value
             WPStyleGuide.configureTableViewCell(cell)
-            cell.textLabel?.textColor = .primary
+            cell.textLabel?.textColor = UIAppColor.primary
             cell.accessibilityTraits = .button
             cell.accessibilityHint = accessibilityHint
             cell.accessibilityIdentifier = accessibilityIdentifier
@@ -435,33 +514,6 @@ private extension SupportTableViewController {
             cell.accessibilityIdentifier = accessibilityIdentifier
             WPStyleGuide.configureTableViewCell(cell)
         }
-    }
-
-    struct ButtonRow: ImmuTableRow {
-        typealias CellType = ButtonCell
-
-        static let cell = ImmuTableCell.class(CellType.self)
-
-        let title: String
-        let accessibilityHint: String
-        let action: ImmuTableAction?
-        let accessibilityIdentifier: String?
-
-
-        func configureCell(_ cell: UITableViewCell) {
-            guard let cell = cell as? CellType else {
-                return
-            }
-
-            cell.button.setTitle(title, for: .normal)
-            cell.button.accessibilityHint = accessibilityHint
-            cell.accessibilityIdentifier = accessibilityIdentifier
-            cell.button.addAction(UIAction { _ in
-                action?(self)
-                cell.setSelected(false, animated: true)
-            }, for: .touchUpInside)
-        }
-
     }
 
     struct MigrationRow: ImmuTableRow {
@@ -485,7 +537,7 @@ private extension SupportTableViewController {
     // MARK: - Helpers
 
     func controllerToShowFrom() -> UIViewController? {
-        return showHelpFromViewController ?? navigationController ?? nil
+        return showHelpFromViewController ?? navigationController
     }
 
     // MARK: - Localized Text
@@ -517,6 +569,12 @@ private extension SupportTableViewController {
         static let jetpackMigrationDescription = NSLocalizedString("support.row.jetpackMigration.description", value: "Our FAQ provides answers to common questions you may have.", comment: "An informational card description in Support view explaining what tapping the link on card does")
         static let jetpackMigrationButton = NSLocalizedString("support.button.jetpackMigration.title", value: "Visit our FAQ", comment: "Option in Support view to visit the Jetpack migration FAQ website.")
         static let jetpackMigrationButtonAccessibilityHint = NSLocalizedString("support.button.jetpackMigation.accessibilityHint", value: "Tap to visit the Jetpack app FAQ in an external browser", comment: "Accessibility hint, informing user the button can be used to visit the Jetpack migration FAQ website.")
+
+        static let extensiveLogging = NSLocalizedString("support.row.extensiveLogging.title", value: "Extensive Logging", comment: "Option in Support view to enable extensive logging.")
+        static let extensiveLogs = NSLocalizedString("support.row.extensiveLogs.title", value: "Extensive Logs", comment: "Option in Support view to access extensive logs.")
+        static let extensiveLoggingAlertTitle = NSLocalizedString("support.alert.extensiveLogging.title", value: "Enable Extensive Logging?", comment: "Alert title when confirming extensive logging activation.")
+        static let extensiveLoggingAlertMessage = NSLocalizedString("support.alert.extensiveLogging.message", value: "This helps with troubleshooting but may impact performance. You can turn it off anytime.", comment: "Alert message explaining extensive logging helps with troubleshooting but may impact performance.")
+        static let enable = NSLocalizedString("support.alert.enable", value: "Enable", comment: "Button title to enable extensive logging.")
     }
 
     // MARK: - User Defaults Keys
@@ -532,7 +590,6 @@ private extension SupportTableViewController {
         static let jetpackMigrationFAQURL = URL(string: "https://jetpack.com/support/switch-to-the-jetpack-app/")
 
         static let forumsURL = URL(string: "https://wordpress.org/support/forum/mobile/")
-        static let automatticEmails = ["@automattic.com", "@a8c.com"]
     }
 }
 
@@ -543,32 +600,37 @@ extension SupportTableViewController: SupportChatBotCreatedTicketDelegate {
     }
 }
 
-private class ButtonCell: WPTableViewCellDefault {
+fileprivate enum SupportTableLayoutSpacing {
+    static let topBottomPadding: CGFloat = 16
+    static let sidePadding: CGFloat = 20
+}
 
-    let button: SpotlightableButton = {
-        let button = SpotlightableButton(type: .custom)
+class ButtonCell: WPTableViewCellDefault {
 
-        button.titleLabel?.font = WPStyleGuide.fontForTextStyle(.callout)
+    let button: UIButton = {
+        let button = UIButton(type: .custom)
+
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.titleLabel?.adjustsFontSizeToFitWidth = true
-        button.titleLabel?.lineBreakMode = .byTruncatingTail
-        button.contentHorizontalAlignment = .trailing
+        button.contentHorizontalAlignment = .leading
 
-        button.setTitleColor(.primary, for: .normal)
-
-        button.setImage(UIImage.gridicon(.external,
-                                         size: CGSize(width: LayoutSpacing.imageSize, height: LayoutSpacing.imageSize)),
-                        for: .normal)
-
-        // Align the image to the right
-        if UIApplication.shared.userInterfaceLayoutDirection == .rightToLeft {
-            button.semanticContentAttribute = .forceLeftToRight
-            button.imageEdgeInsets = LayoutSpacing.rtlButtonTitleImageInsets
-        } else {
-            button.semanticContentAttribute = .forceRightToLeft
-            button.imageEdgeInsets = LayoutSpacing.buttonTitleImageInsets
+        var configuration = UIButton.Configuration.plain()
+        configuration.contentInsets = .zero
+        configuration.baseForegroundColor = UIAppColor.primary
+        configuration.titleLineBreakMode = .byTruncatingTail
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            attributes.font = WPStyleGuide.fontForTextStyle(.callout)
+            return attributes
         }
 
+        // Align the image after the title
+        configuration.image = UIImage.gridicon(.external,
+                                               size: CGSize(width: LayoutSpacing.imageSize, height: LayoutSpacing.imageSize))
+        configuration.imagePlacement = .trailing
+        configuration.imagePadding = LayoutSpacing.buttonTitleImagePadding
+
+        button.configuration = configuration
         button.translatesAutoresizingMaskIntoConstraints = false
 
         return button
@@ -588,22 +650,20 @@ private class ButtonCell: WPTableViewCellDefault {
         contentView.addSubview(button)
 
         NSLayoutConstraint.activate([
-                                        button.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: LayoutSpacing.padding),
-                                        button.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -LayoutSpacing.padding),
-                                        button.topAnchor.constraint(equalTo: contentView.topAnchor, constant: LayoutSpacing.padding),
-                                        button.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -LayoutSpacing.padding)
-                                    ])
+            button.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: SupportTableLayoutSpacing.sidePadding),
+            button.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -SupportTableLayoutSpacing.sidePadding),
+            button.topAnchor.constraint(equalTo: contentView.topAnchor, constant: SupportTableLayoutSpacing.topBottomPadding),
+            button.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -SupportTableLayoutSpacing.topBottomPadding)
+        ])
     }
 
     enum LayoutSpacing {
         static let imageSize: CGFloat = 17.0
-        static let padding: CGFloat = 16.0
-        static let buttonTitleImageInsets = UIEdgeInsets(top: 1, left: 4, bottom: 0, right: 0)
-        static let rtlButtonTitleImageInsets = UIEdgeInsets(top: 1, left: -4, bottom: 0, right: 4)
+        static let buttonTitleImagePadding: CGFloat = 4.0
     }
 }
 
-private class MigrationCell: WPTableViewCell {
+open class MigrationCell: WPTableViewCell {
     let titleLabel: UILabel = {
         let label = UILabel()
         label.numberOfLines = 0
@@ -628,9 +688,11 @@ private class MigrationCell: WPTableViewCell {
         return stackView
     }()
 
-    private let logoImageView: UIImageView = {
+    private let migrationLogoImageView: UIImageView = {
         let imageView = UIImageView(image: .init(named: "wp-migration-welcome"))
         imageView.contentMode = .scaleAspectFit
+        imageView.heightAnchor.constraint(equalToConstant: LayoutConstants.imageSize.height).isActive = true
+        imageView.widthAnchor.constraint(equalToConstant: LayoutConstants.imageSize.width).isActive = true
         return imageView
     }()
 
@@ -640,8 +702,12 @@ private class MigrationCell: WPTableViewCell {
         setup()
     }
 
-    required init?(coder: NSCoder) {
+    required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    open var logoImageView: UIImageView {
+        migrationLogoImageView
     }
 
     private func setup() {
@@ -653,18 +719,14 @@ private class MigrationCell: WPTableViewCell {
         stackView.addArrangedSubview(descriptionLabel)
 
         NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: LayoutConstants.topBottomPadding),
-            stackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -LayoutConstants.topBottomPadding),
-            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: LayoutConstants.sidePadding),
-            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -LayoutConstants.sidePadding),
-            logoImageView.heightAnchor.constraint(equalToConstant: LayoutConstants.imageSize.height),
-            logoImageView.widthAnchor.constraint(equalToConstant: LayoutConstants.imageSize.width)
+            stackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: SupportTableLayoutSpacing.topBottomPadding),
+            stackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -SupportTableLayoutSpacing.topBottomPadding),
+            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: SupportTableLayoutSpacing.sidePadding),
+            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -SupportTableLayoutSpacing.sidePadding),
         ])
     }
 
     enum LayoutConstants {
-        static let topBottomPadding: CGFloat = 16
-        static let sidePadding: CGFloat = 20
         static let imageSize = CGSize(width: 56, height: 30)
     }
 }

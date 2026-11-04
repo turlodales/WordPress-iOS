@@ -1,4 +1,7 @@
-import WordPressAuthenticator
+import UIKit
+import WordPressData
+import WordPressKit
+import WordPressUI
 
 protocol JetpackRemoteInstallDelegate: AnyObject {
     func jetpackRemoteInstallCompleted()
@@ -9,12 +12,14 @@ protocol JetpackRemoteInstallDelegate: AnyObject {
 class JetpackRemoteInstallViewController: UIViewController {
     private weak var delegate: JetpackRemoteInstallDelegate?
     private var blog: Blog
-    private let jetpackView = JetpackRemoteInstallStateView()
+    private let jetpackView = JetpackRemoteInstallStateView(nibName: "JetpackRemoteInstallStateView", bundle: .keystone)
     private let viewModel: JetpackRemoteInstallViewModel
 
-    init(blog: Blog,
-         delegate: JetpackRemoteInstallDelegate?,
-         viewModel: JetpackRemoteInstallViewModel = SelfHostedJetpackRemoteInstallViewModel()) {
+    init(
+        blog: Blog,
+        delegate: JetpackRemoteInstallDelegate?,
+        viewModel: JetpackRemoteInstallViewModel = SelfHostedJetpackRemoteInstallViewModel()
+    ) {
         self.blog = blog
         self.delegate = delegate
         self.viewModel = viewModel
@@ -33,7 +38,10 @@ class JetpackRemoteInstallViewController: UIViewController {
         setupUI()
     }
 
-    override func willTransition(to newCollection: UITraitCollection, with coordinator: UIViewControllerTransitionCoordinator) {
+    override func willTransition(
+        to newCollection: UITraitCollection,
+        with coordinator: UIViewControllerTransitionCoordinator
+    ) {
         super.willTransition(to: newCollection, with: coordinator)
         jetpackView.toggleHidingImageView(for: newCollection)
     }
@@ -44,13 +52,15 @@ class JetpackRemoteInstallViewController: UIViewController {
 private extension JetpackRemoteInstallViewController {
     func setupNavigationBar() {
         title = NSLocalizedString("Jetpack", comment: "Title for the Jetpack Installation")
-        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .cancel,
-                                                           target: self,
-                                                           action: #selector(cancel))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .cancel,
+            target: self,
+            action: #selector(cancel)
+        )
     }
 
     func setupUI() {
-        view.backgroundColor = .neutral(.shade5)
+        view.backgroundColor = UIAppColor.neutral(.shade5)
 
         jetpackView.delegate = self
         add(jetpackView)
@@ -173,7 +183,8 @@ extension JetpackInstallError {
     /// When the error is unknown, return the error title (if it exists) to get a more descriptive reason.
     var description: String {
         if let title,
-           type == .unknown {
+            type == .unknown
+        {
             return title
         }
         return type.rawValue

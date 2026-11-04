@@ -1,9 +1,8 @@
 #import <Foundation/Foundation.h>
-#import "CoreDataService.h"
+
+@import WordPressKitObjC;
 
 NS_ASSUME_NONNULL_BEGIN
-
-@import WordPressKit;
 
 extern NSUInteger const WPTopLevelHierarchicalCommentsPerPage;
 
@@ -12,9 +11,14 @@ extern NSUInteger const WPTopLevelHierarchicalCommentsPerPage;
 @class ReaderPost;
 @class BasePost;
 @class RemoteUser;
+@class RemoteComment;
 @class CommentServiceRemoteFactory;
+@class CommentServiceRemoteREST;
+@protocol CoreDataStack;
 
-@interface CommentService : CoreDataService
+@interface CommentService : NSObject
+
+@property (nonatomic, strong, readonly) id<CoreDataStack> coreDataStack;
 
 /// Initializes the instance with a custom service remote provider.
 ///
@@ -23,8 +27,12 @@ extern NSUInteger const WPTopLevelHierarchicalCommentsPerPage;
 - (instancetype)initWithCoreDataStack:(id<CoreDataStack>)coreDataStack
           commentServiceRemoteFactory:(CommentServiceRemoteFactory *)remoteFactory NS_DESIGNATED_INITIALIZER;
 
+- (nonnull instancetype)initWithCoreDataStack:(id<CoreDataStack>)coreDataStack;
+
+- (instancetype)init NS_UNAVAILABLE;
+
 // Create reply
-- (void)createReplyForComment:(Comment *)comment content:(NSString *)content completion:(void (^)(Comment *reply))completion;
+- (void)createReplyForComment:(Comment *)comment content:(NSString *)content completion:(void (^)(Comment * _Nullable reply))completion;
 
 // Sync comments
 - (void)syncCommentsForBlog:(Blog *)blog
@@ -108,7 +116,7 @@ extern NSUInteger const WPTopLevelHierarchicalCommentsPerPage;
 - (NSArray *)topLevelComments:(NSUInteger)number forPost:(ReaderPost *)post;
 
 // Counts and returns the number of full pages of hierarchcial comments synced for a post.
-// A partial set does not count toward the total number of pages. 
+// A partial set does not count toward the total number of pages.
 - (NSInteger)numberOfHierarchicalPagesSyncedforPost:(ReaderPost *)post;
 
 
@@ -124,19 +132,19 @@ extern NSUInteger const WPTopLevelHierarchicalCommentsPerPage;
 - (void)updateCommentWithID:(NSNumber *)commentID
                      siteID:(NSNumber *)siteID
                     content:(NSString *)content
-                    success:(void (^ _Nullable)(void))success
+                    success:(void (^ _Nullable)(RemoteComment * _Nullable comment))success
                     failure:(void (^ _Nullable)(NSError * _Nullable error))failure;
 
 // Replies
 - (void)replyToPost:(ReaderPost *)post
             content:(NSString *)content
-            success:(void (^ _Nullable)(void))success
+            success:(void (^ _Nullable)(Comment * _Nullable comment))success
             failure:(void (^ _Nullable)(NSError * _Nullable error))failure;
 
 - (void)replyToHierarchicalCommentWithID:(NSNumber *)commentID
                                   post:(ReaderPost *)post
                                  content:(NSString *)content
-                                 success:(void (^ _Nullable)(void))success
+                                 success:(void (^ _Nullable)(Comment * _Nullable comment))success
                                  failure:(void (^ _Nullable)(NSError * _Nullable error))failure;
 
 - (void)replyToCommentWithID:(NSNumber *)commentID
@@ -200,7 +208,6 @@ extern NSUInteger const WPTopLevelHierarchicalCommentsPerPage;
  @param siteID The ID of the site the remote will be used for.
  */
 - (CommentServiceRemoteREST *_Nullable)restRemoteForSite:(NSNumber *_Nonnull)siteID;
-
 
 @end
 

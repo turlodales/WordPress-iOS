@@ -1,10 +1,13 @@
+import BuildSettingsKit
+import WordPressShared
+
 protocol CredentialsProvider {
     func getPassword(username: String, service: String) -> String?
 }
 
 struct KeychainCredentialsProvider: CredentialsProvider {
     func getPassword(username: String, service: String) -> String? {
-        return try? SFHFKeychainUtils.getPasswordForUsername(username, andServiceName: service)
+        try? AppKeychain().getPassword(for: username, serviceName: service)
     }
 }
 
@@ -16,6 +19,6 @@ class CredentialsService {
     }
 
     func getOAuthToken(site: JetpackSiteRef) -> String? {
-        return provider.getPassword(username: site.username, service: AppConstants.authKeychainServiceName)
+        provider.getPassword(username: site.username, service: BuildSettings.current.authKeychainServiceName)
     }
 }

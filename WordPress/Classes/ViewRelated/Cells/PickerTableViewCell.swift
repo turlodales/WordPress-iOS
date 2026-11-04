@@ -1,6 +1,6 @@
 import Foundation
 import WordPressShared
-
+import WordPressUI
 
 /// The purpose of this class is to display a UIPickerView instance inside a UITableView,
 /// and wrap up all of the Picker Delegate / DataSource methods
@@ -12,7 +12,6 @@ open class PickerTableViewCell: WPTableViewCell, UIPickerViewDelegate, UIPickerV
     ///
     @objc open var onChange: ((_ newValue: Int) -> ())?
 
-
     /// String Format, to be applied to the Row Titles
     ///
     @objc open var textFormat: String? {
@@ -21,7 +20,6 @@ open class PickerTableViewCell: WPTableViewCell, UIPickerViewDelegate, UIPickerV
         }
     }
 
-
     /// Currently Selected Value
     ///
     open var selectedValue: Int? {
@@ -29,7 +27,6 @@ open class PickerTableViewCell: WPTableViewCell, UIPickerViewDelegate, UIPickerV
             refreshSelectedValue()
         }
     }
-
 
     /// Specifies the Minimum Possible Value
     ///
@@ -47,8 +44,6 @@ open class PickerTableViewCell: WPTableViewCell, UIPickerViewDelegate, UIPickerV
         }
     }
 
-
-
     // MARK: - Initializers
 
     public required init(coder aDecoder: NSCoder) {
@@ -61,15 +56,13 @@ open class PickerTableViewCell: WPTableViewCell, UIPickerViewDelegate, UIPickerV
         setupSubviews()
     }
 
-
-
     // MARK: - Private Helpers
 
     fileprivate func setupSubviews() {
         // Setup Picker
         picker.dataSource = self
         picker.delegate = self
-        picker.backgroundColor = .listForeground
+        picker.backgroundColor = .secondarySystemGroupedBackground
         contentView.addSubview(picker)
 
         // ContentView: Pin to Left + Right + Top + Bottom edges
@@ -96,8 +89,6 @@ open class PickerTableViewCell: WPTableViewCell, UIPickerViewDelegate, UIPickerV
         picker.selectRow(row, inComponent: 0, animated: false)
     }
 
-
-
     // MARK: UIPickerView Methods
 
     open func numberOfComponents(in pickerView: UIPickerView) -> Int {
@@ -121,9 +112,7 @@ open class PickerTableViewCell: WPTableViewCell, UIPickerViewDelegate, UIPickerV
         onChange?(value)
     }
 
-
-
     // MARK: - Private Properties
-    fileprivate let picker                      = UIPickerView()
-    fileprivate let numberOfComponentsInPicker  = 1
+    fileprivate let picker = UIPickerView()
+    fileprivate let numberOfComponentsInPicker = 1
 }

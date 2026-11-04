@@ -25,23 +25,23 @@ class RestoreStatusView: UIView, NibLoadable {
     // MARK: - Styling
 
     private func applyStyles() {
-        backgroundColor = .basicBackground
+        backgroundColor = .systemBackground
 
-        icon.tintColor = .success
+        icon.tintColor = UIAppColor.success
 
         titleLabel.font = WPStyleGuide.fontForTextStyle(.title3, fontWeight: .semibold)
-        titleLabel.textColor = .text
+        titleLabel.textColor = .label
         titleLabel.numberOfLines = 0
 
         descriptionLabel.font = WPStyleGuide.fontForTextStyle(.body)
-        descriptionLabel.textColor = .textSubtle
+        descriptionLabel.textColor = .secondaryLabel
         descriptionLabel.numberOfLines = 0
 
         progressValueLabel.font = WPStyleGuide.fontForTextStyle(.body)
-        progressValueLabel.textColor = .text
+        progressValueLabel.textColor = .label
 
         progressTitleLabel.font = WPStyleGuide.fontForTextStyle(.body)
-        progressTitleLabel.textColor = .text
+        progressTitleLabel.textColor = .label
         if effectiveUserInterfaceLayoutDirection == .leftToRight {
             // swiftlint:disable:next inverse_text_alignment
             progressTitleLabel.textAlignment = .right
@@ -54,10 +54,10 @@ class RestoreStatusView: UIView, NibLoadable {
         progressView.clipsToBounds = true
 
         progressDescriptionLabel.font = WPStyleGuide.fontForTextStyle(.subheadline)
-        progressDescriptionLabel.textColor = .textSubtle
+        progressDescriptionLabel.textColor = .secondaryLabel
 
         hintLabel.font = WPStyleGuide.fontForTextStyle(.subheadline)
-        hintLabel.textColor = .textSubtle
+        hintLabel.textColor = .secondaryLabel
         hintLabel.numberOfLines = 0
     }
 
@@ -75,14 +75,14 @@ class RestoreStatusView: UIView, NibLoadable {
         progressValueLabel.text = "\(progress)%"
         progressView.progress = Float(progress) / 100
 
-        if let progressTitle = progressTitle {
+        if let progressTitle {
             progressTitleLabel.text = progressTitle
             progressTitleLabel.isHidden = false
         } else {
             progressTitleLabel.isHidden = true
         }
 
-        if let progressDescription = progressDescription {
+        if let progressDescription {
             progressDescriptionLabel.text = progressDescription
             progressDescriptionLabel.isHidden = false
         } else {

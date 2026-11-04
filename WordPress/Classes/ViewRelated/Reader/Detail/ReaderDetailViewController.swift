@@ -1,4 +1,13 @@
 import UIKit
+import SwiftUI
+import WordPressUI
+import AutomatticTracks
+import WordPressReader
+import WordPressData
+import WordPressKit
+import WordPressIntelligence
+import Combine
+@preconcurrency import WebKit
 
 typealias RelatedPostsSection = (postType: RemoteReaderSimplePost.PostType, posts: [RemoteReaderSimplePost])
 
@@ -6,24 +15,11 @@ protocol ReaderDetailView: AnyObject {
     func render(_ post: ReaderPost)
     func renderRelatedPosts(_ posts: [RemoteReaderSimplePost])
     func showLoading()
-    func showError()
-    func showErrorWithWebAction()
+    func showError(subtitle: String?)
+    func showErrorWithWebAction(error: Error?)
     func scroll(to: String)
     func updateHeader()
-
-    /// Shows likes view containing avatars of users that liked the post.
-    /// The number of avatars displayed is limited to `ReaderDetailView.maxAvatarDisplayed` plus the current user's avatar.
-    /// Note that the current user's avatar is displayed through a different method.
-    ///
-    /// - Seealso: `updateSelfLike(with avatarURLString: String?)`
-    /// - Parameters:
-    ///   - avatarURLStrings: A list of URL strings for the liking users' avatars.
-    ///   - totalLikes: The total number of likes for this post.
-    func updateLikes(with avatarURLStrings: [String], totalLikes: Int)
-
-    /// Updates the likes view to append an additional avatar for the current user, indicating that the post is liked by current user.
-    /// - Parameter avatarURLString: The URL string for the current user's avatar. Optional.
-    func updateSelfLike(with avatarURLString: String?)
+    func updateLikesView(with viewModel: ReaderDetailLikesViewModel)
 
     /// Updates comments table to display the post's comments.
     /// - Parameters:
@@ -43,26 +39,31 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
     /// WebView height constraint
     @IBOutlet weak var webViewHeight: NSLayoutConstraint!
 
+    @IBOutlet weak var accessoriesStackView: UIStackView!
+
     /// The table view that displays Comments
     @IBOutlet weak var commentsTableView: IntrinsicTableView!
 
     // swiftlint:disable:next weak_delegate
-    private let commentsTableViewDelegate = ReaderDetailCommentsTableViewDelegate()
+    private lazy var commentsTableViewDelegate = {
+        ReaderDetailCommentsTableViewDelegate(displaySetting: displaySetting)
+    }()
 
     /// The table view that displays Related Posts
     @IBOutlet weak var relatedPostsTableView: IntrinsicTableView!
 
+    /// Whether the we should load the related posts section.
+    /// Ideally we should only load this section once per post.
+    private var shouldFetchRelatedPosts = true
+
     /// Header container
     @IBOutlet weak var headerContainerView: UIView!
-
-    /// Wrapper for the toolbar
-    @IBOutlet weak var toolbarContainerView: UIView!
 
     /// Wrapper for the Likes summary view
     @IBOutlet weak var likesContainerView: UIView!
 
-    /// The loading view, which contains all the ghost views
-    @IBOutlet weak var loadingView: UIView!
+    /// Wrapper for the Tags collection view
+    @IBOutlet weak var tagsContainerView: UIView!
 
     /// The loading view, which contains all the ghost views
     @IBOutlet weak var actionStackView: UIStackView!
@@ -70,24 +71,27 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
     /// Attribution view for Discovery posts
     @IBOutlet weak var attributionView: ReaderCardDiscoverAttributionView!
 
-    @IBOutlet weak var toolbarHeightConstraint: NSLayoutConstraint!
+    private let activityIndicator = UIActivityIndicatorView(style: .medium)
 
     /// The actual header
-    private let featuredImage: ReaderDetailFeaturedImageView = .loadFromNib()
+    private lazy var header = ReaderPostHeaderView()
+    private var cachedExcerpt: String?
 
-    /// The actual header
-    private lazy var header: UIView & ReaderDetailHeader = {
-        return ReaderDetailNewHeaderViewHost()
-    }()
+    /// Bottom toolbar helper
+    private lazy var toolbar = ReaderDetailToolbar()
+    private var lastContentOffset: CGFloat = 0
 
-    /// Bottom toolbar
-    private let toolbar: ReaderDetailToolbar = .loadFromNib()
+    private var toolbarUpdateTimer: Timer?
+    private let toolbarHiddenDebouncer = PassthroughSubject<Bool, Never>()
+    private var toolbarHiddenDebounceCancellable: AnyCancellable?
 
     /// Likes summary view
-     private let likesSummary: ReaderDetailLikesView = .loadFromNib()
+    private let likesSummary: ReaderDetailLikesView = .loadFromNib()
 
-    /// A view that fills the bottom portion outside of the safe area
-    @IBOutlet weak var toolbarSafeAreaView: UIView!
+    /// Tags collection view
+    private lazy var tagsCollectionView: TopicsCollectionView = {
+        TopicsCollectionView(frame: .zero, collectionViewLayout: UICollectionViewFlowLayout())
+    }()
 
     /// View used to show errors
     private let noResultsViewController = NoResultsViewController.controller()
@@ -95,28 +99,18 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
     /// An observer of the content size of the webview
     private var scrollObserver: NSKeyValueObservation?
 
-    private var featureHighlightStore = FeatureHighlightStore()
-    private var lastToggleAnchorVisibility = false
-    private var didShowTooltip = false {
-        didSet {
-            featureHighlightStore.followConversationTooltipCounter += 1
-        }
-    }
-
     /// The coordinator, responsible for the logic
     var coordinator: ReaderDetailCoordinator?
-
-    /// Hide the comments button in the toolbar
-    @objc var shouldHideComments: Bool = false {
-        didSet {
-            toolbar.shouldHideComments = shouldHideComments
-        }
-    }
 
     /// The post being shown
     @objc var post: ReaderPost? {
         return coordinator?.post
     }
+
+    /// The URL to a post can change – we might set it when we instantiate the controller, but then when we fetch the details from the server, we know
+    /// that `https://wordpress.com/reader/{site_id}/posts/{post_id}` is actually `https://example.com/foo/bar`. We need to keep
+    /// an unchanging reference to the URL so that we can identify the content this view is presenting before we fetch the post from the server.
+    private var originalUrl: URL? = nil
 
     /// The related posts for the post being shown
     var relatedPosts: [RelatedPostsSection] = []
@@ -128,16 +122,6 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
         }
     }
 
-    var currentPreferredStatusBarStyle = UIStatusBarStyle.lightContent {
-        didSet {
-            setNeedsStatusBarAppearanceUpdate()
-        }
-    }
-
-    override open var preferredStatusBarStyle: UIStatusBarStyle {
-        return currentPreferredStatusBarStyle
-    }
-
     override var hidesBottomBarWhenPushed: Bool {
         set { }
         get { true }
@@ -145,16 +129,6 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
 
     /// Tracks whether the webview has called -didFinish:navigation
     var isLoadingWebView = true
-
-    /// Temporary work around until white headers are shipped app-wide,
-    /// allowing Reader Detail to use a blue navbar.
-    var useCompatibilityMode: Bool {
-        // Use compatibility mode if not presented within the Reader
-        guard let readerNavigationController = RootViewCoordinator.sharedPresenter.readerNavigationController else {
-            return false
-        }
-        return readerNavigationController.viewControllers.contains(self) == false
-    }
 
     /// Used to disable ineffective buttons when a Related post fails to load.
     var enableRightBarButtons = true
@@ -164,7 +138,50 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
     /// has a comment anchor fragment.
     private var hasAutomaticallyTriggeredCommentAction = false
 
-    private var tooltipPresenter: TooltipPresenter?
+    private var isToolbarHidden = false
+
+    // Reader customization model
+    private lazy var displaySettingStore: ReaderDisplaySettingStore = {
+        let store = ReaderDisplaySettingStore()
+        store.delegate = self
+        return store
+    }()
+
+    // Convenient access to the underlying structure
+    private var displaySetting: ReaderDisplaySettings {
+        displaySettingStore.setting
+    }
+
+    // Translation support
+    @available(iOS 26, *)
+    private var translationViewModel: TranslationViewModel {
+        _translationViewModel as! TranslationViewModel
+    }
+
+    private lazy var _translationViewModel: Any = {
+        guard #available(iOS 26, *) else { return {} }
+        return TranslationViewModel()
+    }()
+
+    @available(iOS 26, *)
+    private var translationHostView: TranslationHostView {
+        _translationHostView as! TranslationHostView
+    }
+
+    private lazy var _translationHostView: Any = {
+        guard #available(iOS 26, *) else { return () }
+        return TranslationHostView(viewModel: translationViewModel)
+    }()
+
+    private var translationAvailabilityTask: Task<Void, Never>?
+    private var isTranslating = false
+    var translationAvailability: TranslationAvailability = .unavailable
+
+    private lazy var translationSpinner: UIBarButtonItem = {
+        let activityIndicator = UIActivityIndicatorView(style: .medium)
+        activityIndicator.startAnimating()
+        return UIBarButtonItem(customView: activityIndicator)
+    }()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -172,14 +189,19 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
         configureNavigationBar()
         applyStyles()
         configureWebView()
-        configureFeaturedImage()
         configureHeader()
         configureRelatedPosts()
         configureToolbar()
+        if #available(iOS 26, *) {
+            // The toolbar buttons sit on their own frosted capsules (see `ReaderDetailToolbar`). With them,
+            // the automatic edge effect draws a frosted band behind the whole toolbar on iOS 27.
+            scrollView.bottomEdgeEffect.isHidden = true
+        }
         configureNoResultsViewController()
         observeWebViewHeight()
         configureNotifications()
         configureCommentsTable()
+        configureTranslationIfAvailable()
 
         coordinator?.start()
 
@@ -190,13 +212,32 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
 
         // When comments are moderated or edited from the Comments view, update the Comments snippet here.
         NotificationCenter.default.addObserver(self, selector: #selector(fetchComments), name: .ReaderCommentModifiedNotification, object: nil)
+
+        // In the `scrollViewDidScroll` function, "toolbar hidden" is toggled repeatedly when the scroll view in the
+        // middle of scrolling animation. This debouncer is introduced to avoid toggling
+        // `navigationController.toolbarHidden`, which causes inifity loops.
+        // Sentry issue: https://a8c.sentry.io/issues/6884521550
+        toolbarHiddenDebounceCancellable = toolbarHiddenDebouncer
+            .removeDuplicates()
+            .debounce(for: .milliseconds(100), scheduler: DispatchQueue.main)
+            .sink { [weak self] isHidden in
+                self?.setToolbarHidden(isHidden, animated: true)
+            }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        WPAnalytics.track(screen: ScreenID.Reader.article, context: trackingContext)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        setupFeaturedImage()
+
+        updateLeftBarButtonItem()
         updateFollowButtonState()
         toolbar.viewWillAppear()
+
+        navigationController?.setToolbarHidden(false, animated: animated)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -206,33 +247,8 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
             return
         }
 
-        featuredImage.viewWillDisappear()
         toolbar.viewWillDisappear()
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        ReaderTracker.shared.start(.readerPost)
-    }
-
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        ReaderTracker.shared.stop(.readerPost)
-    }
-
-    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
-        super.viewWillTransition(to: size, with: coordinator)
-
-        coordinator.animate(alongsideTransition: { _ in
-            self.featuredImage.deviceDidRotate()
-        })
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        // Bar items may change if we're moving single pane to split view
-        self.configureNavigationBar()
+        navigationController?.setToolbarHidden(true, animated: animated)
     }
 
     override func accessibilityPerformEscape() -> Bool {
@@ -240,141 +256,133 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
         return true
     }
 
+    override func contentScrollView(for edge: NSDirectionalRectEdge) -> UIScrollView? {
+        scrollView
+    }
+
     func render(_ post: ReaderPost) {
         configureDiscoverAttribution(post)
 
-        featuredImage.configure(for: post, with: self)
-        toolbar.configure(for: post, in: self)
-        header.configure(for: post)
+        updateToolbarItems()
+        cachedExcerpt = post.getUserProvidedExcerpt()
+        configureHeaderView(with: post)
+        updateTagsView(with: post)
         fetchLikes()
         fetchComments()
+        checkTranslationAvailability()
 
         if let postURLString = post.permaLink,
            let postURL = URL(string: postURLString) {
             webView.postURL = postURL
         }
 
-        webView.isP2 = post.isP2Type()
+        webView.isP2 = post.isP2Type
 
         coordinator?.storeAuthenticationCookies(in: webView) { [weak self] in
-            self?.webView.loadHTMLString(post.contentForDisplay())
-        }
-
-        guard !featuredImage.isLoaded else {
-            return
-        }
-
-        // Load the image
-        featuredImage.load { [weak self] in
-            self?.hideLoading()
+            self?.showPostContent(post)
         }
 
         navigateToCommentIfNecessary()
     }
 
+    private func showPostContent(_ post: ReaderPost) {
+        if post.useExcerpt {
+            webView.loadHTMLString(post.makeExceptHTML())
+        } else if let content = post.contentForDisplay() {
+            webView.loadHTMLString(content)
+        }
+
+        if post.useExcerpt || post.content?.hasSuffix("[…]") == true {
+            let viewMoreView = ReaderReadMoreView(post: post)
+            if let subview = accessoriesStackView.subviews.first(where: { $0 is ReaderReadMoreView }) {
+                subview.removeFromSuperview()
+            }
+            accessoriesStackView.addArrangedSubview(viewMoreView)
+        }
+    }
+
     func renderRelatedPosts(_ posts: [RemoteReaderSimplePost]) {
-        let groupedPosts = Dictionary(grouping: posts, by: { $0.postType })
+        guard shouldFetchRelatedPosts else {
+            return
+        }
+
+        shouldFetchRelatedPosts = false
+
+        let groupedPosts = Dictionary(grouping: posts.filter(\.hasContentForRelatedPostCard), by: { $0.postType })
         let sections = groupedPosts.map { RelatedPostsSection(postType: $0.key, posts: $0.value) }
         relatedPosts = sections.sorted { $0.postType.rawValue < $1.postType.rawValue }
         relatedPostsTableView.reloadData()
         relatedPostsTableView.invalidateIntrinsicContentSize()
     }
 
-    private func tooltipTargetPoint() -> CGPoint {
-        setupFeaturedImage()
-        updateFollowButtonState()
-        guard let followButtonMidPoint = commentsTableViewDelegate.followButtonMidPoint() else {
-            return .zero
-        }
-
-        return CGPoint(
-            x: commentsTableView.frame.minX + followButtonMidPoint.x,
-            y: commentsTableView.frame.minY + followButtonMidPoint.y
-        )
-    }
-
-    private func configureTooltipPresenter(anchorAction: (() -> Void)?) {
-        let tooltip = Tooltip()
-
-        tooltip.title = Strings.tooltipTitle
-        tooltip.message = Strings.tooltipMessage
-        tooltip.primaryButtonTitle = Strings.tooltipButtonTitle
-
-        tooltipPresenter = TooltipPresenter(
-            containerView: scrollView,
-            tooltip: tooltip,
-            target: .point(tooltipTargetPoint),
-            shouldShowSpotlightView: true,
-            primaryTooltipAction: { [weak self] in
-                self?.featureHighlightStore.didDismissTooltip = true
-                WPAnalytics.trackReader(.readerFollowConversationTooltipTapped)
-            }
-        )
-        tooltipPresenter?.tooltipVerticalPosition = .above
-
-        if let anchorAction = anchorAction {
-            tooltipPresenter?.attachAnchor(
-                withTitle: Strings.tooltipAnchorTitle,
-                onView: view,
-                anchorAction: anchorAction
-            )
-        }
-
-        scrollView.delegate = self
-
-        let isCommentsTableViewVisible = isVisibleInScrollView(commentsTableView)
-        if isCommentsTableViewVisible {
-            tooltipPresenter?.showTooltip()
-            didShowTooltip = true
-            scrollView.layoutIfNeeded()
-        }
-
-        tooltipPresenter?.toggleAnchorVisibility(!isCommentsTableViewVisible)
-    }
-
-    private func scrollToTooltip() {
-        scrollView.setContentOffset(CGPoint(x: 0, y: tooltipTargetPoint().y - scrollView.frame.height/2), animated: true)
-        scrollView.layoutIfNeeded()
-    }
-
     private func navigateToCommentIfNecessary() {
-        if let post = post,
+        if let post,
            let commentID = coordinator?.commentID,
            !hasAutomaticallyTriggeredCommentAction {
             hasAutomaticallyTriggeredCommentAction = true
 
-            ReaderCommentAction().execute(post: post,
-                                          origin: self,
-                                          promptToAddComment: false,
-                                          navigateToCommentID: commentID,
-                                          source: .postDetails)
+            ReaderCommentAction().execute(
+                post: post,
+                origin: self,
+                navigateToCommentID: commentID,
+                source: .postDetails,
+                trackingSource: ScreenTrackingSource(ScreenID.Reader.article, component: ElementID.Reader.commentsSection)
+            )
         }
     }
 
-    /// Show ghost cells indicating the content is loading
     func showLoading() {
-        let style = GhostStyle(beatDuration: GhostStyle.Defaults.beatDuration,
-                               beatStartColor: .placeholderElement,
-                               beatEndColor: .placeholderElementFaded)
-
-        loadingView.startGhostAnimation(style: style)
+        if activityIndicator.superview == nil {
+            if post == nil {
+                header.alpha = 0
+            }
+            for view in allContentViews {
+                view.alpha = 0
+            }
+            scrollView.addSubview(activityIndicator)
+            activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+            if post == nil {
+                NSLayoutConstraint.activate([
+                    activityIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                    activityIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+                ])
+            } else {
+                NSLayoutConstraint.activate([
+                    activityIndicator.centerXAnchor.constraint(equalTo: webView.centerXAnchor),
+                    activityIndicator.topAnchor.constraint(equalTo: webView.topAnchor, constant: 64),
+                ])
+            }
+            activityIndicator.startAnimating()
+        }
     }
 
-    /// Hide the ghost cells
     func hideLoading() {
-        guard !featuredImage.isLoading, !isLoadingWebView else {
+        guard !isLoadingWebView else {
             return
         }
 
-        UIView.animate(withDuration: 0.3, animations: {
-            self.loadingView.alpha = 0.0
-        }) { (_) in
-            self.loadingView.isHidden = true
-            self.loadingView.stopGhostAnimation()
-            self.loadingView.alpha = 1.0
+        activityIndicator.stopAnimating()
+        activityIndicator.removeFromSuperview()
+        UIView.animate(withDuration: 0.25) {
+            self.header.alpha = 1
+            for view in self.allContentViews {
+                view.alpha = 1
+            }
         }
 
-        guard let post = post else {
+        guard let post else {
+            return
+        }
+
+        fetchRelatedPostsIfNeeded(for: post)
+    }
+
+    private var allContentViews: [UIView] {
+        [webView, tagsContainerView, likesContainerView, commentsTableView, relatedPostsTableView, actionStackView]
+    }
+
+    func fetchRelatedPostsIfNeeded(for post: ReaderPost) {
+        guard shouldFetchRelatedPosts else {
             return
         }
 
@@ -382,99 +390,51 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
     }
 
     /// Shown an error
-    func showError() {
+    func showError(subtitle: String?) {
         isLoadingWebView = false
         hideLoading()
 
-        displayLoadingView(title: LoadingText.errorLoadingTitle)
+        displayLoadingView(title: LoadingText.errorLoadingTitle, subtitle: subtitle)
     }
 
     /// Shown an error with a button to open the post on the browser
-    func showErrorWithWebAction() {
-        displayLoadingViewWithWebAction(title: LoadingText.errorLoadingTitle)
-    }
-
-    @objc func willEnterForeground() {
-        guard isViewOnScreen() else {
-            return
-        }
-
-        ReaderTracker.shared.start(.readerPost)
+    func showErrorWithWebAction(error: Error?) {
+        displayLoadingViewWithWebAction(title: LoadingText.errorLoadingTitle, error: error)
     }
 
     /// Scroll the content to a given #hash
     ///
     func scroll(to hash: String) {
-        webView.evaluateJavaScript("document.getElementById('\(hash)').offsetTop", completionHandler: { [unowned self] height, _ in
-            guard let height = height as? CGFloat else {
+        webView.evaluateJavaScript("document.getElementById('\(hash)').offsetTop", completionHandler: { [weak self] height, _ in
+            guard let self, let height = height as? CGFloat else {
                 return
             }
 
-            self.scrollView.setContentOffset(CGPoint(x: 0, y: height + self.webView.frame.origin.y), animated: true)
+            let y = height + self.webView.frame.origin.y - self.scrollView.adjustedContentInset.top
+            self.scrollView.setContentOffset(CGPoint(x: 0, y: y), animated: true)
         })
     }
 
     func updateHeader() {
-        header.refreshFollowButton()
+        guard let post else { return }
+        header.isSubscribed = post.isFollowing
     }
 
-    func updateLikes(with avatarURLStrings: [String], totalLikes: Int) {
-        // always configure likes summary view first regardless of totalLikes, since it can affected by self likes.
-        likesSummary.configure(with: avatarURLStrings, totalLikes: totalLikes)
-
-        guard totalLikes > 0 else {
+    func updateLikesView(with viewModel: ReaderDetailLikesViewModel) {
+        guard viewModel.likeCount > 0 else {
             hideLikesView()
             return
         }
-
         if likesSummary.superview == nil {
             configureLikesSummary()
         }
-
         scrollView.layoutIfNeeded()
 
-        // Delay configuration due to the sideeffect in fresh install.
-        // The position calculation is wrong for the first time this VC is opened
-        // regardless of the post. It never happens after that. Although the timing
-        // of this call is accurate, the calculation returns wrong result on that case.
-        // This manually delays the configuration and hacks the issue.
-        // We can remove this once the culprit is out.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            if self.shouldConfigureTooltipPresenter() {
-                self.configureTooltipPresenter { [weak self] in
-                    self?.scrollToTooltip()
-                    WPAnalytics.trackReader(.readerFollowConversationAnchorTapped)
-                }
-            }
-        }
-    }
-
-    private func shouldConfigureTooltipPresenter() -> Bool {
-        featureHighlightStore.shouldShowTooltip
-        && (post?.canSubscribeComments ?? false)
-        && (!(post?.isSubscribedComments ?? false))
-    }
-
-    func updateSelfLike(with avatarURLString: String?) {
-        // only animate changes when the view is visible.
-        let shouldAnimate = isVisibleInScrollView(likesSummary)
-        guard let someURLString = avatarURLString else {
-            likesSummary.removeSelfAvatar(animated: shouldAnimate)
-            if likesSummary.totalLikesForDisplay == 0 {
-                hideLikesView()
-            }
-            return
-        }
-
-        if likesSummary.superview == nil {
-            configureLikesSummary()
-        }
-
-        likesSummary.addSelfAvatar(with: someURLString, animated: shouldAnimate)
+        likesSummary.configure(with: viewModel)
     }
 
     func updateComments(_ comments: [Comment], totalComments: Int) {
-        guard let post = post else {
+        guard let post else {
             DDLogError("Missing post when updating Reader post detail comments.")
             return
         }
@@ -486,26 +446,22 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
         // Set the delegate here so the table isn't shown until fetching is complete.
         commentsTableView.delegate = commentsTableViewDelegate
         commentsTableView.dataSource = commentsTableViewDelegate
-        commentsTableViewDelegate.followButtonTappedClosure = { [weak self] in
-            guard let tooltipPresenter = self?.tooltipPresenter else {
-                return
-            }
-
-            self?.featureHighlightStore.didDismissTooltip = true
-            tooltipPresenter.dismissTooltip()
+        commentsTableViewDelegate.buttonLeaveCommentTapped = { [weak self] in
+            self?.buttonLeaveCommentTapped(replyingTo: $0)
         }
-
-        commentsTableViewDelegate.updateWith(post: post,
-                                             comments: approvedComments,
-                                             totalComments: totalComments,
-                                             presentingViewController: self,
-                                             buttonDelegate: self)
+        commentsTableViewDelegate.configure(
+            post: post,
+            comments: approvedComments,
+            totalComments: totalComments,
+            presentingViewController: self,
+            buttonDelegate: self
+        )
 
         commentsTableView.reloadData()
     }
 
     func updateFollowButtonState() {
-        guard let post = post else {
+        guard let post else {
             return
         }
 
@@ -514,36 +470,81 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
 
     deinit {
         scrollObserver?.invalidate()
+        toolbarUpdateTimer?.invalidate()
+        translationAvailabilityTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
     /// Apply view styles
-    private func applyStyles() {
-        guard let readableGuide = webView.superview?.readableContentGuide else {
-            return
-        }
-
+    @MainActor private func applyStyles() {
         NSLayoutConstraint.activate([
-            webView.rightAnchor.constraint(equalTo: readableGuide.rightAnchor, constant: -Constants.margin),
-            webView.leftAnchor.constraint(equalTo: readableGuide.leftAnchor, constant: Constants.margin)
+            webView.rightAnchor.constraint(equalTo: view.readableContentGuide.rightAnchor, constant: 0),
+            webView.leftAnchor.constraint(equalTo: view.readableContentGuide.leftAnchor, constant: 0)
         ])
 
         webView.translatesAutoresizingMaskIntoConstraints = false
 
         // Webview is scroll is done by it's superview
         webView.scrollView.isScrollEnabled = false
+
+        webView.displaySetting = displaySetting
+
+        view.backgroundColor = displaySetting.color.background
+
+        headerContainerView.backgroundColor = displaySetting.color.background
+    }
+
+    private func applyDisplaySetting() {
+        UIView.animate(withDuration: 0.3) { [weak self] in
+            guard let self else {
+                return
+            }
+
+            // Main background view
+            view.backgroundColor = displaySetting.color.background
+
+            headerContainerView.backgroundColor = displaySetting.color.background
+
+            // Header view
+            header.apply(displaySetting)
+        }
+
+        // Update Reader Post web view
+        if let contentForDisplay = post?.contentForDisplay() {
+            webView.displaySetting = displaySetting
+            webView.loadHTMLString(contentForDisplay)
+        } else {
+            // It's unexpected for the `post` or `contentForDisplay()` to be nil. Let's keep track of it.
+            CrashLogging.main.logMessage("Expected contentForDisplay() to exist", level: .error)
+        }
+
+        // Likes view
+        likesSummary.displaySetting = displaySetting
+
+        // Comments table view
+        commentsTableViewDelegate.displaySetting = displaySetting
+        commentsTableView.reloadData()
+
+        // Related posts table view
+        relatedPostsTableView.reloadData()
+
+        // Tags collection view
+        tagsCollectionView.coordinator?.displaySetting = displaySetting
+        tagsCollectionView.coordinator?.reloadData()
     }
 
     /// Configure the webview
     private func configureWebView() {
-        webView.usesSansSerifStyle = true
+        scrollView.delegate = self
+
         webView.navigationDelegate = self
     }
 
     /// Updates the webview height constraint with it's height
     private func observeWebViewHeight() {
         scrollObserver = webView.scrollView.observe(\.contentSize, options: .new) { [weak self] _, change in
-            guard let height = change.newValue?.height else {
+            guard let self,
+                  let height = change.newValue?.height else {
                 return
             }
 
@@ -551,67 +552,47 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
             /// (except for a few times when it returns a very big weird number)
             /// We use that value so the content is not displayed with weird empty space at the bottom
             ///
-            self?.webView.evaluateJavaScript("document.body.scrollHeight", completionHandler: { (webViewHeight, error) in
+            self.webView.evaluateJavaScript("document.body.scrollHeight", completionHandler: { [weak self] webViewHeight, _ in
+                guard let self else { return }
                 guard let webViewHeight = webViewHeight as? CGFloat else {
-                    self?.webViewHeight.constant = height
+                    self.webViewHeight.constant = height
                     return
                 }
 
-                self?.webViewHeight.constant = min(height, webViewHeight)
+                /// The display setting's custom size is applied through the HTML's initial-scale property
+                /// in the meta tag. The `scrollHeight` value seems to return the height as if it's at 1.0 scale,
+                /// so we'll need to add the custom scale into account.
+                let scaledWebViewHeight = round(webViewHeight * self.displaySetting.size.scale)
+                self.webViewHeight.constant = min(scaledWebViewHeight, height)
             })
         }
     }
 
-    private func setupFeaturedImage() {
-        configureFeaturedImage()
-
-        featuredImage.configure(
-            scrollView: scrollView,
-            navigationBar: navigationController?.navigationBar,
-            navigationItem: navigationItem
-        )
-
-        guard !featuredImage.isLoaded else {
-            return
-        }
-
-        // Load the image
-        featuredImage.load { [unowned self] in
-            self.hideLoading()
-        }
-    }
-
-    private func configureFeaturedImage() {
-        guard featuredImage.superview == nil else {
-            return
-        }
-
-        featuredImage.useCompatibilityMode = useCompatibilityMode
-
-        featuredImage.delegate = coordinator
-
-        view.insertSubview(featuredImage, belowSubview: loadingView)
-
-        NSLayoutConstraint.activate([
-            featuredImage.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
-            featuredImage.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
-            featuredImage.topAnchor.constraint(equalTo: view.topAnchor, constant: 0)
-        ])
-
-        headerContainerView.translatesAutoresizingMaskIntoConstraints = false
-    }
-
     private func configureHeader() {
-        header.useCompatibilityMode = useCompatibilityMode
+        header.apply(displaySetting)
         header.delegate = coordinator
+        header.translatesAutoresizingMaskIntoConstraints = false
         headerContainerView.addSubview(header)
-        headerContainerView.translatesAutoresizingMaskIntoConstraints = false
-
         headerContainerView.pinSubviewToAllEdges(header)
     }
 
+    private func configureHeaderView(with post: ReaderPost, customTitle: String? = nil) {
+        let featuredImageURL: URL? = post.contentIncludesFeaturedImage() ? nil : post.featuredImageURLForDisplay()
+        header.configure(with: ReaderPostHeaderView.ViewModel(
+            siteName: post.blogNameForDisplay(),
+            postTitle: customTitle ?? post.titleForDisplay(),
+            authorName: post.authorForDisplay() ?? "",
+            authorAvatarURL: post.avatarURLForDisplay(),
+            dateString: post.dateForDisplay()?.mediumStringWithTime(),
+            featuredImageURL: featuredImageURL,
+            featuredImageHost: MediaHost(post),
+            excerpt: cachedExcerpt
+        ))
+        updateHeader()
+    }
+
     private func fetchLikes() {
-        guard let post = post else {
+        guard let post else {
             return
         }
 
@@ -620,6 +601,7 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
 
     private func configureLikesSummary() {
         likesSummary.delegate = coordinator
+        likesSummary.displaySetting = displaySetting
         likesContainerView.addSubview(likesSummary)
         likesContainerView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -638,8 +620,45 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
         view.setNeedsDisplay()
     }
 
+    private func configureTagsCollectionView() {
+        tagsContainerView.addSubview(tagsCollectionView)
+        tagsContainerView.translatesAutoresizingMaskIntoConstraints = false
+        tagsCollectionView.translatesAutoresizingMaskIntoConstraints = false
+        tagsCollectionView.topicDelegate = self
+
+        NSLayoutConstraint.activate([
+            tagsCollectionView.topAnchor.constraint(equalTo: tagsContainerView.topAnchor),
+            tagsCollectionView.bottomAnchor.constraint(equalTo: tagsContainerView.bottomAnchor),
+            tagsCollectionView.leadingAnchor.constraint(equalTo: tagsContainerView.leadingAnchor),
+            tagsCollectionView.trailingAnchor.constraint(lessThanOrEqualTo: tagsContainerView.trailingAnchor)
+        ])
+    }
+
+    private func updateTagsView(with post: ReaderPost) {
+        let tags = post.tagsForDisplay()
+        guard !tags.isEmpty else {
+            hideTagsView()
+            return
+        }
+
+        if tagsCollectionView.superview == nil {
+            configureTagsCollectionView()
+        }
+
+        tagsCollectionView.coordinator?.displaySetting = displaySetting
+        tagsCollectionView.topics = tags
+        scrollView.layoutIfNeeded()
+    }
+
+    private func hideTagsView() {
+        // Because other components are constrained to the tagsContainerView, simply hiding it leaves a gap.
+        tagsCollectionView.removeFromSuperview()
+        tagsContainerView.frame.size.height = 0
+        view.setNeedsDisplay()
+    }
+
     @objc private func fetchComments() {
-        guard let post = post else {
+        guard let post else {
             return
         }
 
@@ -647,6 +666,8 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
     }
 
     private func configureCommentsTable() {
+        commentsTableView.separatorStyle = .none
+        commentsTableView.backgroundColor = .clear
         commentsTableView.register(ReaderDetailCommentsHeader.defaultNib,
                                    forHeaderFooterViewReuseIdentifier: ReaderDetailCommentsHeader.defaultReuseID)
         commentsTableView.register(CommentContentTableViewCell.defaultNib,
@@ -655,9 +676,100 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
                                    forCellReuseIdentifier: ReaderDetailNoCommentCell.defaultReuseID)
     }
 
+    // Translation framework doesn't support UIKit, so we have to jump through the hoops.
+    private func configureTranslationIfAvailable() {
+        guard #available(iOS 26, *) else {
+            return
+        }
+        let hostingController = UIHostingController(rootView: translationHostView)
+        hostingController.view.isHidden = true
+        addChild(hostingController)
+        view.addSubview(hostingController.view)
+        hostingController.didMove(toParent: self)
+    }
+
+    private func checkTranslationAvailability() {
+        guard #available(iOS 26, *) else {
+            return
+        }
+        translationAvailabilityTask?.cancel()
+        translationAvailabilityTask = Task { @MainActor [weak self] in
+            await self?.updateTranslationAvailability()
+        }
+    }
+
+    @available(iOS 26, *)
+    private func updateTranslationAvailability() async {
+        if let post, let content = post.contentForDisplay() {
+            translationAvailability = await translationViewModel.checkAvailability(for: content)
+        }
+    }
+
+    @available(iOS 26, *)
+    func translatePost() {
+        Task { @MainActor in
+            do {
+                try await actuallyTranslatePost()
+            } catch {
+                if !(error is CancellationError) {
+                    Notice(error: error).post()
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
+                }
+                DDLogError("Translation failed: \(error)")
+            }
+        }
+    }
+
+    @available(iOS 26, *)
+    @MainActor
+    private func actuallyTranslatePost() async throws {
+        guard let post, case let .available(source, target) = translationAvailability else {
+            return
+        }
+        guard !isTranslating else {
+            return
+        }
+        isTranslating = true
+        showTranslationSpinner()
+        defer {
+            isTranslating = false
+            hideTranslationSpinner()
+        }
+
+        let translationResults = try await translationViewModel.translate(
+            [post.postTitle ?? "", post.content ?? ""],
+            from: source,
+            to: target
+        )
+
+        // Create blur effect
+        let blurEffect = UIBlurEffect(style: .light)
+        let blurView = UIVisualEffectView(effect: nil)
+        blurView.frame = view.bounds
+        blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(blurView)
+
+        UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseIn) {
+            blurView.effect = blurEffect
+        }
+        UIView.animate(withDuration: 0.25, delay: 0.15, options: .curveEaseOut) {
+            blurView.effect = nil
+        } completion: { _ in
+            blurView.removeFromSuperview()
+        }
+
+        configureHeaderView(with: post, customTitle: translationResults[0])
+        do {
+            try await webView.setBodyHTML(translationResults[1])
+        } catch {
+            DDLogError("Failed to set HTML: \(error)")
+        }
+    }
+
     private func configureRelatedPosts() {
         relatedPostsTableView.isScrollEnabled = false
         relatedPostsTableView.separatorStyle = .none
+        relatedPostsTableView.backgroundColor = .clear
 
         relatedPostsTableView.register(ReaderRelatedPostsCell.defaultNib,
                            forCellReuseIdentifier: ReaderRelatedPostsCell.defaultReuseID)
@@ -670,13 +782,13 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
 
     private func configureToolbar() {
         toolbar.delegate = coordinator
-        toolbarContainerView.addSubview(toolbar)
-        toolbarContainerView.translatesAutoresizingMaskIntoConstraints = false
+        toolbar.configure(for: self)
+        updateToolbarItems()
+    }
 
-        toolbarContainerView.pinSubviewToAllEdges(toolbar)
-        toolbarSafeAreaView.backgroundColor = toolbar.backgroundColor
-
-        toolbarHeightConstraint.constant = Constants.preferredToolbarHeight
+    private func updateToolbarItems() {
+        guard let post else { return }
+        toolbar.configure(for: post, in: self)
     }
 
     private func configureDiscoverAttribution(_ post: ReaderPost) {
@@ -698,11 +810,6 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
     }
 
     private func configureNotifications() {
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(willEnterForeground),
-                                               name: UIApplication.willEnterForegroundNotification,
-                                               object: nil)
-
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(siteBlocked(_:)),
                                                name: .ReaderSiteBlocked,
@@ -730,15 +837,33 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
     /// Ask the coordinator to present the share sheet
     ///
     @objc func didTapShareButton(_ sender: UIBarButtonItem) {
-        coordinator?.share(fromAnchor: .barButtonItem(sender))
-    }
-
-    @objc func didTapMenuButton(_ sender: UIBarButtonItem) {
-        coordinator?.didTapMenuButton(sender)
+        coordinator?.share(fromAnchor: sender)
     }
 
     @objc func didTapBrowserButton(_ sender: UIBarButtonItem) {
         coordinator?.openInBrowser()
+    }
+
+    @objc func didTapDisplaySettingButton() {
+        let viewController = ReaderDisplaySettingViewController(initialSetting: displaySetting,
+                                                                source: .readerPostNavBar) { [weak self] newSetting in
+            // no need to refresh if there are no changes to the display setting.
+            guard let self,
+                  newSetting != self.displaySetting else {
+                return
+            }
+
+            self.displaySettingStore.setting = newSetting
+            self.applyDisplaySetting()
+        }
+
+        let navController = UINavigationController(rootViewController: viewController)
+        if let sheet = navController.sheetPresentationController {
+            sheet.detents = [.large()]
+            sheet.prefersGrabberVisible = false
+        }
+
+        navigationController?.present(navController, animated: true)
     }
 
     /// A View Controller that displays a Post content.
@@ -767,22 +892,25 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
         let coordinator = ReaderDetailCoordinator(view: controller)
         coordinator.postURL = url
         controller.coordinator = coordinator
-
+        controller.originalUrl = url
         return controller
     }
-
 
     /// Creates an instance from a Related post / Simple Post
     /// - Parameter simplePost: The related post object
     /// - Returns: If the related post URL is not valid
     class func controllerWithSimplePost(_ simplePost: RemoteReaderSimplePost) -> ReaderDetailViewController? {
-        guard !simplePost.postUrl.isEmpty(), let url = URL(string: simplePost.postUrl) else {
+        guard !simplePost.postUrl.isEmpty(), URL(string: simplePost.postUrl) != nil else {
             return nil
         }
 
         let controller = ReaderDetailViewController.loadFromStoryboard()
         let coordinator = ReaderDetailCoordinator(view: controller)
-        coordinator.postURL = url
+        coordinator.set(
+            postID: NSNumber(value: simplePost.postID),
+            siteID: NSNumber(value: simplePost.siteID),
+            isFeed: false
+        )
         coordinator.remoteSimplePost = simplePost
         controller.coordinator = coordinator
 
@@ -799,12 +927,13 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
     /// - Parameter post: a Reader Post
     /// - Returns: A `ReaderDetailViewController` instance
     @objc class func controllerWithPost(_ post: ReaderPost) -> ReaderDetailViewController {
-        if post.sourceAttributionStyle() == .post &&
-            post.sourceAttribution.postID != nil &&
-            post.sourceAttribution.blogID != nil {
-            return ReaderDetailViewController.controllerWithPostID(post.sourceAttribution.postID!, siteID: post.sourceAttribution.blogID!)
-        } else if post.isCross() {
-            return ReaderDetailViewController.controllerWithPostID(post.crossPostMeta.postID, siteID: post.crossPostMeta.siteID)
+        if post.sourceAttributionStyle() == .post,
+           let sourceAttribution = post.sourceAttribution,
+           let postID = sourceAttribution.postID,
+           let blogID = sourceAttribution.blogID {
+            return ReaderDetailViewController.controllerWithPostID(postID, siteID: blogID)
+        } else if post.isCrossPost, let crossPostMeta = post.crossPostMeta {
+            return ReaderDetailViewController.controllerWithPostID(crossPostMeta.postID, siteID: crossPostMeta.siteID)
         } else {
             let controller = ReaderDetailViewController.loadFromStoryboard()
             let coordinator = ReaderDetailCoordinator(view: controller)
@@ -815,8 +944,7 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
     }
 
     private enum Constants {
-        static let margin: CGFloat = UIDevice.isPad() ? 0 : 8
-        static let preferredToolbarHeight: CGFloat = 58.0
+        static let preferredArticleWidth: CGFloat = 680
     }
 
     // MARK: - Managed object observer
@@ -831,7 +959,6 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
                                                object: post.managedObjectContext)
     }
 
-
     @objc func handleObjectsChange(_ notification: Foundation.Notification) {
         guard let post else {
             return
@@ -840,8 +967,45 @@ class ReaderDetailViewController: UIViewController, ReaderDetailView {
         let refreshed = notification.userInfo?[NSRefreshedObjectsKey] as? Set<NSManagedObject> ?? Set()
 
         if updated.contains(post) || refreshed.contains(post) {
-            header.configure(for: post)
+            configureHeaderView(with: post)
         }
+    }
+}
+
+extension ReaderDetailViewController: UIScrollViewDelegate {
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let currentOffset = scrollView.contentOffset.y
+
+        if let frame = likesContainerView.frame(in: view), frame.origin.y < view.bounds.height {
+            toolbarHiddenDebouncer.send(false) // Reached bottom (controls, comments, etc)
+        } else if currentOffset > scrollView.contentSize.height - view.bounds.height {
+            toolbarHiddenDebouncer.send(false) // Close enough to the bottom
+        } else if currentOffset > lastContentOffset && currentOffset > 0 {
+            toolbarHiddenDebouncer.send(true) // Scrolling down
+        } else if currentOffset < lastContentOffset {
+            toolbarHiddenDebouncer.send(false) // Scrolling up
+        }
+        lastContentOffset = currentOffset
+    }
+
+    private func setNeedsToolbarHidden(_ isHidden: Bool) {
+        // Debounce to prevent it from quickly switching between states when
+        // on the edge of the scroll threshold.
+        toolbarUpdateTimer?.invalidate()
+        toolbarUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { [weak self] _ in
+            self?.setToolbarHidden(isHidden, animated: true)
+        }
+    }
+
+    private func setToolbarHidden(_ isHidden: Bool, animated: Bool) {
+        guard scrollView.contentSize.height > view.bounds.height * 2.5 else {
+            return // No point in briefly hiding it
+        }
+        guard isToolbarHidden != isHidden else {
+            return
+        }
+        isToolbarHidden = isHidden
+        navigationController?.setToolbarHidden(isHidden, animated: animated)
     }
 }
 
@@ -872,6 +1036,18 @@ extension ReaderDetailViewController: UITableViewDataSource, UITableViewDelegate
 
         let post = relatedPosts[indexPath.section].posts[indexPath.row]
         cell.configure(for: post)
+
+        // Additional style overrides
+        cell.backgroundColor = .clear
+
+        if ReaderDisplaySettings.customizationEnabled {
+            cell.titleLabel.font = displaySetting.font(with: .body, weight: .semibold)
+            cell.titleLabel.textColor = displaySetting.color.foreground
+
+            cell.excerptLabel.font = displaySetting.font(with: .footnote)
+            cell.excerptLabel.textColor = displaySetting.color.foreground
+        }
+
         return cell
     }
 
@@ -886,6 +1062,14 @@ extension ReaderDetailViewController: UITableViewDataSource, UITableViewDelegate
         }
 
         header.titleLabel.text = title
+
+        // Additional style overrides
+        header.backgroundColorView.backgroundColor = .clear
+
+        if ReaderDisplaySettings.customizationEnabled {
+            header.titleLabel.font = displaySetting.font(with: .footnote, weight: .semibold)
+            header.titleLabel.textColor = displaySetting.color.foreground
+        }
 
         return header
     }
@@ -902,15 +1086,8 @@ extension ReaderDetailViewController: UITableViewDataSource, UITableViewDelegate
         guard let controller = ReaderDetailViewController.controllerWithSimplePost(post) else {
             return
         }
-
-        // Related posts should be presented in its own nav stack,
-        // so that a user can return to the original post by dismissing the related posts nav stack.
-        if navigationController?.viewControllers.first is ReaderDetailViewController {
-            navigationController?.pushViewController(controller, animated: true)
-        } else {
-            let nav = UINavigationController(rootViewController: controller)
-            self.present(nav, animated: true)
-        }
+        controller.trackingContext.source = ScreenTrackingSource(ScreenID.Reader.article, component: ElementID.Reader.relatedPosts, position: indexPath.row)
+        navigationController?.pushViewController(controller, animated: true)
     }
 
     private func getSectionTitle(for postType: RemoteReaderSimplePost.PostType) -> String? {
@@ -928,10 +1105,30 @@ extension ReaderDetailViewController: UITableViewDataSource, UITableViewDelegate
     }
 }
 
+// MARK: - ReaderDisplaySettingStoreDelegate
+
+extension ReaderDetailViewController: ReaderDisplaySettingStoreDelegate {
+    func displaySettingDidChange() {
+        applyDisplaySetting()
+    }
+}
+
 // MARK: - UIGestureRecognizerDelegate
 extension ReaderDetailViewController: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         return true
+    }
+}
+
+// MARK: - ReaderTopicCollectionViewCoordinatorDelegate
+
+extension ReaderDetailViewController: ReaderTopicCollectionViewCoordinatorDelegate {
+    func coordinator(_ coordinator: ReaderTopicCollectionViewCoordinator, didSelectTopic topic: String) {
+        self.coordinator?.showTopic(topic)
+    }
+
+    func coordinator(_ coordinator: ReaderTopicCollectionViewCoordinator, didChangeState: ReaderTopicCollectionViewState) {
+        // Handle state changes if needed (expand/collapse)
     }
 }
 
@@ -940,17 +1137,6 @@ extension ReaderDetailViewController: UIGestureRecognizerDelegate {
 extension ReaderDetailViewController: ReaderCardDiscoverAttributionViewDelegate {
     public func attributionActionSelectedForVisitingSite(_ view: ReaderCardDiscoverAttributionView) {
         coordinator?.showMore()
-    }
-}
-
-// MARK: - UpdatableStatusBarStyle
-extension ReaderDetailViewController: UpdatableStatusBarStyle {
-    func updateStatusBarStyle(to style: UIStatusBarStyle) {
-        guard style != currentPreferredStatusBarStyle else {
-            return
-        }
-
-        currentPreferredStatusBarStyle = style
     }
 }
 
@@ -992,15 +1178,18 @@ extension ReaderDetailViewController: WKNavigationDelegate {
 // MARK: - Error View Handling (NoResultsViewController)
 
 private extension ReaderDetailViewController {
-    func displayLoadingView(title: String, accessoryView: UIView? = nil) {
-        noResultsViewController.configure(title: title, accessoryView: accessoryView)
+    func displayLoadingView(title: String, subtitle: String? = nil, accessoryView: UIView? = nil) {
+        noResultsViewController.configure(title: title, subtitle: subtitle, accessoryView: accessoryView)
         showLoadingView()
     }
 
-    func displayLoadingViewWithWebAction(title: String, accessoryView: UIView? = nil) {
-        noResultsViewController.configure(title: title,
-                                          buttonTitle: LoadingText.errorLoadingPostURLButtonTitle,
-                                          accessoryView: accessoryView)
+    func displayLoadingViewWithWebAction(title: String, error: Error? = nil, accessoryView: UIView? = nil) {
+        noResultsViewController.configure(
+            title: title,
+            buttonTitle: LoadingText.errorLoadingPostURLButtonTitle,
+            subtitle: error?.localizedDescription,
+            accessoryView: accessoryView
+        )
         showLoadingView()
     }
 
@@ -1022,34 +1211,54 @@ private extension ReaderDetailViewController {
         static let errorLoadingTitle = NSLocalizedString("Error Loading Post", comment: "Text displayed when load post fails.")
         static let errorLoadingPostURLButtonTitle = NSLocalizedString("Open in browser", comment: "Button title to load a post in an in-app web view")
     }
-
 }
 
 // MARK: - Navigation Bar Configuration
 private extension ReaderDetailViewController {
 
     func configureNavigationBar() {
-
         // If a Related post fails to load, disable the More and Share buttons as they won't do anything.
         let rightItems = [
             moreButtonItem(enabled: enableRightBarButtons),
-            shareButtonItem(enabled: enableRightBarButtons),
-            safariButtonItem()
+            shareButtonItem(enabled: enableRightBarButtons)
         ]
-
-        if !isModal() {
-            navigationItem.leftBarButtonItem = backButtonItem()
-        } else {
-            navigationItem.leftBarButtonItem = dismissButtonItem()
-        }
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItems = rightItems.compactMap({ $0 })
     }
 
-    func backButtonItem() -> UIBarButtonItem {
-        let button = barButtonItem(with: .gridicon(.chevronLeft), action: #selector(didTapBackButton(_:)))
-        button.accessibilityLabel = Strings.backButtonAccessibilityLabel
+    func showTranslationSpinner() {
+        guard var items = navigationItem.rightBarButtonItems,
+              !items.contains(translationSpinner) else { return }
+        items.append(translationSpinner)
+        navigationItem.setRightBarButtonItems(items, animated: true)
+    }
 
+    func hideTranslationSpinner() {
+        guard var items = navigationItem.rightBarButtonItems,
+              let index = items.firstIndex(of: translationSpinner) else { return }
+        items.remove(at: index)
+        navigationItem.setRightBarButtonItems(items, animated: true)
+    }
+
+    /// Updates the left bar button item based on the current view controller's context in the navigation stack.
+    /// If the view controller is presented modally and does not have a left bar button item, a dismiss button is set.
+    /// If the view controller is not the root of the navigation stack, a back button is set.
+    /// Otherwise, the left bar button item is cleared.
+    func updateLeftBarButtonItem() {
+        if isModal(), navigationItem.leftBarButtonItem == nil {
+            navigationItem.leftBarButtonItem = dismissButtonItem()
+        } else if navigationController?.viewControllers.first !== self {
+            navigationItem.leftBarButtonItem = backButtonItem()
+        } else {
+            navigationItem.leftBarButtonItem = nil
+        }
+    }
+
+    func backButtonItem() -> UIBarButtonItem {
+        let config = UIImage.SymbolConfiguration(weight: .semibold)
+        let image = UIImage(systemName: "chevron.backward", withConfiguration: config)
+        let button = barButtonItem(with: image ?? UIImage(), action: #selector(didTapBackButton(_:)))
+        button.accessibilityLabel = Strings.backButtonAccessibilityLabel
         return button
     }
 
@@ -1068,28 +1277,44 @@ private extension ReaderDetailViewController {
         dismiss(animated: true)
     }
 
-    func safariButtonItem() -> UIBarButtonItem? {
-        let button = barButtonItem(with: .gridicon(.globe), action: #selector(didTapBrowserButton(_:)))
-        button.accessibilityLabel = Strings.safariButtonAccessibilityLabel
-
+    func moreButtonItem(enabled: Bool = true) -> UIBarButtonItem? {
+        let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: nil)
+        button.menu = UIMenu(options: .displayInline, children: [
+            UIDeferredMenuElement.uncached { [weak self, weak button] callback in
+                guard let self, let button else {
+                    return callback([])
+                }
+                callback(self.makeMoreMenu(button))
+            }
+        ])
+        button.accessibilityLabel = Strings.moreButtonAccessibilityLabel
+        button.isEnabled = enabled
         return button
     }
 
-    func moreButtonItem(enabled: Bool = true) -> UIBarButtonItem? {
-        guard let icon = UIImage(named: "icon-menu-vertical-ellipsis") else {
-            return nil
+    func makeMoreMenu(_ anchor: UIPopoverPresentationControllerSourceItem) -> [UIMenuElement] {
+        guard let post else {
+            return []
+        }
+        var elements = ReaderPostMenu(
+            post: post,
+            topic: nil,
+            anchor: anchor,
+            viewController: self
+        ).makeMenu()
+
+        if ReaderDisplaySettings.customizationEnabled {
+            elements.append(UIAction(title: Strings.displaySettingsLabel, image: UIImage(systemName: "textformat.size")) { [weak self] _ in
+                self?.didTapDisplaySettingButton()
+            })
         }
 
-        let button = barButtonItem(with: icon, action: #selector(didTapMenuButton(_:)))
-        button.accessibilityLabel = Strings.moreButtonAccessibilityLabel
-        button.isEnabled = enabled
-
-        return button
+        return elements
     }
 
     func shareButtonItem(enabled: Bool = true) -> UIBarButtonItem? {
-        let button = barButtonItem(with: .gridicon(.shareiOS), action: #selector(didTapShareButton(_:)))
-        button.accessibilityLabel = Strings.shareButtonAccessibilityLabel
+        let button = barButtonItem(with: UIImage(named: "wpl-share") ?? UIImage(), action: #selector(didTapShareButton(_:)))
+        button.accessibilityLabel = SharedStrings.Button.share
         button.isEnabled = enabled
 
         return button
@@ -1099,17 +1324,6 @@ private extension ReaderDetailViewController {
         let image = image.withRenderingMode(.alwaysTemplate)
         return UIBarButtonItem(image: image, style: .plain, target: self, action: action)
     }
-
-    /// Checks if the view is visible in the viewport.
-    func isVisibleInScrollView(_ view: UIView) -> Bool {
-        guard view.superview != nil, !view.isHidden else {
-            return false
-        }
-
-        let scrollViewFrame = CGRect(origin: scrollView.contentOffset, size: scrollView.frame.size)
-        let convertedViewFrame = scrollView.convert(view.bounds, from: view)
-        return scrollViewFrame.intersects(convertedViewFrame)
-    }
 }
 
 // MARK: - NoResultsViewControllerDelegate
@@ -1117,28 +1331,6 @@ private extension ReaderDetailViewController {
 extension ReaderDetailViewController: NoResultsViewControllerDelegate {
     func actionButtonPressed() {
         coordinator?.openInBrowser()
-    }
-}
-
-// MARK: - State Restoration
-
-extension ReaderDetailViewController: UIViewControllerRestoration {
-    public static func viewController(withRestorationIdentifierPath identifierComponents: [String],
-                                      coder: NSCoder) -> UIViewController? {
-        return ReaderDetailCoordinator.viewController(withRestorationIdentifierPath: identifierComponents, coder: coder)
-    }
-
-
-    open override func encodeRestorableState(with coder: NSCoder) {
-        coordinator?.encodeRestorableState(with: coder)
-
-        super.encodeRestorableState(with: coder)
-    }
-
-    open override func awakeAfter(using aDecoder: NSCoder) -> Any? {
-        restorationClass = type(of: self)
-
-        return super.awakeAfter(using: aDecoder)
     }
 }
 
@@ -1155,16 +1347,16 @@ extension ReaderDetailViewController {
             value: "Dismiss",
             comment: "Spoken accessibility label"
         )
+        static let displaySettingsLabel = NSLocalizedString(
+            "readerDetail.displaySettingButton.displaySettingsLabel",
+            value: "Reading Preferences",
+            comment: "Spoken accessibility label for the Reading Preferences menu.")
         static let safariButtonAccessibilityLabel = NSLocalizedString(
             "readerDetail.safariButton.accessibilityLabel",
             value: "Open in Safari",
             comment: "Spoken accessibility label"
         )
-        static let shareButtonAccessibilityLabel = NSLocalizedString(
-            "readerDetail.shareButton.accessibilityLabel",
-            value: "Share",
-            comment: "Spoken accessibility label"
-        )
+
         static let moreButtonAccessibilityLabel = NSLocalizedString(
             "readerDetail.moreButton.accessibilityLabel",
             value: "More",
@@ -1180,69 +1372,80 @@ extension ReaderDetailViewController {
             value: "More on WordPress.com",
             comment: "Section title for global related posts."
         )
-        static let tooltipTitle = NSLocalizedString(
-            "readerDetail.followConversationTooltipTitle.accessibilityLabel",
-            value: "Follow the conversation",
-            comment: "Title of follow conversations tooltip."
-        )
-        static let tooltipMessage = NSLocalizedString(
-            "readerDetail.followConversationTooltipMessage.accessibilityLabel",
-            value: "Get notified when new comments are added to this post.",
-            comment: "Message for the follow conversations tooltip."
-        )
-        static let tooltipButtonTitle = NSLocalizedString(
-            "readerDetail.followConversationTooltipButton.accessibilityLabel",
-            value: "Got it",
-            comment: "Button title for the follow conversations tooltip."
-        )
-        static let tooltipAnchorTitle = NSLocalizedString(
-            "readerDetail.tooltipAnchorTitle.accessibilityLabel",
-            value: "New",
-            comment: "Title for the tooltip anchor."
-        )
     }
 }
-
-// MARK: - DefinesVariableStatusBarStyle
-// Allows this VC to control the statusbar style dynamically
-extension ReaderDetailViewController: DefinesVariableStatusBarStyle {}
 
 // MARK: - BorderedButtonTableViewCellDelegate
 // For the `View All Comments` button.
 extension ReaderDetailViewController: BorderedButtonTableViewCellDelegate {
     func buttonTapped() {
-        guard let post = post else {
+        guard let post else {
             return
         }
 
-        ReaderCommentAction().execute(post: post,
-                                      origin: self,
-                                      promptToAddComment: commentsTableViewDelegate.totalComments == 0,
-                                      source: .postDetailsComments)
+        ReaderCommentAction().execute(
+            post: post,
+            origin: self,
+            source: .postDetailsComments,
+            trackingSource: ScreenTrackingSource(ScreenID.Reader.article, component: ElementID.Reader.commentsSection)
+        )
+    }
+
+    func buttonLeaveCommentTapped(replyingTo comment: Comment?) {
+        guard let post else {
+            return wpAssertionFailure("post missing")
+        }
+        let viewModel = CommentCreateViewModel(post: post, replyingTo: comment)
+        let composerVC = CommentCreateViewController(viewModel: viewModel)
+        let navigationVC = UINavigationController(rootViewController: composerVC)
+        present(navigationVC, animated: true)
     }
 }
 
-// MARK: - UIScrollViewDelegate
-extension ReaderDetailViewController: UIScrollViewDelegate {
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard didShowTooltip else {
-            if isVisibleInScrollView(commentsTableView) {
-                tooltipPresenter?.showTooltip()
-                didShowTooltip = true
-            }
-            return
+extension ReaderDetailViewController: ContentIdentifiable {
+    var contentIdentifier: String? {
+        // Only ever try to resolve this based on the site ID and post ID – the post object is fetched later
+        if let siteId = self.coordinator?.siteID?.intValue, let postId = self.coordinator?.postID?.intValue {
+            return "https://wordpress.com/reader/feeds/\(siteId)/posts/\(postId)"
         }
 
-        guard let tooltip = tooltipPresenter?.tooltip else {
-            return
+        if let originalUrl {
+            return originalUrl.absoluteString
         }
 
-        let currentToggleVisibility = isVisibleInScrollView(tooltip)
+        return nil
+    }
+}
 
-        if lastToggleAnchorVisibility != currentToggleVisibility {
-            tooltipPresenter?.toggleAnchorVisibility(!currentToggleVisibility)
-        }
+// MARK: - WKWebView Helpers
 
-        lastToggleAnchorVisibility = currentToggleVisibility
+/// Helper methods for working with WKWebView and translation.
+private extension WKWebView {
+
+    /// Get the body HTML content from the web view.
+    ///
+    /// This method extracts the innerHTML of the document body.
+    ///
+    /// - Returns: The HTML content as a String.
+    /// - Throws: An error if JavaScript evaluation fails.
+    func getBodyHTML() async throws -> String {
+        let script = "document.body.innerHTML || ''"
+        let html = try await evaluateJavaScript(script) as? String
+        return html ?? ""
+    }
+
+    /// Set the body HTML content in the web view.
+    ///
+    /// This method replaces the innerHTML of the document body with the provided HTML.
+    ///
+    /// - Parameter html: The HTML content to set.
+    /// - Throws: An error if JavaScript evaluation fails.
+    func setBodyHTML(_ html: String) async throws {
+        _ = try await callAsyncJavaScript(
+            "document.body.innerHTML = html",
+            arguments: ["html": html],
+            in: nil,
+            contentWorld: .page
+        )
     }
 }

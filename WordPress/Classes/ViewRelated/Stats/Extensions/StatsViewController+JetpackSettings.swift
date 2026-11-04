@@ -1,9 +1,10 @@
 import Foundation
 import UIKit
+import WordPressData
 
 extension StatsViewController {
 
-    @objc func activateStatsModule(success: @escaping () -> Void, failure: @escaping (Error?) -> Void) {
+    @objc public func activateStatsModule(success: @escaping () -> Void, failure: @escaping (Error?) -> Void) {
         guard let blog else {
             return
         }
@@ -15,11 +16,9 @@ extension StatsViewController {
                                                         active: true,
                                                         success: success,
                                                         failure: failure)
-
     }
 
     private enum Constants {
         static let statsModule = "stats"
     }
-
 }

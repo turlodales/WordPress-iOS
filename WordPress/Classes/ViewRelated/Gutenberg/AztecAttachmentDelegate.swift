@@ -1,4 +1,7 @@
+import UIKit
 import Aztec
+import AsyncImageKit
+import WordPressData
 
 class AztecAttachmentDelegate: TextViewAttachmentDelegate {
     private let post: AbstractPost
@@ -24,9 +27,21 @@ class AztecAttachmentDelegate: TextViewAttachmentDelegate {
                 fetchPosterImageFor(videoAttachment: videoAttachment, onSuccess: success, onFailure: failure)
                 return
             }
-            downloadImage(from: posterURL, success: success, onFailure: failure)
+            downloadImage(
+                from: posterURL,
+                bounds: textView.bounds,
+                traitCollection: textView.traitCollection,
+                success: success,
+                onFailure: failure
+            )
         case is ImageAttachment:
-            downloadImage(from: url, success: success, onFailure: failure)
+            downloadImage(
+                from: url,
+                bounds: textView.bounds,
+                traitCollection: textView.traitCollection,
+                success: success,
+                onFailure: failure
+            )
         default:
             failure()
         }
@@ -45,11 +60,9 @@ class AztecAttachmentDelegate: TextViewAttachmentDelegate {
     }
 
     func textView(_ textView: TextView, selected attachment: NSTextAttachment, atPosition position: CGPoint) {
-
     }
 
     func textView(_ textView: TextView, deselected attachment: NSTextAttachment, atPosition position: CGPoint) {
-
     }
 
     func fetchPosterImageFor(videoAttachment: VideoAttachment, onSuccess: @escaping (UIImage) -> (), onFailure: @escaping () -> ()) {
@@ -60,8 +73,24 @@ class AztecAttachmentDelegate: TextViewAttachmentDelegate {
         mediaUtility.fetchPosterImage(for: videoSrcURL, onSuccess: onSuccess, onFailure: onFailure)
     }
 
-    func downloadImage(from url: URL, success: @escaping (UIImage) -> Void, onFailure failure: @escaping () -> Void) {
-        let receipt = mediaUtility.downloadImage(from: url, post: post, success: success, onFailure: { (_) in failure()})
+    /// - parameters:
+    ///   - bounds: The bounds of the text view that displays the image.
+    ///   - traitCollection: The trait collection of the text view that displays the image.
+    func downloadImage(
+        from url: URL,
+        bounds: CGRect,
+        traitCollection: UITraitCollection,
+        success: @escaping (UIImage) -> Void,
+        onFailure failure: @escaping () -> Void
+    ) {
+        let receipt = mediaUtility.downloadImage(
+            from: url,
+            post: post,
+            bounds: bounds,
+            traitCollection: traitCollection,
+            success: success,
+            onFailure: { _ in failure() }
+        )
         activeMediaRequests.append(receipt)
     }
 }

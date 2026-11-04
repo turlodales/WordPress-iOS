@@ -1,5 +1,8 @@
 import UIKit
+import WordPressData
+import WordPressKit
 import WordPressFlux
+import WordPressUI
 
 class SiteStatsInsightsDetailsTableViewController: SiteStatsBaseTableViewController {
 
@@ -7,35 +10,37 @@ class SiteStatsInsightsDetailsTableViewController: SiteStatsBaseTableViewControl
 
     private typealias Style = WPStyleGuide.Stats
     private var statSection: StatSection?
-    private var statType: StatType = .period
     private var selectedDate = StatsDataHelper.currentDateForSite()
     private var selectedPeriod: StatsPeriodUnit?
 
     private var viewModel: SiteStatsInsightsDetailsViewModel?
-    private var tableHeaderView: SiteStatsTableHeaderView?
 
     private var receipt: Receipt?
 
-    private let insightsStore = StoreContainer.shared.statsInsights
-    private let periodStore = StoreContainer.shared.statsPeriod
+    private let insightsStore = StatsInsightsStore()
+    private let periodStore = StatsPeriodStore()
+    private let revampStore = StatsRevampStore()
 
-    private lazy var tableHandler: ImmuTableViewHandler = {
-        return ImmuTableViewHandler(takeOver: self)
+    private lazy var tableHandler: ImmuTableDiffableViewHandler = {
+        return ImmuTableDiffableViewHandler(takeOver: self, with: nil)
     }()
 
     private var postID: Int?
 
     private lazy var mainContext: NSManagedObjectContext = {
-        return ContextManager.sharedInstance().mainContext
+        return ContextManager.shared.mainContext
     }()
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        WPStyleGuide.Stats.configureTable(tableView)
         refreshControl.addTarget(self, action: #selector(refreshData), for: .valueChanged)
         tableView.estimatedSectionHeaderHeight = SiteStatsTableHeaderView.estimatedHeight
         ImmuTable.registerRows(tableRowTypes(), tableView: tableView)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
         addWillEnterForegroundObserver()
     }
 
@@ -53,8 +58,6 @@ class SiteStatsInsightsDetailsTableViewController: SiteStatsBaseTableViewControl
         self.selectedDate = selectedDate ?? StatsDataHelper.currentDateForSite()
         self.selectedPeriod = selectedPeriod
         self.postID = postID
-        tableStyle = .insetGrouped
-        statType = StatSection.allInsights.contains(statSection) ? .insights : .period
         title = statSection.detailsTitle
         initViewModel()
         updateHeader()
@@ -79,11 +82,9 @@ extension SiteStatsInsightsDetailsTableViewController: StatsForegroundObservable
 
 private extension SiteStatsInsightsDetailsTableViewController {
     private func updateHeader() {
-        guard let siteStatsTableHeaderView = Bundle.main.loadNibNamed("SiteStatsTableHeaderView", owner: nil, options: nil)?.first as? SiteStatsTableHeaderView else {
-            return
-        }
+        let siteStatsTableHeaderView = SiteStatsTableHeaderView()
 
-        guard let statSection = statSection else {
+        guard let statSection else {
             return
         }
 
@@ -108,6 +109,8 @@ private extension SiteStatsInsightsDetailsTableViewController {
         }
 
         siteStatsTableHeaderView.animateGhostLayers(viewModel?.storeIsFetching(statSection: statSection) == true)
+        siteStatsTableHeaderView.backgroundColor = .clear
+        siteStatsTableHeaderView.bottomSeparatorLine.isHidden = true
 
         tableView.tableHeaderView = siteStatsTableHeaderView
 
@@ -130,9 +133,12 @@ private extension SiteStatsInsightsDetailsTableViewController {
         viewModel = SiteStatsInsightsDetailsViewModel(insightsDetailsDelegate: self,
                                                       detailsDelegate: self,
                                                       referrerDelegate: self,
-                                                      viewsAndVisitorsDelegate: self)
+                                                      viewsAndVisitorsDelegate: self,
+                                                      insightsStore: insightsStore,
+                                                      periodStore: periodStore,
+                                                      revampStore: revampStore)
 
-        guard let statSection = statSection else {
+        guard let statSection else {
             return
         }
 
@@ -178,11 +184,11 @@ private extension SiteStatsInsightsDetailsTableViewController {
     // MARK: - Table Refreshing
 
     func refreshTableView() {
-        guard let viewModel = viewModel else {
+        guard let viewModel else {
             return
         }
 
-        tableHandler.viewModel = viewModel.tableViewModel()
+        tableHandler.diffableDataSource.apply(viewModel.tableViewSnapshot(), animatingDifferences: false)
         refreshControl.endRefreshing()
 
         if viewModel.fetchDataHasFailed() {
@@ -193,7 +199,7 @@ private extension SiteStatsInsightsDetailsTableViewController {
     }
 
     @objc func refreshData() {
-        guard let statSection = statSection else {
+        guard let statSection else {
             return
         }
 
@@ -204,7 +210,7 @@ private extension SiteStatsInsightsDetailsTableViewController {
         case .insightsFollowersWordPress, .insightsFollowersEmail, .insightsFollowerTotals:
             viewModel?.refreshFollowers()
         case .insightsCommentsAuthors, .insightsCommentsPosts:
-            viewModel?.refreshComments()
+            viewModel?.refreshComments(date: selectedDate, period: selectedPeriod ?? .day)
         case .insightsTagsAndCategories:
             viewModel?.refreshTagsAndCategories()
         case .insightsAnnualSiteStats:
@@ -237,8 +243,11 @@ private extension SiteStatsInsightsDetailsTableViewController {
     }
 
     func applyTableUpdates() {
-        tableView.performBatchUpdates({
-        })
+        guard let viewModel else {
+            return
+        }
+
+        tableHandler.diffableDataSource.apply(viewModel.tableViewSnapshot(), animatingDifferences: false)
     }
 
     func clearExpandedRows() {
@@ -256,7 +265,7 @@ extension SiteStatsInsightsDetailsTableViewController: SiteStatsDetailsDelegate 
 
     func displayWebViewWithURL(_ url: URL) {
         let webViewController = WebViewControllerFactory.controllerAuthenticatedWithDefaultAccount(url: url, source: "site_stats_detail")
-        let navController = UINavigationController.init(rootViewController: webViewController)
+        let navController = UINavigationController(rootViewController: webViewController)
         present(navController, animated: true)
     }
 
@@ -364,7 +373,7 @@ extension SiteStatsInsightsDetailsTableViewController: NoResultsViewControllerDe
 extension SiteStatsInsightsDetailsTableViewController: SiteStatsTableHeaderDelegate {
 
     func dateChangedTo(_ newDate: Date?) {
-        guard let newDate = newDate else {
+        guard let newDate else {
             return
         }
 

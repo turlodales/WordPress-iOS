@@ -1,4 +1,5 @@
 import AutomatticTracks
+import WordPressData
 
 /// Puts together the Site creation wizard, assembling steps.
 final class SiteCreationWizardLauncher {
@@ -7,7 +8,7 @@ final class SiteCreationWizardLauncher {
     }()
 
     let steps: [SiteCreationStep] = {
-        if RemoteFeatureFlag.plansInSiteCreation.enabled() {
+        if RemoteFeatureFlag.plansInSiteCreation.enabled() && AppConfiguration.isJetpack {
             return [
                 .intent,
                 .design,
@@ -40,16 +41,6 @@ final class SiteCreationWizardLauncher {
         return wizardContent
     }()
 
-    /// Closure to be executed upon dismissal of the SiteAssemblyWizardContent.
-    ///
-    private let onDismiss: ((Blog, Bool) -> Void)?
-
-    init(
-        onDismiss: ((Blog, Bool) -> Void)? = nil
-    ) {
-        self.onDismiss = onDismiss
-    }
-
     private func initStep(_ step: SiteCreationStep) -> WizardStep {
         switch step {
         case .address:
@@ -63,12 +54,9 @@ final class SiteCreationWizardLauncher {
             return SiteDesignStep(creator: self.creator, isLastStep: isLastStep)
         case .intent:
             return SiteIntentStep(creator: self.creator)
-        case .segments:
-            let segmentsService = SiteCreationSegmentsService(coreDataStack: ContextManager.sharedInstance())
-            return SiteSegmentsStep(creator: self.creator, service: segmentsService)
         case .siteAssembly:
-            let siteAssemblyService = EnhancedSiteCreationService(coreDataStack: ContextManager.sharedInstance())
-            return SiteAssemblyStep(creator: self.creator, service: siteAssemblyService, onDismiss: onDismiss)
+            let siteAssemblyService = EnhancedSiteCreationService(coreDataStack: ContextManager.shared)
+            return SiteAssemblyStep(creator: self.creator, service: siteAssemblyService)
         }
     }
 }

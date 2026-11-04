@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 final class DashboardSingleStatView: UIView {
 
@@ -28,8 +29,8 @@ final class DashboardSingleStatView: UIView {
     private lazy var numberLabel: UILabel = {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = AppStyleGuide.prominentFont(textStyle: .title1, weight: .bold)
-        label.textColor = .text
+        label.font = WPStyleGuide.fontForTextStyle(.title1, fontWeight: .bold)
+        label.textColor = .label
         label.isAccessibilityElement = false
         return label
     }()
@@ -38,7 +39,7 @@ final class DashboardSingleStatView: UIView {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = WPStyleGuide.fontForTextStyle(.subheadline)
-        label.textColor = .textSubtle
+        label.textColor = .secondaryLabel
         label.isAccessibilityElement = false
         return label
     }()

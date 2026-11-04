@@ -1,17 +1,13 @@
-@import WordPressShared;
-@import Reachability;
-
 #import "StatsViewController.h"
-#import "Blog.h"
-#import "WPAccount.h"
-#import "CoreDataStack.h"
 #import "BlogService.h"
 #import "WordPress-Swift.h"
 #import "WPAppAnalytics.h"
 
-static NSString *const StatsBlogObjectURLRestorationKey = @"StatsBlogObjectURL";
+@import WordPressData;
+@import WordPressShared;
+@import WordPressSharedObjC;
 
-@interface StatsViewController () <UIViewControllerRestoration, NoResultsViewControllerDelegate>
+@interface StatsViewController () <NoResultsViewControllerDelegate>
 
 @property (nonatomic, assign) BOOL showingJetpackLogin;
 @property (nonatomic, assign) BOOL isActivatingStatsModule;
@@ -26,21 +22,7 @@ static NSString *const StatsBlogObjectURLRestorationKey = @"StatsBlogObjectURL";
 - (instancetype)init
 {
     self = [super init];
-    if (self) {
-        self.restorationClass = [self class];
-        self.restorationIdentifier = NSStringFromClass([self class]);
-    }
     return self;
-}
-
-+ (void)showForBlog:(Blog *)blog from:(UIViewController *)controller
-{
-    StatsViewController *statsController = [StatsViewController new];
-    statsController.blog = blog;
-    statsController.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
-    [controller.navigationController pushViewController:statsController animated:YES];
-    
-    [[QuickStartTourGuide shared] visited:QuickStartTourElementStats];
 }
 
 - (void)viewDidLoad
@@ -48,13 +30,10 @@ static NSString *const StatsBlogObjectURLRestorationKey = @"StatsBlogObjectURL";
     [super viewDidLoad];
 
     self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
-    self.navigationItem.title = NSLocalizedString(@"Stats", @"Stats window title");
+    [self updateNavigationTitle];
 
-    self.extendedLayoutIncludesOpaqueBars = YES;
-    
-    UINavigationController *statsNavVC = [[UIStoryboard storyboardWithName:@"SiteStatsDashboard" bundle:nil] instantiateInitialViewController];
-    self.siteStatsDashboardVC = statsNavVC.viewControllers.firstObject;
-    
+    self.siteStatsDashboardVC = [[SiteStatsDashboardViewController alloc] init];
+
     self.noResultsViewController = [NoResultsViewController controller];
     self.noResultsViewController.delegate = self;
 
@@ -73,22 +52,33 @@ static NSString *const StatsBlogObjectURLRestorationKey = @"StatsBlogObjectURL";
         self.title = self.blog.settings.name;
     }
 
-    WordPressAppDelegate *appDelegate = [WordPressAppDelegate shared];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reachabilityChanged:) name:kReachabilityChangedNotification object:appDelegate.internetReachability];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reachabilityChanged:) name:NSNotification.ReachabilityUpdatedNotification object:nil];
+
+    [self registerForTraitChanges:@[UITraitHorizontalSizeClass.class] withAction:@selector(updateNavigationTitle)];
 
     [self initStats];
 }
 
-- (void)viewWillDisappear:(BOOL)animated
+- (void)viewDidAppear:(BOOL)animated
 {
-    [super viewWillDisappear:animated];
-    [self dismissQuickStartTaskCompleteNotice];
+    [super viewDidAppear:animated];
+
+    [ObjCBridge incrementSignificantEvent];
+}
+
+- (void)updateNavigationTitle
+{
+    if (self.traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassCompact) {
+        self.navigationItem.title = NSLocalizedString(@"Stats", @"Stats window title");
+    } else {
+        self.navigationItem.title = nil;
+    }
 }
 
 - (void)setBlog:(Blog *)blog
 {
     _blog = blog;
-    DDLogInfo(@"Loading Stats for the following blog: %@", [blog url]);
+    WPLogInfo(@"Loading Stats for the following blog: %@", [blog url]);
 }
 
 - (void)addStatsViewControllerToView
@@ -132,7 +122,7 @@ static NSString *const StatsBlogObjectURLRestorationKey = @"StatsBlogObjectURL";
         [self.loadingIndicator stopAnimating];
         [weakSelf promptForJetpackCredentials];
     } failure:^(NSError * _Nonnull error) {
-        DDLogError(@"Error refreshing blog status when loading stats: %@", error);
+        WPLogError(@"Error refreshing blog status when loading stats: %@", error);
         [self.loadingIndicator stopAnimating];
         [weakSelf promptForJetpackCredentials];
     }];
@@ -144,19 +134,12 @@ static NSString *const StatsBlogObjectURLRestorationKey = @"StatsBlogObjectURL";
         return;
     }
     self.showingJetpackLogin = YES;
-    JetpackLoginViewController *controller = [[JetpackLoginViewController alloc] initWithBlog:self.blog];
-    __weak JetpackLoginViewController *safeController = controller;
-    [controller setCompletionBlock:^(){
-            [safeController.view removeFromSuperview];
-            [safeController removeFromParentViewController];
-            self.showingJetpackLogin = NO;
-            [self initStats];
-    }];
 
-    [self addChildViewController:controller];
-    [self.view addSubview:controller.view];
-    controller.view.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view pinSubviewToAllEdges:controller.view];
+    __weak __typeof(self) weakSelf = self;
+    [self showJetpackConnectionViewWithCompletion:^{
+        weakSelf.showingJetpackLogin = NO;
+        [weakSelf initStats];
+    }];
 }
 
 - (IBAction)doneButtonTapped:(id)sender
@@ -198,8 +181,7 @@ static NSString *const StatsBlogObjectURLRestorationKey = @"StatsBlogObjectURL";
 
 - (void)reachabilityChanged:(NSNotification *)notification
 {
-    Reachability *reachability = notification.object;
-    if (reachability.isReachable) {
+    if ([ReachabilityUtils isInternetReachable]) {
         [self initStats];
     }
 }
@@ -219,39 +201,10 @@ static NSString *const StatsBlogObjectURLRestorationKey = @"StatsBlogObjectURL";
         [weakSelf initStats];
         weakSelf.isActivatingStatsModule = NO;
     } failure:^(NSError *error) {
-        DDLogError(@"Error activating stats module: %@", error);
+        WPLogError(@"Error activating stats module: %@", error);
         [weakSelf showStatsModuleDisabled];
         weakSelf.isActivatingStatsModule = NO;
     }];
-}
-
-#pragma mark - Restoration
-
-- (void)encodeRestorableStateWithCoder:(NSCoder *)coder
-{
-    NSURL *blogObjectURL = [[self.blog objectID] URIRepresentation];
-    [coder encodeObject:blogObjectURL forKey:StatsBlogObjectURLRestorationKey];
-    [super encodeRestorableStateWithCoder:coder];
-}
-
-
-+ (UIViewController *)viewControllerWithRestorationIdentifierPath:(NSArray *)identifierComponents coder:(NSCoder *)coder
-{
-    NSURL *blogObjectURL = [coder decodeObjectForKey:StatsBlogObjectURLRestorationKey];
-    if (!blogObjectURL) {
-        return nil;
-    }
-
-    NSManagedObjectContext *context = [[ContextManager sharedInstance] mainContext];
-    NSManagedObjectID *blogObjectID = [context.persistentStoreCoordinator managedObjectIDForURIRepresentation:blogObjectURL];
-    Blog *blog = (Blog *)[context existingObjectWithID:blogObjectID error:nil];
-    if (!blog) {
-        return nil;
-    }
-    StatsViewController *viewController = [[self alloc] init];
-    viewController.blog = blog;
-
-    return viewController;
 }
 
 @end

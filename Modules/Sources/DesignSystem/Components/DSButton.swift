@@ -1,15 +1,17 @@
 import SwiftUI
 
 public struct DSButton: View {
-    @SwiftUI.Environment(\.isEnabled) private var isEnabled
-    @SwiftUI.Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var colorScheme
     private let title: String
+    private let iconName: IconName?
     private let style: DSButtonStyle
     @Binding private var isLoading: Bool
     private let action: (() -> Void)
 
     public init(
         title: String,
+        iconName: IconName? = nil,
         style: DSButtonStyle,
         isLoading: Binding<Bool> = .constant(false),
         action: @escaping () -> Void
@@ -17,6 +19,7 @@ public struct DSButton: View {
         self._isLoading = isLoading
         self.action = action
         self.title = title
+        self.iconName = iconName
         self.style = style
     }
 
@@ -41,7 +44,7 @@ public struct DSButton: View {
                 buttonContent
                     .contentShape(
                         RoundedRectangle(
-                            cornerRadius: Length.Radius.small
+                            cornerRadius: .DS.Radius.small
                         )
                     )
             }
@@ -58,23 +61,37 @@ public struct DSButton: View {
                     .tint(Color.white)
             } else {
                 if style.emphasis != .tertiary {
-                    buttonText
+                    buttonLabel
                         .padding(
                             .horizontal,
                             style.size == .small
-                            ? Length.Padding.split
-                            : Length.Padding.medium
+                            ? .DS.Padding.split
+                            : .DS.Padding.medium
                         )
                 } else {
-                    buttonText
+                    buttonLabel
                 }
             }
         }
         .frame(
             height: style.size == .small
-            ? Length.Padding.large
-            : Length.Padding.max
+            ? .DS.Padding.large
+            : .DS.Padding.max
         )
+    }
+
+    @ViewBuilder
+    private var buttonLabel: some View {
+        if let iconName {
+            HStack(alignment: .center, spacing: .DS.Padding.half) {
+                Image.DS.icon(named: iconName)
+                    .imageScale(.small)
+                    .foregroundStyle(style.foregroundColor)
+                buttonText
+            }
+        } else {
+            buttonText
+        }
     }
 
     private var buttonText: some View {
@@ -94,6 +111,7 @@ public struct DSButton: View {
         case .tertiary:
             weight = .regular
         }
+
         return Text(title).style(textStyle(weight))
             .foregroundStyle(
                 style.foregroundColor
@@ -105,13 +123,12 @@ public struct DSButton: View {
     private var buttonBackground: some View {
         switch style.emphasis {
         case .primary:
-            RoundedRectangle(cornerRadius: Length.Radius.small)
-                .fill(style.backgroundColor.opacity(priamryDisabledOpacity))
+            RoundedRectangle(cornerRadius: .DS.Radius.small)
+                .fill(style.backgroundColor.opacity(primaryDisabledOpacity))
         case .secondary:
-            RoundedRectangle(cornerRadius: Length.Radius.small)
-                .stroke(Color.DS.divider, lineWidth: 1)
+            RoundedRectangle(cornerRadius: .DS.Radius.small)
+                .stroke(style.foregroundColor, lineWidth: 1)
                 .background(Color.clear)
-
         case .tertiary:
             Color.clear
         }
@@ -122,19 +139,19 @@ public struct DSButton: View {
             return 1
         }
 
-        if style.emphasis == .primary {
+        if style.emphasis == .primary || style.emphasis == .tertiary {
             return 1
         }
 
         return disabledOpacity
     }
 
-    private var priamryDisabledOpacity: CGFloat {
+    private var primaryDisabledOpacity: CGFloat {
         isEnabled ? 1 : disabledOpacity
     }
 
     private var disabledOpacity: CGFloat {
-        colorScheme == .light ? 0.5 : 0.6
+        colorScheme == .light ? 0.2 : 0.3
     }
 }
 
@@ -142,8 +159,7 @@ public struct DSButton: View {
 struct DSButton_Previews: PreviewProvider {
     static var previews: some View {
         ZStack {
-            Color.DS.Background.primary
-                .ignoresSafeArea()
+            Color(uiColor: .systemBackground).ignoresSafeArea()
             DSButton(
                 title: "Get Domain",
                 style: .init(emphasis: .primary, size: .large, isJetpack: true),
@@ -151,7 +167,7 @@ struct DSButton_Previews: PreviewProvider {
                     ()
                 }
             )
-            .padding(.horizontal, Length.Padding.large)
+            .padding(.horizontal, .DS.Padding.large)
         }
     }
 }

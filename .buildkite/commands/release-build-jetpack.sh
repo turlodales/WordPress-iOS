@@ -1,21 +1,9 @@
 #!/bin/bash -eu
 
-brew install imagemagick
-brew install ghostscript
-# Sentry CLI needs to be up-to-date
-brew upgrade sentry-cli
+"$(dirname "${BASH_SOURCE[0]}")/shared-set-up.sh"
+"$(dirname "${BASH_SOURCE[0]}")/shared-set-up-distribution.sh"
 
-echo "--- :rubygems: Setting up Gems"
-install_gems
-
-echo "--- :cocoapods: Setting up Pods"
-install_cocoapods
-
-echo "--- :swift: Setting up Swift Packages"
-install_swiftpm_dependencies
-
-echo "--- :closed_lock_with_key: Installing Secrets"
-bundle exec fastlane run configure_apply
+source "$(dirname "${BASH_SOURCE[0]}")/install-a8c-secrets.sh"
 
 echo "--- :hammer_and_wrench: Building"
 bundle exec fastlane build_and_upload_jetpack_for_app_store

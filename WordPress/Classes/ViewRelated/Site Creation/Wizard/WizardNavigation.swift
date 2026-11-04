@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 // MARK: - WizardNavigation
 final class WizardNavigation: UINavigationController {
@@ -31,10 +32,6 @@ final class WizardNavigation: UINavigationController {
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         return WPDeviceIdentification.isiPad() ? .all : .portrait
-    }
-
-    override var preferredStatusBarStyle: UIStatusBarStyle {
-        return .default
     }
 
     private func configureSteps() {

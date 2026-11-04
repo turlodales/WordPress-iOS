@@ -1,5 +1,6 @@
 import UIKit
 import AutomatticTracks
+import AutomatticEncryptedLogs
 
 class EncryptedLogTableViewController: UITableViewController {
 
@@ -103,13 +104,13 @@ class EncryptedLogTableViewController: UITableViewController {
             /// For now, just enqueue any file – doesn't have to be the log
             let data = try Data(contentsOf: Bundle.main.url(forResource: "acknowledgements", withExtension: "html")!)
 
-            let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+            let url = URL.Helpers.temporaryFile()
             try data.write(to: url)
 
             try self.eventLogging.enqueueLogForUpload(log: LogFile(url: url))
         }
-        catch let err {
-            let alert = UIAlertController(title: "Unable to create log", message: err.localizedDescription, preferredStyle: .actionSheet)
+        catch {
+            let alert = UIAlertController(title: "Unable to create log", message: error.localizedDescription, preferredStyle: .actionSheet)
             self.present(alert, animated: true)
         }
     }

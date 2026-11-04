@@ -1,12 +1,12 @@
 import UIKit
+import WordPressShared
 
-class CountriesCell: StatsBaseCell, NibLoadable {
+final class CountriesCell: StatsRowsCell, NibLoadable {
 
     // MARK: - Properties
 
     @IBOutlet weak var topSeparatorLine: UIView!
     @IBOutlet weak var subtitleStackView: UIStackView!
-    @IBOutlet weak var rowsStackView: UIStackView!
     @IBOutlet weak var itemSubtitleLabel: UILabel!
     @IBOutlet weak var dataSubtitleLabel: UILabel!
     @IBOutlet weak var bottomSeparatorLine: UIView!
@@ -38,20 +38,23 @@ class CountriesCell: StatsBaseCell, NibLoadable {
         bottomSeparatorLine.isHidden = forDetails
 
         if !forDetails {
-        addRows(dataRows,
-                toStackView: rowsStackView,
+            configureTotalRows(
+                dataRows,
+                inStackView: rowsStackView,
                 forType: .period,
-                limitRowsDisplayed: true,
-                viewMoreDelegate: self)
+                configuration: .init(
+                    limitRowsDisplayed: true,
+                    rowDelegate: nil,
+                    referrerDelegate: nil,
+                    viewMoreDelegate: self
+                )
+            )
+        } else {
+            removeRowsFromStackView(rowsStackView)
         }
 
         setSubtitleVisibility()
         applyStyles()
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        removeRowsFromStackView(rowsStackView)
     }
 }
 
@@ -66,7 +69,6 @@ private extension CountriesCell {
     }
 
     func setSubtitleVisibility() {
-        subtitleStackView.layoutIfNeeded()
         let subtitleHeight = subtitlesStackViewTopConstraint.constant * 2 + subtitleStackView.frame.height
 
         if forDetails {
@@ -77,7 +79,6 @@ private extension CountriesCell {
         rowsStackViewTopConstraint.constant = !dataRows.isEmpty ? subtitleHeight : 0
         topSeparatorLineHeightConstraint.constant = dataRows.isEmpty ? 0.5 : 0.33
     }
-
 }
 
 // MARK: - ViewMoreRowDelegate
@@ -88,5 +89,4 @@ extension CountriesCell: ViewMoreRowDelegate {
         siteStatsPeriodDelegate?.viewMoreSelectedForStatSection?(statSection)
         siteStatsInsightsDetailsDelegate?.viewMoreSelectedForStatSection?(statSection)
     }
-
 }

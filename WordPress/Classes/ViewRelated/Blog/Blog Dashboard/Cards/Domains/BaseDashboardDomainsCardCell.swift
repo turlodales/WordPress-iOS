@@ -1,4 +1,6 @@
 import UIKit
+import WordPressData
+import WordPressShared
 
 class BaseDashboardDomainsCardCell: DashboardCollectionViewCell {
     var blog: Blog?
@@ -22,7 +24,7 @@ class BaseDashboardDomainsCardCell: DashboardCollectionViewCell {
         let label = UILabel()
         label.font = Style.descriptionLabelFont
         label.text = viewModel.strings.description
-        label.textColor = .textSubtle
+        label.textColor = .secondaryLabel
         label.numberOfLines = 0
         label.adjustsFontForContentSizeCategory = true
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -132,7 +134,6 @@ struct DashboardDomainsCardViewModel {
             self.source = source
             self.accessibilityIdentifier = accessibilityIdentifier
         }
-
     }
 
     let strings: DashboardDomainsCardViewModel.Strings

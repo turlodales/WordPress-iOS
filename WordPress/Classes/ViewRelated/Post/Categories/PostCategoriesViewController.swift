@@ -1,21 +1,24 @@
-import Foundation
+import UIKit
+import SwiftUI
+import WordPressData
+import WordPressShared
+import WordPressUI
 
-@objc protocol PostCategoriesViewControllerDelegate {
+@objc public protocol PostCategoriesViewControllerDelegate {
     @objc optional func postCategoriesViewController(_ controller: PostCategoriesViewController, didSelectCategory category: PostCategory)
     @objc optional func postCategoriesViewController(_ controller: PostCategoriesViewController, didUpdateSelectedCategories categories: NSSet)
 }
 
-@objc enum CategoriesSelectionMode: Int {
+@objc public enum CategoriesSelectionMode: Int {
     case post
     case parent
     case blogDefault
 }
 
-@objc class PostCategoriesViewController: UITableViewController {
-   @objc weak var delegate: PostCategoriesViewControllerDelegate?
+@objc public class PostCategoriesViewController: UITableViewController {
+   @objc public weak var delegate: PostCategoriesViewControllerDelegate?
 
     var onCategoriesChanged: (() -> Void)?
-    var onTableViewHeightDetermined: (() -> Void)?
 
     private var blog: Blog
     private var originalSelection: [PostCategory]?
@@ -27,35 +30,32 @@ import Foundation
 
     private var hasSyncedCategories = false
 
-    @objc init(blog: Blog, currentSelection: [PostCategory]?, selectionMode: CategoriesSelectionMode) {
+    @objc public init(blog: Blog, currentSelection: [PostCategory]?, selectionMode: CategoriesSelectionMode) {
         self.blog = blog
         self.selectionMode = selectionMode
         self.originalSelection = currentSelection
         super.init(style: .insetGrouped)
     }
 
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func viewDidLoad() {
+    public override func viewDidLoad() {
         super.viewDidLoad()
         configureTableView()
         configureView()
     }
 
-    override func viewWillAppear(_ animated: Bool) {
+    public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         reloadCategories()
         if !hasSyncedCategories {
             syncCategories()
         }
-
-        preferredContentSize = tableView.contentSize
-        onTableViewHeightDetermined?()
     }
 
-    override func viewWillDisappear(_ animated: Bool) {
+    public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         onCategoriesChanged?()
     }
@@ -73,17 +73,17 @@ import Foundation
         refreshControl = UIRefreshControl()
         refreshControl!.addTarget(self, action: #selector(refreshCategoriesWithInteraction), for: .valueChanged)
 
-        let rightBarButtonItem = UIBarButtonItem(image: UIImage(named: "icon-post-add"), style: .plain, target: self, action: #selector(showAddNewCategory))
+        let rightBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "plus"), style: .plain, target: self, action: #selector(showAddNewCategory))
 
         switch selectionMode {
         case .post:
             navigationItem.rightBarButtonItem = rightBarButtonItem
-            title = NSLocalizedString("Post Categories", comment: "Title for selecting categories for a post")
+            title = Strings.postCategoriesTitle
         case .parent:
             navigationItem.rightBarButtonItem = rightBarButtonItem
-            title = NSLocalizedString("Parent Category", comment: "Title for selecting parent category of a category")
+            title = Strings.parentCategoryTitle
         case .blogDefault:
-            title = NSLocalizedString("Default Category", comment: "Title for selecting a default category for a post")
+            title = Strings.defaultCategoryTitle
         }
     }
 
@@ -92,15 +92,20 @@ import Foundation
     }
 
     @objc private func showAddNewCategory() {
-        guard let addCategoriesViewController = WPAddPostCategoryViewController(blog: blog) else {
-            return
+        let view = PostCategoryCreateView(blog: blog) { [weak self] category in
+            guard let self else { return }
+            switch selectionMode {
+            case .post, .parent:
+                selectedCategories.append(category)
+                delegate?.postCategoriesViewController?(self, didUpdateSelectedCategories: NSSet(array: selectedCategories))
+            case .blogDefault:
+                selectedCategories.removeAll()
+                selectedCategories.append(category)
+                delegate?.postCategoriesViewController?(self, didSelectCategory: category)
+            }
+            reloadCategories()
         }
-
-        addCategoriesViewController.delegate = self
-
-        let addCategoriesNavigationController = UINavigationController(rootViewController: addCategoriesViewController)
-        navigationController?.modalPresentationStyle = .formSheet
-        present(addCategoriesNavigationController, animated: true, completion: nil)
+        present(UIHostingController(rootView: NavigationStack { view }), animated: true)
     }
 
     private func syncCategories() {
@@ -109,7 +114,7 @@ import Foundation
             self?.reloadCategories()
             self?.refreshControl?.endRefreshing()
             self?.hasSyncedCategories = true
-        }) { [weak self] error in
+        }) { [weak self] _ in
             self?.refreshControl?.endRefreshing()
         }
     }
@@ -121,7 +126,7 @@ import Foundation
 
         // Sort categories by parent/child relationship
         let tree = WPCategoryTree(parent: nil)
-        tree.getChildrenFromObjects(blog.sortedCategories() ?? [])
+        tree.getChildrenFromObjects(blog.sortedCategories)
         categories = tree.getAllObjects()
 
         var categoryDict = [Int: PostCategory]()
@@ -139,11 +144,7 @@ import Foundation
         // Remove any previously selected category objects that are no longer available.
         let selectedCategories = self.selectedCategories
         self.selectedCategories = selectedCategories.filter { category in
-            if let sortedCategories = blog.sortedCategories() as? [PostCategory], sortedCategories.contains(category), !category.isDeleted {
-                return true
-            }
-
-            return false
+            (blog.categories ?? []).contains(category) && !category.isDeleted
         }
 
         // Notify the delegate of any changes for selectedCategories.
@@ -165,34 +166,56 @@ import Foundation
     private func configureNoCategoryRow(cell: WPTableViewCell) {
         WPStyleGuide.configureTableViewDestructiveActionCell(cell)
         cell.textLabel?.textAlignment = .natural
-        cell.textLabel?.text = NSLocalizedString("No Category", comment: "Text shown (to select no-category) in the parent-category-selection screen when creating a new category.")
-        if selectedCategories.isEmpty {
-            cell.accessoryType = selectedCategories.isEmpty ? .checkmark : .none
-        }  else {
-            cell.accessoryType = .none
-        }
+        cell.textLabel?.text = Strings.noCategoryText
+
+        // Cells are reused with the category rows, which show their selected state
+        // using `accessoryView`. It takes precedence over `accessoryType`, so it has
+        // to be cleared for the checkmark to show.
+        cell.accessoryView = nil
+
+        let isSelected = selectedCategories.isEmpty
+        cell.accessoryType = isSelected ? .checkmark : .none
+        configureAccessibility(for: cell, title: Strings.noCategoryText, isSelected: isSelected)
     }
 
     private func configureRow(for category: PostCategory, cell: WPTableViewCell) {
         let indentationLevel = categoryIndentationDict[category.categoryID.intValue]
         cell.indentationLevel = indentationLevel ?? 0
         cell.indentationWidth = Constants.categoryCellIndentation
-        cell.textLabel?.text = category.categoryName.stringByDecodingXMLCharacters()
+        let title = category.categoryName.stringByDecodingXMLCharacters()
+        cell.textLabel?.text = title
         WPStyleGuide.configureTableViewCell(cell)
-        if selectedCategories.contains(category) {
-            cell.accessoryType = .checkmark
-        } else {
-            cell.accessoryType = .none
-        }
+
+        let isSelected = selectedCategories.contains(category)
+        cell.accessoryType = .none
+        cell.accessoryView = makeAccessoryView(isSelected: isSelected)
+        configureAccessibility(for: cell, title: title, isSelected: isSelected)
+    }
+
+    /// The selected state is conveyed by a checkmark image, which carries no
+    /// accessibility information, so selected and unselected rows were
+    /// indistinguishable. Make the cell a single element and let the trait carry
+    /// the state, rather than appending "selected" to the label.
+    private func configureAccessibility(for cell: UITableViewCell, title: String, isSelected: Bool) {
+        cell.isAccessibilityElement = true
+        cell.accessibilityLabel = title
+        cell.accessibilityTraits = isSelected ? [.selected] : []
+    }
+
+    private func makeAccessoryView(isSelected: Bool) -> UIView {
+        let image = UIImage(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+        let view = UIImageView(image: image)
+        view.tintColor = isSelected ? UIAppColor.primary : .opaqueSeparator
+        return view
     }
 
     //tableView
 
-    override func numberOfSections(in tableView: UITableView) -> Int {
+    public override func numberOfSections(in tableView: UITableView) -> Int {
         return 1
     }
 
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    public override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         var result = categories.count
         if selectionMode == .parent {
             result = result + 1
@@ -200,7 +223,7 @@ import Foundation
         return result
     }
 
-    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+    public override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(withIdentifier: Constants.categoryCellIdentifier, for: indexPath) as? WPTableViewCell else {
             return UITableViewCell()
         }
@@ -223,7 +246,7 @@ import Foundation
         return cell
     }
 
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    public override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         if let currentSelectedIndexPath = tableView.indexPathForSelectedRow {
             tableView.deselectRow(at: currentSelectedIndexPath, animated: true)
         }
@@ -237,20 +260,27 @@ import Foundation
                 category = categories[row - 1]
             }
             // If we're choosing a parent category then we're done.
-            if let category = category {
+            if let category {
                 delegate?.postCategoriesViewController?(self, didSelectCategory: category)
+                navigationController?.popViewController(animated: true)
+            } else {
+                delegate?.postCategoriesViewController?(self, didUpdateSelectedCategories: NSSet(array: []))
                 navigationController?.popViewController(animated: true)
             }
         case .post:
             category = categories[row]
-            if let category = category {
+            if let category {
                 if selectedCategories.contains(category),
                     let index = selectedCategories.firstIndex(of: category) {
                     selectedCategories.remove(at: index)
-                    tableView.cellForRow(at: indexPath)?.accessoryType = .none
                 } else {
                     selectedCategories.append(category)
-                    tableView.cellForRow(at: indexPath)?.accessoryType = .checkmark
+                }
+
+                // Re-run the row configuration so the accessory view and the
+                // accessibility data can never get out of sync.
+                if let cell = tableView.cellForRow(at: indexPath) as? WPTableViewCell {
+                    configureRow(for: category, cell: cell)
                 }
 
                 delegate?.postCategoriesViewController?(self, didUpdateSelectedCategories: NSSet(array: selectedCategories))
@@ -258,7 +288,7 @@ import Foundation
 
         case .blogDefault:
             category = categories[row]
-            if let category = category {
+            if let category {
                 if selectedCategories.contains(category) {
                     return
                 }
@@ -276,20 +306,30 @@ private extension PostCategoriesViewController {
         static let categoryCellIdentifier = "CategoryCellIdentifier"
         static let categoryCellIndentation = CGFloat(16.0)
     }
-}
 
-extension PostCategoriesViewController: WPAddPostCategoryViewControllerDelegate {
-    func addPostCategoryViewController(_ controller: WPAddPostCategoryViewController, didAdd category: PostCategory) {
-        switch selectionMode {
-        case .post, .parent:
-            selectedCategories.append(category)
-            delegate?.postCategoriesViewController?(self, didUpdateSelectedCategories: NSSet(array: selectedCategories))
-        case .blogDefault:
-            selectedCategories.removeAll()
-            selectedCategories.append(category)
-            delegate?.postCategoriesViewController?(self, didSelectCategory: category)
-        }
+    enum Strings {
+        static let postCategoriesTitle = NSLocalizedString(
+            "postCategories.title",
+            value: "Categories",
+            comment: "Title for selecting categories for a post or a page"
+        )
 
-        reloadCategories()
+        static let parentCategoryTitle = NSLocalizedString(
+            "parentCategory.title",
+            value: "Parent Category",
+            comment: "Title for selecting parent category of a category"
+        )
+
+        static let defaultCategoryTitle = NSLocalizedString(
+            "defaultCategory.title",
+            value: "Default Category",
+            comment: "Title for selecting a default category for a post"
+        )
+
+        static let noCategoryText = NSLocalizedString(
+            "parentCategory.noCategory",
+            value: "No Category",
+            comment: "Text shown (to select no-category) in the parent-category-selection screen when creating a new category."
+        )
     }
 }

@@ -1,3 +1,5 @@
+import UIKit
+import WordPressUI
 
 /// Labels and button titles
 struct WhatIsNewViewTitles {
@@ -6,7 +8,6 @@ struct WhatIsNewViewTitles {
     let continueButtonTitle: String
     let disclaimerTitle: String
 }
-
 
 /// Main view of the What's New page
 class WhatIsNewView: UIView {
@@ -30,7 +31,7 @@ class WhatIsNewView: UIView {
         }
 
         label.font = self.appearance.subHeadlineFont
-        label.textColor = .textSubtle
+        label.textColor = .secondaryLabel
         return label
     }()
 
@@ -97,7 +98,7 @@ class WhatIsNewView: UIView {
     private lazy var divider: UIView = {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.backgroundColor = .divider
+        view.backgroundColor = .separator
         return view
     }()
 
@@ -166,7 +167,7 @@ class WhatIsNewView: UIView {
 
         super.init(frame: .zero)
 
-        backgroundColor = .basicBackground
+        backgroundColor = .systemBackground
         addSubview(contentView)
         addSubview(continueButtonStackView)
         pinSubviewToAllEdges(contentView)
@@ -174,7 +175,7 @@ class WhatIsNewView: UIView {
 
         NSLayoutConstraint.activate([
             continueButton.heightAnchor.constraint(equalToConstant: self.appearance.continueButtonHeight),
-            divider.heightAnchor.constraint(equalToConstant: .hairlineBorderWidth),
+            divider.makeHairlineConstraint(for: divider.heightAnchor),
             continueButtonStackView.bottomAnchor.constraint(equalTo: bottomAnchor),
             continueButtonStackView.leadingAnchor.constraint(equalTo: leadingAnchor),
             continueButtonStackView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -197,7 +198,6 @@ class WhatIsNewView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 }
-
 
 // MARK: - Helpers
 private extension WhatIsNewView {
@@ -232,7 +232,6 @@ private extension WhatIsNewView {
         dismissAction?()
     }
 }
-
 
 // MARK: - Layout
 extension WhatIsNewView {

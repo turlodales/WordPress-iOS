@@ -1,6 +1,8 @@
 import Gridicons
 import UIKit
 import WordPressKit
+import WordPressShared
+import WordPressUI
 
 class SiteDesignContentCollectionViewController: CollapsableHeaderViewController {
     typealias PreviewDevice = PreviewDeviceSelectionViewController.PreviewDevice
@@ -11,17 +13,14 @@ class SiteDesignContentCollectionViewController: CollapsableHeaderViewController
     private let completion: SiteDesignStep.SiteDesignSelection
     private var sectionAssembler: SiteDesignSectionLoader.Assembler?
 
-    private var sections: [SiteDesignSection] = [] {
-        didSet {
-            tableView.scrollToTop(animated: false)
-            sectionHorizontalOffsets.removeAll()
-            contentSizeWillChange()
-            tableView.reloadData()
-        }
-    }
+    private var sections: [SiteDesignSection] = []
 
-    /// Dictionary to store horizontal scroll position of sections, keyed by category slug
-    private var sectionHorizontalOffsets: [String: CGFloat] = [:]
+    /// Whether a design request is running, so that appearing again before it finishes doesn't start another.
+    private var isFetchingDesigns = false
+
+    /// The horizontal scroll position of each section, keyed by category slug. It's measured in thumbnails
+    /// rather than points, so a row keeps its position when the thumbnail size changes.
+    private var sectionHorizontalPositions: [String: CGFloat] = [:]
 
     private var isLoading: Bool = true {
         didSet {
@@ -38,8 +37,17 @@ class SiteDesignContentCollectionViewController: CollapsableHeaderViewController
     private var previewViewSelectedPreviewDevice = PreviewDevice.default
 
     private var ghostThumbnailSize: CGSize {
-        return SiteDesignCategoryThumbnailSize.recommended.value
+        SiteDesignCategoryThumbnailSize.recommended.value(for: windowSizeClass)
     }
+
+    /// The thumbnail sizes follow the window's horizontal size class: this screen is a page sheet, which
+    /// reports a compact size class in a wide iPad window.
+    private var windowSizeClass: UIUserInterfaceSizeClass {
+        viewIfLoaded?.window?.traitCollection.horizontalSizeClass ?? traitCollection.horizontalSizeClass
+    }
+
+    /// The window's horizontal size class at the last layout pass, to lay out the rows again when it changes.
+    private var laidOutWindowSizeClass: UIUserInterfaceSizeClass?
 
     // MARK: Helper Footer View
     override var allowCustomTableFooterView: Bool {
@@ -124,7 +132,7 @@ class SiteDesignContentCollectionViewController: CollapsableHeaderViewController
         NSLayoutConstraint.activate([
             helperImageView.heightAnchor.constraint(equalToConstant: Metrics.helperImageWidth),
             helperImageView.widthAnchor.constraint(equalToConstant: Metrics.helperImageWidth),
-            helperSeparator.heightAnchor.constraint(equalToConstant: .hairlineBorderWidth)
+            helperSeparator.makeHairlineConstraint(for: helperSeparator.heightAnchor)
         ])
     }
 
@@ -132,11 +140,6 @@ class SiteDesignContentCollectionViewController: CollapsableHeaderViewController
         tableView.tableFooterView = helperView
         activateHelperConstraints()
 
-        helperSeparator.isHidden = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
-        helperContentView.isHidden = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         helperSeparator.isHidden = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
         helperContentView.isHidden = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
     }
@@ -149,12 +152,13 @@ class SiteDesignContentCollectionViewController: CollapsableHeaderViewController
         self.completion = completion
         tableView = UITableView(frame: .zero, style: .plain)
 
-        super.init(
-            scrollableView: tableView,
-            mainTitle: TextContent.mainTitle,
-            // the primary action button is never shown
-            primaryActionTitle: ""
-        )
+        super
+            .init(
+                scrollableView: tableView,
+                mainTitle: TextContent.mainTitle,
+                // the primary action button is never shown
+                primaryActionTitle: ""
+            )
 
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = .zero
@@ -167,37 +171,105 @@ class SiteDesignContentCollectionViewController: CollapsableHeaderViewController
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        tableView.register(CategorySectionTableViewCell.nib, forCellReuseIdentifier: CategorySectionTableViewCell.cellReuseIdentifier)
+        tableView.register(
+            CategorySectionTableViewCell.defaultNib,
+            forCellReuseIdentifier: CategorySectionTableViewCell.cellReuseIdentifier
+        )
         tableView.dataSource = self
         navigationItem.backButtonTitle = TextContent.backButtonTitle
         configureHeaderStyling()
         configureCloseButton()
         configureSkipButton()
         SiteCreationAnalyticsHelper.trackSiteDesignViewed(previewMode: selectedPreviewDevice)
+
+        // The base class handles the header traits. This subclass owns only the
+        // helper footer, which hides at accessibility text sizes.
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
+            self.helperSeparator.isHidden = self.traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+            self.helperContentView.isHidden = self.traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+        }
+    }
+
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+
+        // The page sheet's own size class doesn't change when the window is resized, but the sheet is laid
+        // out again. Lay out the rows at the new thumbnail sizes when the window's size class has changed.
+        guard view.window != nil else { return }
+        let sizeClass = windowSizeClass
+        if let laidOutWindowSizeClass, laidOutWindowSizeClass != sizeClass {
+            contentSizeWillChange()
+            tableView.reloadData()
+        }
+        laidOutWindowSizeClass = sizeClass
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+
+        // Disable the button temporarily during the transition animation.
+        //
+        // Relates to https://linear.app/a8c/issue/CMM-1059
+        //
+        // The first couple of steps of the site creation process have a "Skip" button, which is
+        // placed at the same position as `rightBarButtonItem`.
+        // When users double-tap the "Skip" button, the first tap event is passed to the displaying
+        // view controller which pushes another view controller as the next step, and the second
+        // event is passed to the new step which executes the "skip" code again.
+        // This means double-tapping "Skip" skips two steps at the same time, which is not handled
+        // correctly by `WizardNavigation.nextStep` and causes a crash.
+        //
+        // Here we disable the skip button during transition to prevent the new step from receiving
+        // the second tap event.
+        //
+        // An alternative is to fix the `WizardNavigation.nextStep` function to allow skipping
+        // multiple steps at the same time. But I don't think that's a UX we want, because when
+        // double-tapping the "Skip" button on screen, the user does not know what the next steps
+        // are, and it does not make sense to skip them all together.
+        navigationItem.rightBarButtonItem?.isEnabled = false
+    }
+
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        // The design request needs the scale of the screen that displays the thumbnails,
+        // which is only known once the view is in a window.
         fetchSiteDesigns()
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        navigationItem.rightBarButtonItem?.isEnabled = true
+    }
+
     private func fetchSiteDesigns() {
-        if let sectionAssembler = sectionAssembler {
-            self.sections = sectionAssembler(creator.vertical)
+        if let sectionAssembler {
+            showSections(sectionAssembler(creator.vertical))
             return
         }
 
-        isLoading = true
+        guard !isFetchingDesigns else {
+            return
+        }
 
-        DispatchQueue.main.async {
-            SiteDesignSectionLoader.buildAssembler { [weak self] result in
-                guard let self = self else { return }
+        guard let scale = view.window?.windowScene?.screen.nativeScale else {
+            return wpAssertionFailure(
+                "SiteDesignContentCollectionViewController.fetchSiteDesigns() requires the view to be in a window"
+            )
+        }
+
+        isLoading = true
+        isFetchingDesigns = true
+
+        DispatchQueue.main.async { [weak self] in
+            SiteDesignSectionLoader.buildAssembler(scale: scale) { result in
+                guard let self else { return }
+                self.isFetchingDesigns = false
 
                 switch result {
                 case .success(let assembler):
                     self.sectionAssembler = assembler
                     self.dismissNoResultsController()
-                    self.sections = assembler(self.creator.vertical)
+                    self.showSections(assembler(self.creator.vertical))
                     self.setupHelperView()
                 case .failure(let error):
                     self.handleError(error)
@@ -208,13 +280,27 @@ class SiteDesignContentCollectionViewController: CollapsableHeaderViewController
         }
     }
 
+    /// Shows a newly assembled list of sections, scrolled to the top.
+    private func showSections(_ sections: [SiteDesignSection]) {
+        self.sections = sections
+        tableView.scrollToTop(animated: false)
+        sectionHorizontalPositions.removeAll()
+        contentSizeWillChange()
+        tableView.reloadData()
+    }
+
     private func configureHeaderStyling() {
-        headerView.backgroundColor = .basicBackground
+        headerView.backgroundColor = .systemBackground
         hideHeaderVisualEffects()
     }
 
     private func configureSkipButton() {
-        let skip = UIBarButtonItem(title: TextContent.skipButtonTitle, style: .done, target: self, action: #selector(skipButtonTapped))
+        let skip = UIBarButtonItem(
+            title: TextContent.skipButtonTitle,
+            style: .plain,
+            target: self,
+            action: #selector(skipButtonTapped)
+        )
         navigationItem.rightBarButtonItem = skip
     }
 
@@ -223,7 +309,11 @@ class SiteDesignContentCollectionViewController: CollapsableHeaderViewController
             return
         }
 
-        navigationItem.leftBarButtonItem = UIBarButtonItem(title: TextContent.cancelButtonTitle, style: .done, target: self, action: #selector(closeButtonTapped))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .cancel,
+            target: self,
+            action: #selector(closeButtonTapped)
+        )
     }
 
     @objc
@@ -246,20 +336,31 @@ class SiteDesignContentCollectionViewController: CollapsableHeaderViewController
     }
 
     private enum TextContent {
-        static let mainTitle = NSLocalizedString("Choose a theme",
-                                                 comment: "Title for the screen to pick a theme and homepage for a site.")
-        static let backButtonTitle = NSLocalizedString("Design",
-                                                       comment: "Shortened version of the main title to be used in back navigation.")
-        static let skipButtonTitle = NSLocalizedString("Skip",
-                                                       comment: "Continue without making a selection.")
-        static let cancelButtonTitle = NSLocalizedString("Cancel",
-                                                         comment: "Cancel site creation.")
-        static let errorTitle = NSLocalizedString("Unable to load this content right now.",
-                                                  comment: "Informing the user that a network request failed because the device wasn't able to establish a network connection.")
-        static let errorSubtitle = NSLocalizedString("Check your network connection and try again.",
-                                                     comment: "Default subtitle for no-results when there is no connection.")
-        static let helperText = NSLocalizedString("Can’t decide? You can change the theme at any time.",
-                                                  comment: "Helper text that appears at the bottom of the design screen.")
+        static let mainTitle = NSLocalizedString(
+            "Choose a theme",
+            comment: "Title for the screen to pick a theme and homepage for a site."
+        )
+        static let backButtonTitle = NSLocalizedString(
+            "Design",
+            comment: "Shortened version of the main title to be used in back navigation."
+        )
+        static let skipButtonTitle = NSLocalizedString(
+            "Skip",
+            comment: "Continue without making a selection."
+        )
+        static let errorTitle = NSLocalizedString(
+            "Unable to load this content right now.",
+            comment:
+                "Informing the user that a network request failed because the device wasn't able to establish a network connection."
+        )
+        static let errorSubtitle = NSLocalizedString(
+            "Check your network connection and try again.",
+            comment: "Default subtitle for no-results when there is no connection."
+        )
+        static let helperText = NSLocalizedString(
+            "Can’t decide? You can change the theme at any time.",
+            comment: "Helper text that appears at the bottom of the design screen."
+        )
     }
 
     private enum Metrics {
@@ -288,13 +389,18 @@ extension SiteDesignContentCollectionViewController: NoResultsViewControllerDele
 extension SiteDesignContentCollectionViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return isLoading ? 1 : (sections.count)
+        isLoading ? 1 : (sections.count)
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cellReuseIdentifier = CategorySectionTableViewCell.cellReuseIdentifier
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: cellReuseIdentifier, for: indexPath) as? CategorySectionTableViewCell else {
-            fatalError("Expected the cell with identifier \"\(cellReuseIdentifier)\" to be a \(CategorySectionTableViewCell.self). Please make sure the table view is registering the correct nib before loading the data")
+        guard
+            let cell = tableView.dequeueReusableCell(withIdentifier: cellReuseIdentifier, for: indexPath)
+                as? CategorySectionTableViewCell
+        else {
+            fatalError(
+                "Expected the cell with identifier \"\(cellReuseIdentifier)\" to be a \(CategorySectionTableViewCell.self). Please make sure the table view is registering the correct nib before loading the data"
+            )
         }
         cell.delegate = self
         cell.selectionStyle = UITableViewCell.SelectionStyle.none
@@ -305,11 +411,13 @@ extension SiteDesignContentCollectionViewController: UITableViewDataSource {
             cell.ghostThumbnailSize = ghostThumbnailSize
             cell.collectionView.allowsSelection = false
         } else {
-            let section = sections[indexPath.row]
+            var section = sections[indexPath.row]
+            section.windowSizeClass = windowSizeClass
             cell.section = section
             cell.isGhostCell = false
             cell.collectionView.allowsSelection = true
-            cell.horizontalScrollOffset = sectionHorizontalOffsets[section.categorySlug] ?? .zero
+            let position = sectionHorizontalPositions[section.categorySlug] ?? .zero
+            cell.horizontalScrollOffset = position * thumbnailStride(for: section, in: cell)
         }
 
         cell.showsCheckMarkWhenSelected = false
@@ -341,12 +449,18 @@ extension SiteDesignContentCollectionViewController: CategorySectionTableViewCel
             completion: completion
         )
 
-        let navController = GutenbergLightNavigationController(rootViewController: previewVC)
-        navController.modalPresentationStyle = .pageSheet
-        navigationController?.present(navController, animated: true) {
-            // deselect so no border is shown on dismissal of the preview
-            cell.deselectItems()
+        let navController: UINavigationController
+        if #available(iOS 26, *) {
+            navController = UINavigationController(rootViewController: previewVC)
+        } else {
+            navController = GutenbergLightNavigationController(rootViewController: previewVC)
         }
+        navController.modalPresentationStyle = .pageSheet
+        navigationController?
+            .present(navController, animated: true) {
+                // deselect so no border is shown on dismissal of the preview
+                cell.deselectItems()
+            }
     }
 
     func didDeselectItem(forCell cell: CategorySectionTableViewCell) {}
@@ -360,6 +474,12 @@ extension SiteDesignContentCollectionViewController: CategorySectionTableViewCel
         guard let cellSection = cell.section else {
             return
         }
-        sectionHorizontalOffsets[cellSection.categorySlug] = xPosition
+        sectionHorizontalPositions[cellSection.categorySlug] = xPosition / thumbnailStride(for: cellSection, in: cell)
+    }
+
+    /// The width of a thumbnail in the section's row, plus the space after it.
+    private func thumbnailStride(for section: CategorySection, in cell: CategorySectionTableViewCell) -> CGFloat {
+        let spacing = (cell.collectionView.collectionViewLayout as? UICollectionViewFlowLayout)?.minimumLineSpacing ?? 0
+        return section.thumbnailSize.width + spacing
     }
 }

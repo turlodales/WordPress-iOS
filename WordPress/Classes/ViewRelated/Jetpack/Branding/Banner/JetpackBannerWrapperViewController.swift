@@ -27,8 +27,6 @@ final class JetpackBannerWrapperViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        extendedLayoutIncludesOpaqueBars = true
-
         let stackView = UIStackView()
         configureStackView(stackView)
         configureChildVC(stackView)
@@ -46,12 +44,12 @@ final class JetpackBannerWrapperViewController: UIViewController {
             stackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stackView.topAnchor.constraint(equalTo: view.topAnchor),
-            stackView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+            stackView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
 
     private func configureChildVC(_ stackView: UIStackView) {
-        guard let childVC = childVC else { return }
+        guard let childVC else { return }
 
         addChild(childVC)
         stackView.addArrangedSubview(childVC.view)
@@ -62,11 +60,11 @@ final class JetpackBannerWrapperViewController: UIViewController {
         guard JetpackBrandingVisibility.all.enabled, !isModal() else {
             return
         }
-        let textProvider = JetpackBrandingTextProvider(screen: screen)
+        let textProvider = JetpackBrandingTextProvider()
         let jetpackBannerView = JetpackBannerView()
         jetpackBannerView.configure(title: textProvider.brandingText()) { [unowned self] in
             JetpackBrandingCoordinator.presentOverlay(from: self)
-            if let screen = screen {
+            if let screen {
                 JetpackBrandingAnalyticsHelper.trackJetpackPoweredBannerTapped(screen: screen)
             }
         }

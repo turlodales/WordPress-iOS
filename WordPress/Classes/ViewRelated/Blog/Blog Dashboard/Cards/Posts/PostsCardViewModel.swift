@@ -1,6 +1,8 @@
 import Foundation
 import CoreData
 import UIKit
+import WordPressData
+import WordPressUI
 
 protocol PostsCardView: AnyObject {
     var tableView: UITableView { get }
@@ -28,7 +30,7 @@ class PostsCardViewModel: NSObject {
 
     private let managedObjectContext: NSManagedObjectContext
 
-    private var postListFilter: PostListFilter = PostListFilter.draftFilter()
+    private var postListFilter = PostListFilter.draftFilter()
 
     private var fetchedResultsController: NSFetchedResultsController<Post>!
 
@@ -53,8 +55,8 @@ class PostsCardViewModel: NSObject {
     typealias Snapshot = NSDiffableDataSourceSnapshot<PostsListSection, PostsListItem>
     typealias PostsSnapshot = NSDiffableDataSourceSnapshot<Int, NSManagedObjectID>
 
-    lazy var diffableDataSource = DataSource(tableView: view!.tableView) { [weak self] (tableView, indexPath, item) -> UITableViewCell? in
-        guard let self = self else {
+    lazy var diffableDataSource = DataSource(tableView: view!.tableView) { [weak self] tableView, indexPath, item -> UITableViewCell? in
+        guard let self else {
             return nil
         }
         switch item {
@@ -65,7 +67,6 @@ class PostsCardViewModel: NSObject {
         case .ghost:
             return self.configureGhostCell(tableView: tableView, indexPath: indexPath)
         }
-
     }
 
     init(blog: Blog, status: BasePost.Status, view: PostsCardView, managedObjectContext: NSManagedObjectContext = ContextManager.shared.mainContext) {
@@ -126,8 +127,7 @@ private extension PostsCardViewModel {
 
         let cell = tableView.dequeueReusableCell(withIdentifier: PostCompactCell.defaultReuseID, for: indexPath) as? PostCompactCell
 
-        cell?.accessoryType = .none
-        cell?.configureForDashboard(with: post)
+        cell?.configure(with: post)
 
         return cell ?? UITableViewCell()
     }
@@ -146,8 +146,8 @@ private extension PostsCardViewModel {
     private func configureGhostCell(tableView: UITableView, indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: BlogDashboardPostCardGhostCell.defaultReuseID, for: indexPath) as? BlogDashboardPostCardGhostCell
         let style = GhostStyle(beatDuration: GhostStyle.Defaults.beatDuration,
-                               beatStartColor: .placeholderElement,
-                               beatEndColor: .placeholderElementFaded)
+                               beatStartColor: UIAppColor.placeholderElement,
+                               beatEndColor: UIAppColor.placeholderElementFaded)
         cell?.contentView.stopGhostAnimation()
         cell?.contentView.startGhostAnimation(style: style)
         return cell ?? UITableViewCell()
@@ -262,9 +262,9 @@ private extension PostsCardViewModel {
     func trackCardDisplayedIfNeeded() {
         switch currentState {
         case .posts:
-            BlogDashboardAnalytics.shared.track(.dashboardCardShown, properties: ["type": "post", "sub_type": status.rawValue])
+            BlogDashboardAnalytics.shared.track(.dashboardCardShown, properties: ["type": "post", "sub_type": status.rawValue], blog: blog)
         case .error:
-            BlogDashboardAnalytics.shared.track(.dashboardCardShown, properties: ["type": "post", "sub_type": "error"])
+            BlogDashboardAnalytics.shared.track(.dashboardCardShown, properties: ["type": "post", "sub_type": "error"], blog: blog)
         case .loading:
             return
         }

@@ -1,4 +1,6 @@
 import UIKit
+import AsyncImageKit
+import WordPressKit
 
 class DashboardCustomAnnouncementCell: AnnouncementTableViewCell {
 
@@ -41,13 +43,11 @@ class DashboardCustomAnnouncementCell: AnnouncementTableViewCell {
         return stackView
     }()
 
-
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
 
         contentView.addSubview(mainStackView)
         contentView.pinSubviewToSafeArea(mainStackView, insets: Appearance.mainStackViewInsets)
-
 
         NSLayoutConstraint.activate([
             imageBackgroundView.heightAnchor.constraint(equalToConstant: Appearance.announcementImageHeight),
@@ -67,25 +67,19 @@ class DashboardCustomAnnouncementCell: AnnouncementTableViewCell {
     func configure(feature: WordPressKit.Feature) {
 
         if let url = URL(string: feature.iconUrl) {
-            announcementImageView.af_setImage(withURL: url, completion: { [weak self] response in
-
-                guard let self,
-                      let width = response.value?.size.width,
-                      let height = response.value?.size.height else {
+            announcementImageView.wp.setImage(with: ImageRequest(url: url)) { [weak self] result in
+                guard let self, case .success(let image) = result else {
                     return
                 }
-
-                let aspectRatio = width / height
-
+                let aspectRatio = image.size.width / image.size.height
                 NSLayoutConstraint.activate([
                     self.announcementImageView.widthAnchor.constraint(equalTo: self.announcementImageView.heightAnchor, multiplier: aspectRatio)
                 ])
-            })
+            }
         }
         headingLabel.text = feature.subtitle
     }
 }
-
 
 // MARK: Helpers
 private extension DashboardCustomAnnouncementCell {
@@ -96,13 +90,12 @@ private extension DashboardCustomAnnouncementCell {
         label.numberOfLines = 0
         label.font = font
         label.textAlignment = .center
-        if let color = color {
+        if let color {
             label.textColor = color
         }
         return label
     }
 }
-
 
 // MARK: - Appearance
 private extension DashboardCustomAnnouncementCell {

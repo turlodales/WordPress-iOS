@@ -1,5 +1,6 @@
 import UIKit
-import Gridicons
+import DesignSystem
+import WordPressUI
 
 /// A view that consists of the frame of a Dashboard card
 /// Title, icon and action can be customizable
@@ -17,7 +18,7 @@ class BlogDashboardCardFrameView: UIView {
     /// Header in which icon, title and chevron are added
     private lazy var headerStackView: UIStackView = {
         let topStackView = UIStackView()
-        topStackView.layoutMargins = Constants.headerPaddingWithEllipsisButtonHidden
+        topStackView.directionalLayoutMargins = Constants.headerPaddingWithEllipsisButtonHidden
         topStackView.isLayoutMarginsRelativeArrangement = true
         topStackView.spacing = Constants.headerHorizontalSpacing
         topStackView.alignment = .center
@@ -30,7 +31,7 @@ class BlogDashboardCardFrameView: UIView {
         let titleLabel = UILabel()
         titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.font = WPStyleGuide.fontForTextStyle(.subheadline, fontWeight: .semibold)
+        titleLabel.font = .preferredFont(forTextStyle: .subheadline).withWeight(.semibold)
         titleLabel.accessibilityTraits = .button
         titleLabel.numberOfLines = 0
         return titleLabel
@@ -39,10 +40,13 @@ class BlogDashboardCardFrameView: UIView {
     /// Ellipsis Button displayed on the top right corner of the view.
     /// Displayed only when an associated action is set
     private(set) lazy var ellipsisButton: UIButton = {
-        let button = UIButton(type: .custom)
-        button.setImage(UIImage(named: "more-horizontal-mobile"), for: .normal)
-        button.tintColor = UIColor.listIcon
-        button.contentEdgeInsets = Constants.ellipsisButtonPadding
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "ellipsis")
+        configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: .systemFont(ofSize: 13))
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8)
+
+        let button = UIButton(configuration: configuration, primaryAction: nil)
+        button.tintColor = UIColor.secondaryLabel
         button.isAccessibilityElement = true
         button.accessibilityLabel = Strings.ellipsisButtonAccessibilityLabel
         button.accessibilityTraits = .button
@@ -95,7 +99,7 @@ class BlogDashboardCardFrameView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        self.backgroundColor = .listForeground
+        self.backgroundColor = .secondarySystemGroupedBackground
         self.configureMainStackView()
     }
 
@@ -124,6 +128,10 @@ class BlogDashboardCardFrameView: UIView {
 
         if !ellipsisButton.isHidden {
             mainStackViewTrailingConstraint?.constant = -Constants.mainStackViewTrailingPadding
+            if #available(iOS 26, *) {
+                buttonContainerStackView.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 5, leading: 0, bottom: 0, trailing: 0)
+                buttonContainerStackView.isLayoutMarginsRelativeArrangement = true
+            }
         }
     }
 
@@ -134,7 +142,6 @@ class BlogDashboardCardFrameView: UIView {
 
         mainStackViewTrailingConstraint?.constant = 0
     }
-
 
     /// Set's the title displayed in the card's header
     /// - Parameters:
@@ -159,6 +166,11 @@ class BlogDashboardCardFrameView: UIView {
             mainStackView.leadingAnchor.constraint(equalTo: leadingAnchor),
             trailingConstraint
         ])
+
+        if #available(iOS 26, *) {
+            mainStackView.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0)
+            mainStackView.isLayoutMarginsRelativeArrangement = true
+        }
 
         mainStackView.addArrangedSubview(headerStackView)
         headerStackView.addArrangedSubviews([titleLabel, ellipsisButton])
@@ -202,7 +214,7 @@ class BlogDashboardCardFrameView: UIView {
         let headerPadding = ellipsisButton.isHidden ?
             Constants.headerPaddingWithEllipsisButtonHidden :
             Constants.headerPaddingWithEllipsisButtonShown
-        headerStackView.layoutMargins = headerPadding
+        headerStackView.directionalLayoutMargins = headerPadding
     }
 
     private func addHeaderTapGestureIfNeeded() {
@@ -232,7 +244,7 @@ class BlogDashboardCardFrameView: UIView {
     }
 
     @objc private func headerTapped() {
-        if let onHeaderTap = onHeaderTap {
+        if let onHeaderTap {
             onHeaderTap()
         }
         else {
@@ -242,9 +254,9 @@ class BlogDashboardCardFrameView: UIView {
 
     private static func titleAttributedText(title: String, hint: String?, font: UIFont?) -> NSAttributedString {
         let titleString = NSMutableAttributedString(string: title)
-        if let hint = hint, let range = title.nsRange(of: hint) {
+        if let hint, let range = title.nsRange(of: hint) {
             titleString.addAttributes([
-                .foregroundColor: UIColor.primary,
+                .foregroundColor: UIAppColor.primary,
                 .font: font as Any
             ], range: range)
         }
@@ -253,11 +265,10 @@ class BlogDashboardCardFrameView: UIView {
 
     private enum Constants {
         static let bottomPadding: CGFloat = 8
-        static let headerPaddingWithEllipsisButtonHidden = UIEdgeInsets(top: 12, left: 16, bottom: 8, right: 16)
-        static let headerPaddingWithEllipsisButtonShown = UIEdgeInsets(top: 12, left: 16, bottom: 8, right: 8)
+        static let headerPaddingWithEllipsisButtonHidden = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 8, trailing: 16)
+        static let headerPaddingWithEllipsisButtonShown = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 8, trailing: 8)
         static let headerHorizontalSpacing: CGFloat = 5
-        static let cornerRadius: CGFloat = 10
-        static let ellipsisButtonPadding = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        static let cornerRadius = DesignConstants.radius(.large)
         static let buttonContainerStackViewPadding: CGFloat = 8
         static let mainStackViewTrailingPadding: CGFloat = 32
     }

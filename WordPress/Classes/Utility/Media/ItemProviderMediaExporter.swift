@@ -1,5 +1,7 @@
 import Foundation
 import PhotosUI
+import WordPressData
+import WordPressShared
 
 /// Manages export of media assets: images and video.
 final class ItemProviderMediaExporter: MediaExporter {
@@ -13,8 +15,29 @@ final class ItemProviderMediaExporter: MediaExporter {
         self.provider = provider
     }
 
-    func export(onCompletion: @escaping (MediaExport) -> Void, onError: @escaping (MediaExportError) -> Void) -> Progress {
+    func export(onCompletion originalOnCompletion: @escaping (MediaExport) -> Void, onError originalOnError: @escaping (MediaExportError) -> Void) -> Progress {
         let progress = Progress.discreteProgress(totalUnitCount: MediaExportProgressUnits.done)
+        let onCompletion: (MediaExport) -> Void
+        let onError: (MediaExportError) -> Void
+
+        // Create a temporary directory to hold the exported file from the `NSItemProvider` instance.
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        do {
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+            // Delete the temporary directory after we are done with the exported file.
+            onCompletion = {
+                try? FileManager.default.removeItem(at: tempDir)
+                originalOnCompletion($0)
+            }
+            onError = {
+                try? FileManager.default.removeItem(at: tempDir)
+                originalOnError($0)
+            }
+        } catch {
+            originalOnError(MediaExportSystemError.failedWith(systemError: error))
+            return progress
+        }
 
         // It's important to use the `MediaImageExporter` because it strips the
         // GPS data and performs other image manipulations before the upload.
@@ -35,7 +58,10 @@ final class ItemProviderMediaExporter: MediaExporter {
         }
 
         // `MediaImageExporter` doesn't support GIF, so it requires special handling.
-        func processGIF(at url: URL) throws {
+        func processGIF(at original: URL) throws {
+            let url = try self.mediaFileManager.makeLocalMediaURL(withFilename: original.lastPathComponent, fileExtension: original.pathExtension)
+            try FileManager.default.copyItem(at: original, to: url)
+
             let pixelSize = url.pixelSize
             let media = MediaExport(url: url, fileSize: url.fileSize, width: pixelSize.width, height: pixelSize.height, duration: nil)
             let exportProgress = Progress(totalUnitCount: 1)
@@ -59,7 +85,7 @@ final class ItemProviderMediaExporter: MediaExporter {
 
         let loadProgress = provider.loadFileRepresentation(forTypeIdentifier: UTType.data.identifier) { url, error in
             guard let url else {
-                DDLogDebug("Loaded file representation for provider: \(ObjectIdentifier(self.provider)), error: \(String(describing: error)))")
+                self.handleLoadFailure(error, onError: onError)
                 return
             }
             let diff = CFAbsoluteTimeGetCurrent() - start
@@ -67,9 +93,11 @@ final class ItemProviderMediaExporter: MediaExporter {
 
             // Retaining `self` on purpose.
             do {
-                let copyURL = try self.mediaFileManager.makeLocalMediaURL(withFilename: url.lastPathComponent, fileExtension: url.pathExtension)
+                let copyURL = tempDir.appendingPathComponent(url.lastPathComponent)
                 try FileManager.default.copyItem(at: url, to: copyURL)
 
+                // The "process" functions are responsible for making sure the end result file
+                // (the one passed to `onCompletion` block) is located in the local Media library dir (`mediaFileManager`).
                 if self.hasConformingType(.gif) {
                     try processGIF(at: copyURL)
                 } else if self.hasConformingType(.image) {
@@ -108,9 +136,124 @@ final class ItemProviderMediaExporter: MediaExporter {
         provider.hasItemConformingToTypeIdentifier(type.identifier)
     }
 
+    /// Surfaces a failure to load the picked file from the `NSItemProvider`.
+    ///
+    /// When the provider's connection died (an XPC failure), the app shows a friendly
+    /// message — specific to Lockdown Mode when it's enabled — and tracks the event so
+    /// this case can be told apart from ordinary load failures. Any other error is
+    /// surfaced as-is.
+    ///
+    /// A cancelled load (the user cancelled the upload, or the system cancelled the
+    /// request) is *not* surfaced — cancellation is reported separately by the upload
+    /// coordinator, so calling `onError` here would show a spurious failure.
+    ///
+    /// Observed only with iOS Lockdown Mode enabled: materializing a large photo
+    /// (e.g. 36 MP) fails and the `PhotosFileProvider` process is killed, giving
+    /// `NSItemProviderError -1000` over `NSCocoaErrorDomain 4099`.
+    private func handleLoadFailure(_ error: Error?, onError: (MediaExportError) -> Void) {
+        let providerID = ObjectIdentifier(provider)
+        guard let error else {
+            DDLogError("Failed to load file representation for provider: \(providerID), error: nil")
+            onError(ExportError.unknown)
+            return
+        }
+        // A cancelled load isn't a failure to report: the upload coordinator cancels
+        // this request's `Progress` (which fires this completion with a cancellation
+        // error) and surfaces the cancellation itself. Bail out without calling
+        // `onError` so we don't show a spurious "failed" message.
+        if ItemProviderMediaExporter.isCancellation(error) {
+            DDLogInfo("Cancelled loading file representation for provider: \(providerID)")
+            return
+        }
+        DDLogError("Failed to load file representation for provider: \(providerID), error: \(error)")
+        if let connectionError = ItemProviderMediaExporter.providerConnectionError(in: error) {
+            let device = LockdownHelper.isDeviceLockdownModeEnabled
+            let appExcluded = device && !LockdownHelper.isAppLockdownModeEnabled
+            let properties = providerErrorProperties(
+                for: error,
+                connectionError: connectionError,
+                deviceLockdown: device,
+                appExcluded: appExcluded
+            )
+            WPAnalytics.track(.mediaImportItemUnavailable, properties: properties)
+            onError(device ? ExportError.lockdownModeRestricted : ExportError.cannotLoadItem)
+        } else {
+            onError(ExportError.underlyingError(error))
+        }
+    }
+
+    private func providerErrorProperties(for error: Error, connectionError: NSError, deviceLockdown: Bool, appExcluded: Bool) -> [AnyHashable: Any] {
+        let error = error as NSError
+        return [
+            "error_domain": error.domain,
+            "error_code": error.code,
+            "underlying_error_domain": connectionError.domain,
+            "underlying_error_code": connectionError.code,
+            "type_identifiers": provider.registeredTypeIdentifiers.joined(separator: ", "),
+            "lockdown_mode": deviceLockdown,
+            "lockdown_mode_app_excluded": appExcluded
+        ]
+    }
+
+    /// The XPC connection error codes (in `NSCocoaErrorDomain`) that signal the item
+    /// provider's process died while producing the file.
+    private static let xpcConnectionErrorCodes: Set<Int> = [
+        CocoaError.Code.xpcConnectionInterrupted.rawValue,
+        CocoaError.Code.xpcConnectionInvalid.rawValue,
+        CocoaError.Code.xpcConnectionReplyInvalid.rawValue
+    ]
+
+    /// Returns the first XPC connection error found in `error` or any of its
+    /// underlying errors, or `nil` if there is none.
+    static func providerConnectionError(in error: Error) -> NSError? {
+        errorChain(from: error)
+            .map { $0 as NSError }
+            .first { $0.domain == NSCocoaErrorDomain && xpcConnectionErrorCodes.contains($0.code) }
+    }
+
+    /// Returns `true` when `error`, or any error it wraps, represents a cancellation
+    /// rather than a genuine failure — a `CancellationError`, `NSUserCancelledError`,
+    /// or `NSURLErrorCancelled`.
+    static func isCancellation(_ error: Error) -> Bool {
+        errorChain(from: error).contains { element in
+            if element is CancellationError {
+                return true
+            }
+            let nsError = element as NSError
+            switch (nsError.domain, nsError.code) {
+            case (NSCocoaErrorDomain, NSUserCancelledError),
+                 (NSURLErrorDomain, NSURLErrorCancelled):
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    /// Flattens `error` and its underlying errors into a single list, bounded to guard
+    /// against pathological cycles.
+    ///
+    /// `NSError.underlyingErrors` already surfaces the value stored under the legacy
+    /// `NSUnderlyingErrorKey` (along with `NSMultipleUnderlyingErrorsKey`), so it is the
+    /// only source we enqueue. Reading `NSUnderlyingErrorKey` separately as well would
+    /// visit every wrapped error twice and halve the depth reachable before the bound.
+    private static func errorChain(from error: Error) -> [Error] {
+        var result: [Error] = []
+        var queue: [Error] = [error]
+        while let next = queue.first, result.count < 16 {
+            queue.removeFirst()
+            result.append(next)
+            queue.append(contentsOf: (next as NSError).underlyingErrors)
+        }
+        return result
+    }
+
     enum ExportError: MediaExportError {
         case unsupportedContentType
-        case underlyingError(Error?)
+        case cannotLoadItem
+        case lockdownModeRestricted
+        case underlyingError(Error)
+        case unknown
 
         public var errorDescription: String? { description }
 
@@ -118,8 +261,14 @@ final class ItemProviderMediaExporter: MediaExporter {
             switch self {
             case .unsupportedContentType:
                 return NSLocalizedString("mediaExporter.error.unsupportedContentType", value: "Unsupported content type", comment: "An error message the app shows if media import fails")
+            case .cannotLoadItem:
+                return NSLocalizedString("mediaExporter.error.cannotLoadItem", value: "This item could not be added to the Media library. It may be too large to import. Please try again or resize the media.", comment: "Error shown when a selected photo or video can't be loaded from the device for upload.")
+            case .lockdownModeRestricted:
+                return NSLocalizedString("mediaExporter.error.lockdownMode", value: "This item can’t be added to the Media library while Lockdown Mode is on.", comment: "Error shown when a selected photo or video can't be imported because iOS Lockdown Mode is enabled.")
             case .underlyingError(let error):
-                return error?.localizedDescription ?? NSLocalizedString("mediaExporter.error.unknown", value: "The item could not be added to the Media library", comment: "An error message the app shows if media import fails")
+                return error.localizedDescription
+            case .unknown:
+                return NSLocalizedString("mediaExporter.error.unknown", value: "The item could not be added to the Media library", comment: "An error message the app shows if media import fails")
             }
         }
     }

@@ -1,14 +1,15 @@
 import Foundation
-import CocoaLumberjack
+import BuildSettingsKit
+import WordPressData
 import WordPressKit
+import WordPressShared
 
 /// This service encapsulates the Restful API related to WordPress Notifications.
 ///
 class NotificationSettingsService {
     // MARK: - Aliases
-    public typealias Channel    = NotificationSettings.Channel
-    public typealias Stream     = NotificationSettings.Stream
-
+    public typealias Channel = NotificationSettings.Channel
+    public typealias Stream = NotificationSettings.Stream
 
     /// Designated Initializer
     ///
@@ -38,7 +39,6 @@ class NotificationSettingsService {
         self.remoteApi = wordPressComRestApi
     }
 
-
     /// This method will retrieve all of the Notification Settings for the default WordPress.com account
     ///
     /// - Parameters:
@@ -52,7 +52,7 @@ class NotificationSettingsService {
 
                 for settings in parsed {
                     guard let blog = settings.blog,
-                          let pushNotificationStream = settings.streams.first(where: { $0.kind == .Device }),
+                          let pushNotificationStream = settings.streams.first(where: { $0.kind == .device }),
                           let preferences = pushNotificationStream.preferences else {
 
                         continue
@@ -60,7 +60,7 @@ class NotificationSettingsService {
 
                     let localSettings = self.loadLocalSettings(for: blog)
 
-                    let updatedPreferences = preferences.merging(localSettings) { first, second in
+                    let updatedPreferences = preferences.merging(localSettings) { _, second in
                         second
                     }
 
@@ -132,7 +132,6 @@ class NotificationSettingsService {
             })
     }
 
-
     /// Registers a given Push Notifications Token against the WordPress.com backend.
     ///
     /// - Parameters:
@@ -146,12 +145,14 @@ class NotificationSettingsService {
             return
         }
 
-        notificationsServiceRemote?.registerDeviceForPushNotifications(token,
-                                                                       pushNotificationAppId: AppConstants.pushNotificationAppId,
-                                                                       success: success,
-                                                                       failure: failure)
+        notificationsServiceRemote?.registerDeviceForPushNotifications(
+            token,
+            pushNotificationAppId: BuildSettings.current.pushNotificationAppID,
+            deviceInformation: UIDevice.current,
+            success: success,
+            failure: failure
+        )
     }
-
 
     /// Unregisters the given deviceID for Push Notification Events.
     ///
@@ -169,7 +170,6 @@ class NotificationSettingsService {
         notificationsServiceRemote?.unregisterDeviceForPushNotifications(deviceId, success: success, failure: failure)
     }
 
-
     /// Static Helper that will parse RemoteNotificationSettings instances into a collection of
     /// NotificationSettings instances.
     ///
@@ -179,14 +179,14 @@ class NotificationSettingsService {
     /// - Returns: An array of NotificationSettings objects
     ///
     fileprivate func settingsFromRemote(_ remoteSettings: [RemoteNotificationSettings]) -> [NotificationSettings] {
-        var parsed       = [NotificationSettings]()
-        let blogs        = ((try? BlogQuery().blogs(in: coreDataStack.mainContext)) ?? []).filter { $0.dotComID != nil }
-        let blogMap      = Dictionary(blogs.map { ($0.dotComID!.intValue, $0) }, uniquingKeysWith: { _, new in new })
+        var parsed = [NotificationSettings]()
+        let blogs = ((try? BlogQuery().blogs(in: coreDataStack.mainContext)) ?? []).filter { $0.dotComID != nil }
+        let blogMap = Dictionary(blogs.map { ($0.dotComID!.intValue, $0) }, uniquingKeysWith: { _, new in new })
 
         for remoteSetting in remoteSettings {
-            let channel  = channelFromRemote(remoteSetting.channel)
-            let streams  = streamsFromRemote(remoteSetting.streams)
-            let blog     = blogForChannel(channel, blogMap: blogMap)
+            let channel = channelFromRemote(remoteSetting.channel)
+            let streams = streamsFromRemote(remoteSetting.streams)
+            let blog = blogForChannel(channel, blogMap: blogMap)
             let settings = NotificationSettings(channel: channel, streams: streams, blog: blog)
 
             parsed.append(settings)
@@ -194,7 +194,6 @@ class NotificationSettingsService {
 
         return parsed
     }
-
 
     /// Helper method to convert RemoteNotificationSettings.Channel into a NotificationSettings.Channel enum.
     ///
@@ -213,7 +212,6 @@ class NotificationSettingsService {
         }
     }
 
-
     /// Helper method that will parse RemoteNotificationSettings.Stream instances into a collection of
     /// NotificationSettings.Stream instances.
     ///
@@ -225,14 +223,13 @@ class NotificationSettingsService {
         var parsed = Array<NotificationSettings.Stream>()
 
         for remoteStream in remote {
-            let kind    = remoteStream.kind.rawValue
-            let stream  = NotificationSettings.Stream(kind: kind, preferences: remoteStream.preferences)
+            let kind = remoteStream.kind.rawValue
+            let stream = NotificationSettings.Stream(kind: kind, preferences: remoteStream.preferences)
             parsed.append(stream)
         }
 
         return parsed
     }
-
 
     /// Helper method that filters the Blog associated with a specific Channel, if any.
     ///
@@ -253,7 +250,6 @@ class NotificationSettingsService {
         }
     }
 
-
     /// Transforms a collection of Settings into a format that's the one expected by the backend,
     /// depending on whether the channel is a Site (will post the Site ID), Other or WordPress.com
     ///
@@ -265,21 +261,21 @@ class NotificationSettingsService {
     /// - Returns: Dictionary of values, as expected by the Backend, for the specified Channel and Stream.
     ///
     fileprivate func remoteFromSettings(_ settings: [String: Bool], channel: Channel, stream: Stream) -> [String: Any] {
-        var wrappedSettings: Any     = settings as Any
-        var streamKey                 = stream.kind.rawValue
+        var wrappedSettings: Any = settings as Any
+        var streamKey = stream.kind.rawValue
 
         switch stream.kind {
-        case .Device:
+        case .device:
             // Devices require a special structure:
             // The backend actually expects an array of dictionaries of devices, each one with its own
             // device_id set.
             //
-            var updatedSettings             = settings as [String: AnyObject]
-            updatedSettings["device_id"]    = deviceId as AnyObject?
+            var updatedSettings = settings as [String: AnyObject]
+            updatedSettings["device_id"] = deviceId as AnyObject?
 
             // Done!
-            streamKey                       = "devices"
-            wrappedSettings                 = [updatedSettings]
+            streamKey = "devices"
+            wrappedSettings = [updatedSettings]
         default:
             break
         }
@@ -305,14 +301,13 @@ class NotificationSettingsService {
         }
     }
 
-
     // MARK: - Private Properties
     fileprivate var remoteApi: WordPressComRestApi?
     private let coreDataStack: CoreDataStack
 
     // MARK: - Private Computed Properties
     fileprivate var notificationsServiceRemote: NotificationSettingsServiceRemote? {
-        guard let remoteApi = remoteApi else {
+        guard let remoteApi else {
             return nil
         }
 

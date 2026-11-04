@@ -1,13 +1,13 @@
 import Foundation
-
+import WordPressData
 
 /// Encapsulates Notification Interface Helpers
 ///
-extension Notification {
+extension WordPressData.Notification {
     /// Returns a Section Identifier that can be sorted. Note that this string is not human readable, and
     /// you should use the *descriptionForSectionIdentifier* method as well!.
     ///
-    @objc func sectionIdentifier() -> String {
+    @objc public func sectionIdentifier() -> String {
         // Normalize Dates: Time must not be considered. Just the raw dates
         let fromDate = timestampAsDate.normalizedDate()
         let toDate = Date().normalizedDate()
@@ -38,7 +38,7 @@ extension Notification {
 
     /// Translates a Section Identifier into a Human-Readable String.
     ///
-    @objc class func descriptionForSectionIdentifier(_ identifier: String) -> String {
+    @objc public class func descriptionForSectionIdentifier(_ identifier: String) -> String {
         guard let section = Sections(rawValue: identifier) else {
             return String()
         }
@@ -46,15 +46,14 @@ extension Notification {
         return section.description
     }
 
-
     // MARK: - Private Helpers
 
     fileprivate enum Sections: String {
-        case Months     = "0"
-        case Weeks      = "2"
-        case Days       = "4"
-        case Yesterday  = "5"
-        case Today      = "6"
+        case Months = "0"
+        case Weeks = "2"
+        case Days = "4"
+        case Yesterday = "5"
+        case Today = "6"
 
         var description: String {
             switch self {

@@ -1,26 +1,29 @@
 import Foundation
+import AVFoundation
+import AsyncImageKit
 
 /// Defines a media host for request authentication purposes.
 ///
-enum MediaHost: Equatable {
+public enum MediaHost: Equatable, Sendable, MediaHostProtocol {
     case publicSite
     case publicWPComSite
     case privateSelfHostedSite
     case privateWPComSite(authToken: String)
-    case privateAtomicWPComSite(siteID: Int, username: String, authToken: String)
+    case privateAtomicWPComSite(siteID: Int, username: String, authToken: String, siteHost: String?)
 
-    enum Error: Swift.Error {
+    public enum Error: Swift.Error {
         case wpComWithoutSiteID
         case wpComPrivateSiteWithoutAuthToken
         case wpComPrivateSiteWithoutUsername
     }
 
-    init(
+    public init(
         isAccessibleThroughWPCom: Bool,
         isPrivate: Bool,
         isAtomic: Bool,
         siteID: Int?,
         username: String?,
+        siteHost: String? = nil,
         authToken: @autoclosure () -> String?,
         failure: (Error) -> Void) {
 
@@ -39,7 +42,7 @@ enum MediaHost: Equatable {
         }
 
         guard let authToken = authToken() else {
-            // This should actually not be possible.  We have no good way to
+            // This should actually not be possible. We have no good way to
             // handle this.
             failure(Error.wpComPrivateSiteWithoutAuthToken)
 
@@ -47,7 +50,7 @@ enum MediaHost: Equatable {
             // call above.
             //
             // Otherwise they'll be able to continue trying to request the image as if it
-            // was hosted in a public WPCom site.  This is the best we can offer with the
+            // was hosted in a public WPCom site. This is the best we can offer with the
             // provided input parameters.
             self = .publicSite
             return
@@ -58,8 +61,8 @@ enum MediaHost: Equatable {
             return
         }
 
-        guard let username = username else {
-            // This should actually not be possible.  We have no good way to
+        guard let username else {
+            // This should actually not be possible. We have no good way to
             // handle this.
             failure(Error.wpComPrivateSiteWithoutUsername)
 
@@ -67,14 +70,14 @@ enum MediaHost: Equatable {
             // call above.
             //
             // Otherwise they'll be able to continue trying to request the image as if it
-            // was hosted in a private WPCom site.  This is the best we can offer with the
+            // was hosted in a private WPCom site. This is the best we can offer with the
             // provided input parameters.
             self = .privateWPComSite(authToken: authToken)
             return
         }
 
-        guard let siteID = siteID else {
-            // This should actually not be possible.  We have no good way to
+        guard let siteID else {
+            // This should actually not be possible. We have no good way to
             // handle this.
             failure(Error.wpComWithoutSiteID)
 
@@ -82,12 +85,22 @@ enum MediaHost: Equatable {
             // call above.
             //
             // Otherwise they'll be able to continue trying to request the image as if it
-            // was hosted in a private WPCom site.  This is the best we can offer with the
+            // was hosted in a private WPCom site. This is the best we can offer with the
             // provided input parameters.
             self = .privateWPComSite(authToken: authToken)
             return
         }
 
-        self = .privateAtomicWPComSite(siteID: siteID, username: username, authToken: authToken)
+        self = .privateAtomicWPComSite(siteID: siteID, username: username, authToken: authToken, siteHost: siteHost)
+    }
+
+    // MARK: - MediaHostProtocol
+
+    public func authenticatedRequest(for url: URL) async throws -> URLRequest {
+        try await MediaRequestAuthenticator().authenticatedRequest(for: url, host: self)
+    }
+
+    public func authenticatedAsset(for url: URL) async throws -> AVURLAsset {
+        try await MediaRequestAuthenticator().authenticatedAsset(for: url, host: self)
     }
 }

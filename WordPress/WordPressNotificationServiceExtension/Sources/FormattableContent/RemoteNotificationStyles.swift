@@ -1,7 +1,6 @@
 import Foundation
-
 import WordPressShared
-import WordPressUI
+import FormattableContentKit
 
 // MARK: - RemoteNotificationStyles
 
@@ -15,17 +14,17 @@ class RemoteNotificationStyles: FormattableContentStyles {
     private lazy var paragraphStyle: NSParagraphStyle = {
         let style = NSMutableParagraphStyle()
 
-        style.alignment          = .natural
-        style.lineBreakMode      = .byWordWrapping
+        style.alignment = .natural
+        style.lineBreakMode = .byWordWrapping
 
-        let prevailingLineHeight = UIDevice.isPad() ? CGFloat(16) : CGFloat(12)
-        style.minimumLineHeight  = prevailingLineHeight
+        let prevailingLineHeight = UIDevice.current.userInterfaceIdiom == .pad ? CGFloat(16) : CGFloat(12)
+        style.minimumLineHeight = prevailingLineHeight
 
         return style
     }()
 
     private lazy var noticonFont: UIFont = {
-        let prevailingFontSize = UIDevice.isPad() ? CGFloat(15) : CGFloat(14)
+        let prevailingFontSize = UIDevice.current.userInterfaceIdiom == .pad ? CGFloat(15) : CGFloat(14)
         return UIFont(name: "Noticons", size: prevailingFontSize)!
     }()
 

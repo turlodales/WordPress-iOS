@@ -1,22 +1,23 @@
 #import "MediaService.h"
-#import "AccountService.h"
-#import "Media.h"
-#import "WPAccount.h"
-#import "CoreDataStack.h"
-#import "Blog.h"
 #import <MobileCoreServices/MobileCoreServices.h>
 #import "WordPress-Swift.h"
-#import "WPXMLRPCDecoder.h"
-#import <WordPressShared/WPImageSource.h>
-#import <WordPressShared/WPAnalytics.h>
-
+@import WordPressData;
 @import WordPressKit;
 @import WordPressUI;
 @import WordPressShared;
+@import WordPressSharedObjC;
 
 NSErrorDomain const MediaServiceErrorDomain = @"MediaServiceErrorDomain";
 
 @implementation MediaService
+
+- (instancetype)initWithManagedObjectContext:(NSManagedObjectContext *)context {
+    self = [super init];
+    if (self) {
+        _managedObjectContext = context;
+    }
+    return self;
+}
 
 #pragma mark - Uploading media
 
@@ -83,7 +84,7 @@ NSErrorDomain const MediaServiceErrorDomain = @"MediaServiceErrorDomain";
         [self.managedObjectContext performBlock:^{
             if (error) {
                 [self trackUploadError:error blog:blog];
-                DDLogError(@"Error uploading media: %@", error);
+                WPLogError(@"Error uploading media: %@", error);
             }
             NSError *customError = [self customMediaUploadError:error remote:remote];
             Media *mediaInContext = (Media *)[self.managedObjectContext existingObjectWithID:mediaObjectID error:nil];
@@ -136,7 +137,7 @@ NSErrorDomain const MediaServiceErrorDomain = @"MediaServiceErrorDomain";
             NSError * error = nil;
             Media *mediaInContext = (Media *)[self.managedObjectContext existingObjectWithID:mediaObjectID error:&error];
             if (!mediaInContext){
-                DDLogError(@"Error retrieving media object: %@", error);
+                WPLogError(@"Error retrieving media object: %@", error);
                 if (failure){
                     failureBlock(error);
                 }
@@ -195,7 +196,7 @@ NSErrorDomain const MediaServiceErrorDomain = @"MediaServiceErrorDomain";
             NSError * error = nil;
             Media *mediaInContext = (Media *)[self.managedObjectContext existingObjectWithID:mediaObjectID error:&error];
             if (!mediaInContext){
-                DDLogError(@"Error updating media object: %@", error);
+                WPLogError(@"Error updating media object: %@", error);
                 if (failure){
                     failure(error);
                 }
@@ -260,7 +261,7 @@ NSErrorDomain const MediaServiceErrorDomain = @"MediaServiceErrorDomain";
                     overallSuccess();
                 } else if (failure && failedOperations == totalOperations.unsignedIntegerValue) {
                     NSError *error = [NSError errorWithDomain:WordPressComRestApiErrorDomain
-                                                         code:WordPressComRestApiErrorUnknown
+                                                         code:WordPressComRestApiErrorCodeUnknown
                                                      userInfo:@{NSLocalizedDescriptionKey : NSLocalizedString(@"An error occurred when attempting to attach uploaded media to the post.", @"Error recorded when all of the media associated with a post fail to be attached to the post on the server.")}];
                     failure(error);
                 }
@@ -466,29 +467,11 @@ NSErrorDomain const MediaServiceErrorDomain = @"MediaServiceErrorDomain";
     }];
 }
 
-#pragma mark - Private helpers
-
-- (NSString *)mimeTypeForMediaType:(NSNumber *)mediaType
-{
-    MediaType filter = (MediaType)[mediaType intValue];
-    NSString *mimeType = [Media stringFromMediaType:filter];
-    return mimeType;
-}
-
 #pragma mark - Media helpers
 
 - (id<MediaServiceRemote>)remoteForBlog:(Blog *)blog
 {
-    id <MediaServiceRemote> remote;
-    if ([blog supports:BlogFeatureWPComRESTAPI]) {
-        if (blog.wordPressComRestApi) {
-            remote = [[MediaServiceRemoteREST alloc] initWithWordPressComRestApi:blog.wordPressComRestApi
-                                                                          siteID:blog.dotComID];
-        }
-    } else if (blog.xmlrpcApi) {
-        remote = [[MediaServiceRemoteXMLRPC alloc] initWithApi:blog.xmlrpcApi username:blog.username password:blog.password];
-    }
-    return remote;
+    return [[[MediaServiceRemoteFactory alloc] init] remoteForBlog:blog error:nil];
 }
 
 - (void)mergeMedia:(NSArray *)media

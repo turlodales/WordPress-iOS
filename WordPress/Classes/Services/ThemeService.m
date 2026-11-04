@@ -1,10 +1,7 @@
 #import "ThemeService.h"
 
-#import "Blog.h"
-#import "Theme.h"
-#import "WPAccount.h"
-#import "CoreDataStack.h"
 #import "WordPress-Swift.h"
+@import WordPressData;
 @import WordPressKit;
 
 /**
@@ -15,13 +12,22 @@ const NSInteger ThemeOrderTrailing = 9999;
 
 @implementation ThemeService
 
+- (instancetype)initWithCoreDataStack:(id<CoreDataStack>)coreDataStack
+{
+    self = [super init];
+    if (self) {
+        _coreDataStack = coreDataStack;
+    }
+    return self;
+}
+
 #pragma mark - Themes availability
 
 - (BOOL)blogSupportsThemeServices:(Blog *)blog
 {
     NSParameterAssert([blog isKindOfClass:[Blog class]]);
     
-    return [blog supports:BlogFeatureWPComRESTAPI];
+    return [blog supports:BlogFeatureWpComRESTAPI];
 }
 
 #pragma mark - Local queries: Creating themes
@@ -149,6 +155,7 @@ const NSInteger ThemeOrderTrailing = 9999;
 
 - (NSProgress *)getThemesForBlog:(Blog *)blog
                              page:(NSInteger)page
+                           search:(NSString *)search
                              sync:(BOOL)sync
                           success:(ThemeServiceThemesRequestSuccessBlock)success
                           failure:(ThemeServiceFailureBlock)failure
@@ -157,6 +164,10 @@ const NSInteger ThemeOrderTrailing = 9999;
     NSAssert([self blogSupportsThemeServices:blog],
              @"Do not call this method on unsupported blogs, check with blogSupportsThemeServices first.");
     
+    if (search.length == 0) {
+        search = nil;
+    }
+
     if (blog.wordPressComRestApi == nil) {
         return nil;
     }
@@ -165,6 +176,7 @@ const NSInteger ThemeOrderTrailing = 9999;
 
     if ([blog supports:BlogFeatureCustomThemes]) {
         return [remote getWPThemesPage:page
+                                search:search
                               freeOnly:![blog supports:BlogFeaturePremiumThemes]
                                success:^(NSArray<RemoteTheme *> *remoteThemes, BOOL hasMore, NSInteger totalThemeCount) {
                                    NSArray * __block themeObjectIDs = nil;
@@ -482,7 +494,7 @@ const NSInteger ThemeOrderTrailing = 9999;
     }
     theme.popularityRank = remoteTheme.popularityRank;
     theme.previewUrl = remoteTheme.previewUrl;
-    BOOL availableFree = remoteTheme.purchased.boolValue || remoteTheme.price.length == 0;
+    BOOL availableFree = remoteTheme.purchased.boolValue || ![remoteTheme.type isEqualToString:@"managed-external"];
     theme.premium = @(!availableFree);
     theme.price = remoteTheme.price;
     theme.purchased = remoteTheme.purchased;

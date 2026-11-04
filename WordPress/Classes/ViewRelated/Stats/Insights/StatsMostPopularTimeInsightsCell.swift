@@ -1,9 +1,8 @@
 import UIKit
-
+import WordPressShared
+import WordPressKit
 
 class StatsMostPopularTimeInsightsCell: StatsBaseCell {
-    private var data: StatsMostPopularTimeData? = nil
-    private weak var siteStatsInsightsDelegate: SiteStatsInsightsDelegate?
 
     // MARK: - Subviews
 
@@ -48,7 +47,7 @@ class StatsMostPopularTimeInsightsCell: StatsBaseCell {
         topConstraint = outerStackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: StatsBaseCell.Metrics.padding)
 
         NSLayoutConstraint.activate([
-            topConstraint,
+            topConstraint!,
             outerStackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -StatsBaseCell.Metrics.padding),
             outerStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: StatsBaseCell.Metrics.padding),
             outerStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -StatsBaseCell.Metrics.padding),
@@ -123,18 +122,18 @@ class StatsMostPopularTimeInsightsCell: StatsBaseCell {
 
     private func configure(verticalStackView: UIStackView) -> (topLabel: UILabel, middleLabel: UILabel, bottomLabel: UILabel) {
         let topLabel = UILabel()
-        topLabel.textColor = .text
+        topLabel.textColor = .label
         topLabel.font = .preferredFont(forTextStyle: .body)
         topLabel.numberOfLines = 0
 
         let middleLabel = UILabel()
-        middleLabel.textColor = .text
+        middleLabel.textColor = .label
         middleLabel.font = WPStyleGuide.Stats.insightsCountFont
         middleLabel.adjustsFontForContentSizeCategory = true
         middleLabel.numberOfLines = 0
 
         let bottomLabel = UILabel()
-        bottomLabel.textColor = .textSubtle
+        bottomLabel.textColor = .secondaryLabel
         bottomLabel.font = .preferredFont(forTextStyle: .body)
         bottomLabel.numberOfLines = 0
 
@@ -148,7 +147,7 @@ class StatsMostPopularTimeInsightsCell: StatsBaseCell {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = .preferredFont(forTextStyle: .body)
-        label.textColor = .textSubtle
+        label.textColor = .secondaryLabel
         label.numberOfLines = 0
         label.text = TextContent.noData
 
@@ -162,12 +161,10 @@ class StatsMostPopularTimeInsightsCell: StatsBaseCell {
 
     // MARK: Public configuration
 
-    func configure(data: StatsMostPopularTimeData?, siteStatsInsightsDelegate: SiteStatsInsightsDelegate?) {
-        self.data = data
+    func configure(data: StatsMostPopularTimeData?) {
         self.statSection = .insightsMostPopularTime
-        self.siteStatsInsightsDelegate = siteStatsInsightsDelegate
 
-        guard let data = data else {
+        guard let data else {
             displayNoData(show: true)
             return
         }
@@ -194,7 +191,7 @@ class StatsMostPopularTimeInsightsCell: StatsBaseCell {
 
 // MARK: - Data / View Model
 
-struct StatsMostPopularTimeData {
+struct StatsMostPopularTimeData: Equatable {
     var mostPopularDayTitle: String
     var mostPopularTimeTitle: String
     var mostPopularDay: String
@@ -211,7 +208,7 @@ extension StatsAnnualAndMostPopularTimeInsight {
             return nil
         }
 
-        var calendar = Calendar.init(identifier: .gregorian)
+        var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale.autoupdatingCurrent
 
         // Back up mostPopularWeekday by 1 to get correct index for standaloneWeekdaySymbols.
@@ -220,7 +217,7 @@ extension StatsAnnualAndMostPopularTimeInsight {
     }
 
     func formattedMostPopularTime() -> String? {
-        var calendar = Calendar.init(identifier: .gregorian)
+        var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale.autoupdatingCurrent
 
         guard let hour = mostPopularHour.hour,

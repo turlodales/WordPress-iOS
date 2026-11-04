@@ -1,6 +1,9 @@
 import UIKit
 import Combine
 import Gifu
+import AsyncImageKit
+import WordPressData
+import WordPressUI
 
 final class SiteMediaCollectionCell: UICollectionViewCell, Reusable {
     private let imageContainerView = UIView()
@@ -41,7 +44,7 @@ final class SiteMediaCollectionCell: UICollectionViewCell, Reusable {
             return $0
         })
 
-        overlayView.backgroundColor = .neutral(.shade70).withAlphaComponent(0.5)
+        overlayView.backgroundColor = UIAppColor.neutral(.shade70).withAlphaComponent(0.5)
 
         imageContainerView.addSubview(placeholderView)
         placeholderView.translatesAutoresizingMaskIntoConstraints = false
@@ -67,7 +70,7 @@ final class SiteMediaCollectionCell: UICollectionViewCell, Reusable {
         viewModel?.onDisappear()
         viewModel = nil
 
-        imageView.prepareForReuse()
+        imageView.reset()
         imageView.image = nil
         imageView.alpha = 0
 
@@ -116,6 +119,9 @@ final class SiteMediaCollectionCell: UICollectionViewCell, Reusable {
             aspectRatioConstraint.isActive = true
             self.aspectRatioConstraint = aspectRatioConstraint
         }
+
+        imageContainerView.layer.cornerRadius = isAspectRatioModeEnabled ? 4 : 0
+        imageContainerView.layer.masksToBounds = true
     }
 
     // MARK: - Refresh

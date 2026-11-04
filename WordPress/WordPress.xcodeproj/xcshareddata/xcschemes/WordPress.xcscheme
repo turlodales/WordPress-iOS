@@ -1,10 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1400"
+   LastUpgradeVersion = "2600"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
-      buildImplicitDependencies = "YES">
+      buildImplicitDependencies = "YES"
+      buildArchitectures = "Automatic">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Download Gutenberg XCFrameworks"
+               scriptText = "&quot;${SRCROOT}/../Scripts/download-gutenberg-xcframeworks.sh&quot;&#10;"
+               shellToInvoke = "/bin/bash">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "1D6058900D05DD3D006BFB54"
+                     BuildableName = "WordPress.app"
+                     BlueprintName = "WordPress"
+                     ReferencedContainer = "container:WordPress.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"
@@ -38,11 +58,8 @@
       </MacroExpansion>
       <TestPlans>
          <TestPlanReference
-            reference = "container:WordPressTest/WordPressUnitTests.xctestplan"
+            reference = "container:../Tests/KeystoneTests/WordPressUnitTests.xctestplan"
             default = "YES">
-         </TestPlanReference>
-         <TestPlanReference
-            reference = "container:UITests/WordPressUITests.xctestplan">
          </TestPlanReference>
       </TestPlans>
       <Testables>
@@ -53,6 +70,17 @@
                BlueprintIdentifier = "E16AB92914D978240047A2E5"
                BuildableName = "WordPressTest.xctest"
                BlueprintName = "WordPressTest"
+               ReferencedContainer = "container:WordPress.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "4A8280FC2E5FE9B60037E180"
+               BuildableName = "WordPressKitTests.xctest"
+               BlueprintName = "WordPressKitTests"
                ReferencedContainer = "container:WordPress.xcodeproj">
             </BuildableReference>
          </TestableReference>
@@ -103,6 +131,18 @@
             argument = "-debugJetpackConnectionFlow"
             isEnabled = "NO">
          </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-com.apple.TipKit.ShowAllTips 1"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-com.apple.TipKit.HideAllTips 1"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-com.apple.TipKit.ResetDataStore 1"
+            isEnabled = "NO">
+         </CommandLineArgument>
       </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
@@ -113,17 +153,12 @@
       </EnvironmentVariables>
       <AdditionalOptions>
          <AdditionalOption
-            key = "MallocStackLogging"
-            value = ""
-            isEnabled = "YES">
-         </AdditionalOption>
-         <AdditionalOption
             key = "PrefersMallocStackLoggingLite"
             value = ""
             isEnabled = "YES">
          </AdditionalOption>
          <AdditionalOption
-            key = "MallocScribble"
+            key = "MallocStackLogging"
             value = ""
             isEnabled = "YES">
          </AdditionalOption>

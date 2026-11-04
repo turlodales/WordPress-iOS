@@ -1,19 +1,24 @@
+@import CoreData;
 #import <Foundation/Foundation.h>
-#import "CoreDataService.h"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnullability-completeness"
 
-@import WordPressKit;
-@import WordPressShared;
-
 @class ReaderPost;
 @class ReaderAbstractTopic;
+@class WordPressComRestApi;
+@protocol CoreDataStack;
 
 extern NSString * const ReaderPostServiceErrorDomain;
 extern NSString * const ReaderPostServiceToggleSiteFollowingState;
 
-@interface ReaderPostService : CoreDataService
+@interface ReaderPostService : NSObject
+
+@property (nonatomic, strong, readonly) id<CoreDataStack> coreDataStack;
+
+- (nonnull instancetype)initWithCoreDataStack:(id<CoreDataStack>)coreDataStack NS_DESIGNATED_INITIALIZER;
+
+- (instancetype)init NS_UNAVAILABLE;
 
 /**
  Fetches and saves the posts for the specified topic
@@ -73,17 +78,6 @@ extern NSString * const ReaderPostServiceToggleSiteFollowingState;
           failure:(void (^)(NSError *error))failure;
 
 /**
- Fetches a specific post from the specified URL
-
- @param postURL The URL of the post to fetch
- @param success block called on a successful fetch.
- @param failure block called if there is any error. `error` can be any underlying network error.
- */
-- (void)fetchPostAtURL:(NSURL *)postURL
-          success:(void (^)(ReaderPost *post))success
-          failure:(void (^)(NSError *error))failure;
-
-/**
  Silently refresh posts for the followed sites topic.
  Note that calling this method creates a new service instance that performs
  all its work on a derived managed object context, and background queue.
@@ -98,6 +92,19 @@ extern NSString * const ReaderPostServiceToggleSiteFollowingState;
  @param failure block called if there is any error. `error` can be any underlying network error.
  */
 - (void)toggleLikedForPost:(ReaderPost *)post
+                   success:(void (^)(void))success
+                   failure:(void (^)(NSError *error))failure;
+
+/**
+ Toggle the liked status of the specified post.
+
+ @param post The reader post to like/unlike.
+ @param source A string that hints the source of where action was performed. Optional.
+ @param success block called on a successful fetch.
+ @param failure block called if there is any error. `error` can be any underlying network error.
+ */
+- (void)toggleLikedForPost:(ReaderPost *)post
+                    source:(nullable NSString *)source
                    success:(void (^)(void))success
                    failure:(void (^)(NSError *error))failure;
 

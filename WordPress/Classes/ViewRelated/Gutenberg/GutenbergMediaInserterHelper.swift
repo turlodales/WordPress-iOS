@@ -2,6 +2,8 @@ import Foundation
 import CoreServices
 import Gutenberg
 import MediaEditor
+import WordPressData
+import WordPressShared
 
 class GutenbergMediaInserterHelper: NSObject {
     fileprivate let post: AbstractPost
@@ -53,7 +55,7 @@ class GutenbergMediaInserterHelper: NSObject {
             // it doesn't need to point anywhere. The placeholder gets displayed
             // as soon as `MediaImportService` generated it (see `MediaState.thumbnailReady`).
             // This way we, dramatically cut CPU and especially memory usage.
-            let previewURL = URL(fileURLWithPath: NSTemporaryDirectory() + "\(media.gutenbergUploadID)")
+            let previewURL = URL.Helpers.temporaryFile(named: "\(media.gutenbergUploadID)")
             return MediaInfo(id: media.gutenbergUploadID, url: previewURL.absoluteString, type: media.mediaTypeString)
         }
         callback(media)
@@ -75,8 +77,8 @@ class GutenbergMediaInserterHelper: NSObject {
         }
         let mediaUploadID = media.gutenbergUploadID
 
-        let filePath = NSTemporaryDirectory() + "\(mediaUploadID).jpg"
-        let url = URL(fileURLWithPath: filePath)
+        let url = URL.Helpers.temporaryFile(named: "\(mediaUploadID).jpg")
+
         do {
             try image.writeJPEGToURL(url)
             callback([MediaInfo(id: mediaUploadID, url: url.absoluteString, type: media.mediaTypeString)])
@@ -90,7 +92,11 @@ class GutenbergMediaInserterHelper: NSObject {
         for media in post.media {
             if media.remoteStatus == .failed {
                 gutenberg.mediaUploadUpdate(id: media.gutenbergUploadID, state: .uploading, progress: 0, url: media.absoluteThumbnailLocalURL, serverID: nil)
-                gutenberg.mediaUploadUpdate(id: media.gutenbergUploadID, state: .failed, progress: 0, url: nil, serverID: nil)
+                let finalState: Gutenberg.MediaUploadState = ReachabilityUtils.isInternetReachable() ? .failed : .paused
+                if finalState == .paused {
+                    trackPausedMediaOf(media)
+                }
+                gutenberg.mediaUploadUpdate(id: media.gutenbergUploadID, state: finalState, progress: 0, url: nil, serverID: nil)
             }
         }
     }
@@ -108,25 +114,13 @@ class GutenbergMediaInserterHelper: NSObject {
         return mediaCoordinator.isUploadingMedia(for: post)
     }
 
-    func cancelUploadOfAllMedia() {
-        mediaCoordinator.cancelUploadOfAllMedia(for: post)
-    }
-
     func cancelUploadOf(media: Media) {
         mediaCoordinator.cancelUploadAndDeleteMedia(media)
         gutenberg.mediaUploadUpdate(id: media.gutenbergUploadID, state: .reset, progress: 0, url: nil, serverID: nil)
     }
 
-    func retryUploadOf(media: Media) {
-        mediaCoordinator.retryMedia(media)
-    }
-
-    func retryFailedMediaUploads() {
-        _ = mediaCoordinator.uploadMedia(for: post, automatedRetry: true)
-    }
-
-    func hasFailedMedia() -> Bool {
-        return mediaCoordinator.hasFailedMedia(for: post)
+    func retryFailedMediaUploads(automatedRetry: Bool = false) {
+        _ = mediaCoordinator.uploadMedia(for: post, automatedRetry: automatedRetry)
     }
 
     func insert(exportableAsset: ExportableAsset, source: MediaSource) -> Media? {
@@ -158,7 +152,7 @@ class GutenbergMediaInserterHelper: NSObject {
     }
 
     private func registerMediaObserver() {
-        mediaObserverReceipt =  mediaCoordinator.addObserver({ [weak self](media, state) in
+        mediaObserverReceipt = mediaCoordinator.addObserver({ [weak self] media, state in
             self?.mediaObserver(media: media, state: state)
             }, forMediaFor: post)
     }
@@ -175,11 +169,7 @@ class GutenbergMediaInserterHelper: NSObject {
         case .processing:
             gutenberg.mediaUploadUpdate(id: mediaUploadID, state: .uploading, progress: 0, url: nil, serverID: nil)
         case .thumbnailReady(let url):
-            guard ReachabilityUtils.isInternetReachable() && media.remoteStatus != .failed else {
-                gutenberg.mediaUploadUpdate(id: mediaUploadID, state: .failed, progress: 0, url: url, serverID: nil)
-                return
-            }
-            gutenberg.mediaUploadUpdate(id: mediaUploadID, state: .uploading, progress: 0.20, url: url, serverID: nil)
+            gutenberg.mediaUploadUpdate(id: mediaUploadID, url: url)
             break
         case .uploading:
             break
@@ -199,7 +189,7 @@ class GutenbergMediaInserterHelper: NSObject {
             case .video:
                 // Fetch metadata when is a VideoPress video
                 if media.videopressGUID != nil {
-                    EditorMediaUtility.fetchVideoPressMetadata(for: media, in: post) { [weak self] (result) in
+                    EditorMediaUtility.fetchVideoPressMetadata(for: media, in: post) { [weak self] result in
                         guard let strongSelf = self else {
                             return
                         }
@@ -221,14 +211,28 @@ class GutenbergMediaInserterHelper: NSObject {
                 gutenberg.mediaUploadUpdate(id: mediaUploadID, state: .succeeded, progress: 1, url: url, serverID: mediaServerID)
             }
         case .failed(let error):
-            if error.code == NSURLErrorCancelled {
+            switch error.code {
+            case NSURLErrorCancelled:
                 gutenberg.mediaUploadUpdate(id: mediaUploadID, state: .reset, progress: 0, url: nil, serverID: nil)
-                return
+            case NSURLErrorNetworkConnectionLost: fallthrough
+            case NSURLErrorNotConnectedToInternet: fallthrough
+            case NSURLErrorTimedOut where !ReachabilityUtils.isInternetReachable():
+                trackPausedMediaOf(media)
+                // The progress value passed is ignored by the editor, allowing the UI to retain the last known progress before pausing
+                gutenberg.mediaUploadUpdate(id: mediaUploadID, state: .paused, progress: 0, url: nil, serverID: nil)
+            default:
+                gutenberg.mediaUploadUpdate(id: mediaUploadID, state: .failed, progress: 0, url: nil, serverID: nil)
             }
-            gutenberg.mediaUploadUpdate(id: mediaUploadID, state: .failed, progress: 0, url: nil, serverID: nil)
         case .progress(let value):
             gutenberg.mediaUploadUpdate(id: mediaUploadID, state: .uploading, progress: Float(value), url: nil, serverID: nil)
+        case .cancelled:
+            gutenberg.mediaUploadUpdate(id: mediaUploadID, state: .reset, progress: 0, url: nil, serverID: nil)
         }
+    }
+
+    private func trackPausedMediaOf(_ media: Media) {
+        let info = MediaAnalyticsInfo(origin: .editor(.none), selectionMethod: mediaSelectionMethod)
+        mediaCoordinator.trackPausedUploadOf(media, analyticsInfo: info)
     }
 }
 

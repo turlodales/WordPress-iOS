@@ -1,4 +1,4 @@
-import Foundation
+import UIKit
 
 struct NewPostRoute: Route {
     let path = "/post"
@@ -16,10 +16,6 @@ struct NewPostForSiteRoute: Route {
 
 struct NewPostNavigationAction: NavigationAction {
     func perform(_ values: [String: String], source: UIViewController? = nil, router: LinkRouter) {
-        if let blog = blog(from: values) {
-            RootViewCoordinator.sharedPresenter.showPostTab(for: blog)
-        } else {
-            RootViewCoordinator.sharedPresenter.showPostTab()
-        }
+        RootViewCoordinator.sharedPresenter.showNewPostEditor(blog: blog(from: values))
     }
 }

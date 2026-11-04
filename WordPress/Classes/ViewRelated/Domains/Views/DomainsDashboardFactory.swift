@@ -1,11 +1,11 @@
 import Foundation
 import SwiftUI
+import WordPressData
+import WordPressShared
 
 struct DomainsDashboardFactory {
     static func makeDomainsDashboardViewController(blog: Blog) -> UIViewController {
-        let viewController = SiteDomainsViewController(blog: blog)
-        viewController.extendedLayoutIncludesOpaqueBars = true
-        return viewController
+        SiteDomainsViewController(blog: blog)
     }
 
     static func makeDomainsSuggestionViewController(blog: Blog, domainSelectionType: DomainSelectionType, onDismiss: @escaping () -> Void) -> DomainSelectionViewController {

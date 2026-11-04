@@ -1,3 +1,4 @@
+import WordPressShared
 
 /// Abstracts elements that need to be aware of the network connection status.
 protocol NetworkAware {
@@ -61,36 +62,17 @@ extension NetworkStatusDelegate where Self: UIViewController {
 
     fileprivate var receiver: ReachabilityNotificationObserver? {
         get {
-            return objc_getAssociatedObject(self, &NetworkStatusAssociatedKeys.associatedObjectKey) as? ReachabilityNotificationObserver
+            return objc_getAssociatedObject(self, NetworkStatusAssociatedKeys.associatedObjectKey) as? ReachabilityNotificationObserver
         }
 
         set {
-            objc_setAssociatedObject(self, &NetworkStatusAssociatedKeys.associatedObjectKey, newValue, .OBJC_ASSOCIATION_RETAIN)
-        }
-    }
-}
-
-// TODO: - READERNAV - This is being used for the new Reader, currently under development. Once it's released, there should only be one extension
-protocol NetworkStatusReceiver {}
-
-extension NetworkStatusDelegate where Self: NetworkStatusReceiver {
-    func observeNetworkStatus() {
-        receiver = ReachabilityNotificationObserver(delegate: self)
-    }
-
-    fileprivate var receiver: ReachabilityNotificationObserver? {
-        get {
-            return objc_getAssociatedObject(self, &NetworkStatusAssociatedKeys.associatedObjectKey) as? ReachabilityNotificationObserver
-        }
-
-        set {
-            objc_setAssociatedObject(self, &NetworkStatusAssociatedKeys.associatedObjectKey, newValue, .OBJC_ASSOCIATION_RETAIN)
+            objc_setAssociatedObject(self, NetworkStatusAssociatedKeys.associatedObjectKey, newValue, .OBJC_ASSOCIATION_RETAIN)
         }
     }
 }
 
 fileprivate struct NetworkStatusAssociatedKeys {
-    static var associatedObjectKey = "org.wordpress.networkstatus.notificationreceiver"
+    static let associatedObjectKey = malloc(1)!
 }
 
 fileprivate final class ReachabilityNotificationObserver: NSObject {
@@ -103,7 +85,7 @@ fileprivate final class ReachabilityNotificationObserver: NSObject {
     }
 
     private func observeErrors() {
-        NotificationCenter.default.addObserver(self, selector: #selector(receive), name: .reachabilityChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(receive), name: .reachabilityUpdated, object: nil)
     }
 
     @objc func receive(notification: Foundation.Notification) {

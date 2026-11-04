@@ -1,6 +1,6 @@
 import Foundation
-import WordPressShared.WPStyleGuide
-import CocoaLumberjack
+import WordPressData
+import WordPressShared
 
 /// Actions provided in cell button triggered action sheet
 ///
@@ -13,7 +13,7 @@ public enum ThemeAction {
     case tryCustomize
     case view
 
-    static func activeActionsForTheme(_ theme: Theme) ->[ThemeAction] {
+    static func activeActionsForTheme(_ theme: Theme) -> [ThemeAction] {
         if theme.custom {
             if theme.hasDetailsURL() {
                 return [customize, details]
@@ -23,7 +23,7 @@ public enum ThemeAction {
         return [customize, details, support]
     }
 
-    static func inactiveActionsForTheme(_ theme: Theme) ->[ThemeAction] {
+    static func inactiveActionsForTheme(_ theme: Theme) -> [ThemeAction] {
         if theme.custom {
             if theme.hasDetailsURL() {
                 return [tryCustomize, activate, details]
@@ -100,6 +100,29 @@ open class ThemeBrowserCell: UICollectionViewCell {
     @objc open var showPriceInformation: Bool = false
     open weak var presenter: ThemePresenter?
 
+    /// Replaces the action button with a spinner while the theme is being activated.
+    var isActivating: Bool = false {
+        didSet {
+            actionButton.isHidden = isActivating
+            if isActivating {
+                activatingIndicator.startAnimating()
+            } else {
+                activatingIndicator.stopAnimating()
+            }
+        }
+    }
+
+    private lazy var activatingIndicator: UIActivityIndicatorView = {
+        let indicator = UIActivityIndicatorView(style: .medium)
+        indicator.hidesWhenStopped = true
+        indicator.accessibilityLabel = NSLocalizedString(
+            "themeBrowser.cell.activating",
+            value: "Activating",
+            comment: "Accessibility label for the spinner shown while a theme is being activated"
+        )
+        return indicator
+    }()
+
     fileprivate var placeholderImage = UIImage(named: "theme-loading")
     fileprivate var activeEllipsisImage = UIImage(named: "icon-menu-ellipsis-white")
     fileprivate var inactiveEllipsisImage = UIImage(named: "icon-menu-ellipsis")
@@ -109,9 +132,12 @@ open class ThemeBrowserCell: UICollectionViewCell {
     override open var isHighlighted: Bool {
         didSet {
             let alphaFinal: CGFloat = isHighlighted ? 0.3 : 0
-            UIView.animate(withDuration: 0.2, animations: { [weak self] in
-                self?.highlightView.alpha = alphaFinal
-            })
+            UIView.animate(
+                withDuration: 0.2,
+                animations: { [weak self] in
+                    self?.highlightView.alpha = alphaFinal
+                }
+            )
         }
     }
 
@@ -120,22 +146,33 @@ open class ThemeBrowserCell: UICollectionViewCell {
 
         actionButton.isExclusiveTouch = true
 
-        layer.borderWidth = Styles.cellBorderWidth
-        infoBar.layer.borderWidth = Styles.cellBorderWidth
-        nameLabel.font = Styles.cellNameFont
-        infoLabel.font = Styles.cellInfoFont
-        actionButton.layer.borderWidth = Styles.cellBorderWidth
+        infoBar.addSubview(activatingIndicator)
+        activatingIndicator.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            activatingIndicator.centerXAnchor.constraint(equalTo: actionButton.centerXAnchor),
+            activatingIndicator.centerYAnchor.constraint(equalTo: actionButton.centerYAnchor)
+        ])
+
+        layer.cornerRadius = 12
+        layer.cornerCurve = .continuous
+        layer.borderColor = UIColor.separator.cgColor
+        layer.borderWidth = 0.5
+
+        nameLabel.font = .preferredFont(forTextStyle: .headline)
+        infoLabel.font = .preferredFont(forTextStyle: .headline)
     }
 
     override open func prepareForReuse() {
         super.prepareForReuse()
+
         theme = nil
         presenter = nil
         showPriceInformation = false
+        isActivating = false
     }
 
     fileprivate func refreshGUI() {
-        if let theme = theme {
+        if let theme {
             if let imageUrl = theme.screenshotUrl, !imageUrl.isEmpty {
                 refreshScreenshotImage(imageUrl)
             } else {
@@ -144,22 +181,16 @@ open class ThemeBrowserCell: UICollectionViewCell {
 
             nameLabel.text = theme.name
             if theme.isCurrentTheme() {
-                backgroundColor = Styles.activeCellBackgroundColor
+                backgroundColor = .systemBackground
                 infoBar.backgroundColor = Styles.activeCellBackgroundColor
-                layer.borderColor = Styles.activeCellBorderColor.cgColor
-                infoBar.layer.borderColor = Styles.activeCellDividerColor.cgColor
-                actionButton.layer.borderColor = Styles.activeCellDividerColor.cgColor
                 actionButton.setImage(activeEllipsisImage, for: .normal)
 
                 nameLabel.textColor = Styles.activeCellNameColor
                 infoLabel.textColor = Styles.activeCellInfoColor
                 infoLabel.text = NSLocalizedString("ACTIVE", comment: "Label for active Theme browser cell")
             } else {
-                backgroundColor = Styles.inactiveCellBackgroundColor
-                infoBar.backgroundColor = Styles.inactiveCellBackgroundColor
-                layer.borderColor = Styles.inactiveCellBorderColor.cgColor
-                infoBar.layer.borderColor = Styles.inactiveCellDividerColor.cgColor
-                actionButton.layer.borderColor = Styles.inactiveCellDividerColor.cgColor
+                backgroundColor = .systemBackground
+                infoBar.backgroundColor = .systemBackground
                 actionButton.setImage(inactiveEllipsisImage, for: .normal)
 
                 nameLabel.textColor = Styles.inactiveCellNameColor
@@ -206,13 +237,13 @@ open class ThemeBrowserCell: UICollectionViewCell {
             return screenshotUrl
         }
 
-        var queryItems: [URLQueryItem] = components.queryItems ??  []
+        var queryItems: [URLQueryItem] = components.queryItems ?? []
 
         if let screenshotWidth = presenter?.screenshotWidth {
             queryItems.append(URLQueryItem(name: "w", value: "\(screenshotWidth)"))
         }
 
-        queryItems.append(URLQueryItem(name: "zoom", value: "\(UIScreen.main.scale)"))
+        queryItems.append(URLQueryItem(name: "zoom", value: "\(max(1, traitCollection.displayScale))"))
         components.queryItems = queryItems
 
         guard let urlString = components.url?.absoluteString else {
@@ -223,38 +254,47 @@ open class ThemeBrowserCell: UICollectionViewCell {
     }
 
     fileprivate func refreshScreenshotImage(_ imageUrl: String) {
-        let imageUrlWithWidth = imageUrlForWidth( imageUrl: imageUrl )
+        let imageUrlWithWidth = imageUrlForWidth(imageUrl: imageUrl)
         let screenshotUrl = URL(string: imageUrlWithWidth)
 
         imageView.backgroundColor = Styles.placeholderColor
         activityView.startAnimating()
-        imageView.downloadImage(from: screenshotUrl, success: { [weak self] _ in
-            self?.showScreenshot()
-        }, failure: { [weak self] error in
-                if let error = error as NSError?, error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
+        imageView.downloadImage(
+            from: screenshotUrl,
+            success: { [weak self] _ in
+                self?.showScreenshot()
+            },
+            failure: { [weak self] error in
+                let nsError = error as NSError?
+                if nsError?.domain == NSURLErrorDomain && nsError?.code == NSURLErrorCancelled {
                     return
                 }
                 DDLogError("Error loading theme screenshot: \(String(describing: error?.localizedDescription))")
                 self?.showPlaceholder()
-        })
+            }
+        )
     }
 
     // MARK: - Actions
 
     @IBAction fileprivate func didTapActionButton(_ sender: UIButton) {
-        guard let theme = theme, let presenter = presenter else {
+        guard let theme, let presenter else {
             return
         }
 
         let alertController = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
 
-        let themeActions = theme.isCurrentTheme() ? ThemeAction.activeActionsForTheme(theme) : ThemeAction.inactiveActionsForTheme(theme)
+        let themeActions =
+            theme.isCurrentTheme()
+            ? ThemeAction.activeActionsForTheme(theme) : ThemeAction.inactiveActionsForTheme(theme)
         themeActions.forEach { themeAction in
-            alertController.addActionWithTitle(themeAction.title,
-                                               style: .default,
-                                               handler: { (action: UIAlertAction) in
-                                                themeAction.present(theme, presenter)
-            })
+            alertController.addActionWithTitle(
+                themeAction.title,
+                style: .default,
+                handler: { (_: UIAlertAction) in
+                    themeAction.present(theme, presenter)
+                }
+            )
         }
 
         let cancelTitle = NSLocalizedString("Cancel", comment: "Cancel action title")
@@ -270,7 +310,6 @@ open class ThemeBrowserCell: UICollectionViewCell {
             popover.canOverlapSourceViewRect = true
         }
     }
-
 }
 
 extension ThemeBrowserCell: Accessible {
@@ -294,7 +333,10 @@ extension ThemeBrowserCell: Accessible {
 
     private func prepareActionButtonForVoiceOver() {
         actionButton.isAccessibilityElement = true
-        actionButton.accessibilityLabel = NSLocalizedString("More", comment: "Action button to display more available options")
+        actionButton.accessibilityLabel = NSLocalizedString(
+            "More",
+            comment: "Action button to display more available options"
+        )
         actionButton.accessibilityTraits = .button
     }
 

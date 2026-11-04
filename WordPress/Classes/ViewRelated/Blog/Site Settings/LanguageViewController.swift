@@ -1,6 +1,7 @@
 import Foundation
+import WordPressData
 import WordPressShared
-
+import WordPressUI
 
 /// This class will display the Blog's Language setting, and will allow the user to pick a new value.
 /// Upon selection, WordPress.com backend will get hit, and the new value will be persisted.
@@ -8,16 +9,14 @@ import WordPressShared
 open class LanguageViewController: UITableViewController, LanguageSelectorDelegate {
     /// Callback to be executed whenever the Blog's selected language changes.
     ///
-    @objc var onChange: ((NSNumber) -> Void)?
-
-
+    @objc public var onChange: ((NSNumber) -> Void)?
 
     /// Designated Initializer
     ///
     /// - Parameter Blog: The blog for which we wanna display the languages picker
     ///
     @objc public convenience init(blog: Blog) {
-        self.init(style: .grouped)
+        self.init(style: .insetGrouped)
         self.blog = blog
     }
 
@@ -31,6 +30,7 @@ open class LanguageViewController: UITableViewController, LanguageSelectorDelega
         // Setup tableView
         WPStyleGuide.configureColors(view: view, tableView: tableView)
         WPStyleGuide.configureAutomaticHeightRows(for: tableView)
+        tableView.cellLayoutMarginsFollowReadableWidth = true
     }
 
     open override func viewWillAppear(_ animated: Bool) {
@@ -39,8 +39,6 @@ open class LanguageViewController: UITableViewController, LanguageSelectorDelega
         tableView.reloadDataPreservingSelection()
         tableView.deselectSelectedRowWithAnimationAfterDelay(true)
     }
-
-
 
     // MARK: - UITableViewDataSource Methods
     open override func numberOfSections(in tableView: UITableView) -> Int {
@@ -77,8 +75,6 @@ open class LanguageViewController: UITableViewController, LanguageSelectorDelega
         pressedLanguageRow()
     }
 
-
-
     // MARK: - Private Methods
     fileprivate func configureTableViewCell(_ cell: UITableViewCell) {
         let languageId = blog.settings!.languageID.intValue
@@ -94,12 +90,10 @@ open class LanguageViewController: UITableViewController, LanguageSelectorDelega
         navigationController?.pushViewController(selector, animated: true)
     }
 
-
     @objc func languageSelector(_ selector: LanguageSelectorViewController, didSelect languageId: Int) {
         _ = navigationController?.popToViewController(self, animated: true)
         onChange?(languageId as NSNumber)
     }
-
 
     // MARK: - Private Constants
     fileprivate let reuseIdentifier = "reuseIdentifier"
@@ -108,5 +102,5 @@ open class LanguageViewController: UITableViewController, LanguageSelectorDelega
 
     // MARK: - Private Properties
     fileprivate var blog: Blog!
-    fileprivate let languageDatabase = WordPressComLanguageDatabase()
+    fileprivate let languageDatabase = WordPressComLanguageDatabase.shared
 }

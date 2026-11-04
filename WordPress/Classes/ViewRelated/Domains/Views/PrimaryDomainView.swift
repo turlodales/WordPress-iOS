@@ -4,19 +4,19 @@ import DesignSystem
 struct PrimaryDomainView: View {
     var body: some View {
         Group {
-            HStack(spacing: Length.Padding.half) {
+            HStack(spacing: .DS.Padding.half) {
                 Image(systemName: "globe")
                     .font(.callout)
-                    .foregroundStyle(Color.DS.Foreground.primary)
+                    .foregroundStyle(Color(.label))
                 Text(Strings.primaryDomain)
                     .font(.callout)
-                    .foregroundStyle(Color.DS.Foreground.primary)
+                    .foregroundStyle(Color(.label))
             }
-            .padding(.vertical, Length.Padding.half)
-            .padding(.horizontal, Length.Padding.single)
+            .padding(.vertical, .DS.Padding.half)
+            .padding(.horizontal, .DS.Padding.single)
         }
-        .background(Color.DS.Background.secondary)
-        .clipShape(RoundedRectangle(cornerRadius: Length.Radius.small))
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: .DS.Radius.small))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Strings.primaryDomain)
     }

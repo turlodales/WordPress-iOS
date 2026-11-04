@@ -10,11 +10,9 @@ import UniformTypeIdentifiers
     @objc optional func textView(_ textView: UITextView, didPressLink link: URL)
 }
 
-
 @objc open class RichTextView: UIView, UITextViewDelegate {
     @objc open weak var dataSource: RichTextViewDataSource?
     @objc open weak var delegate: RichTextViewDelegate?
-
 
     // MARK: - Initializers
     convenience init() {
@@ -30,7 +28,6 @@ import UniformTypeIdentifiers
         super.init(coder: aDecoder)!
         setupSubviews()
     }
-
 
     // MARK: - Properties
     @objc open var contentInset: UIEdgeInsets {
@@ -119,7 +116,6 @@ import UniformTypeIdentifiers
         }
     }
 
-
     // MARK: - TextKit Getters
     @objc open var layoutManager: NSLayoutManager {
         get {
@@ -139,23 +135,22 @@ import UniformTypeIdentifiers
         }
     }
 
-
     // MARK: - Private Methods
     fileprivate func setupSubviews() {
-        gesturesRecognizer                                  = UITapGestureRecognizer()
+        gesturesRecognizer = UITapGestureRecognizer()
         gesturesRecognizer.addTarget(self, action: #selector(RichTextView.handleTextViewTap(_:)))
 
-        textView                                            = UITextView(frame: bounds)
-        textView.backgroundColor                            = backgroundColor
-        textView.contentInset                               = UIEdgeInsets.zero
-        textView.textContainerInset                         = UIEdgeInsets.zero
-        textView.textContainer.lineFragmentPadding          = 0
-        textView.layoutManager.allowsNonContiguousLayout    = false
-        textView.isEditable                                   = editable
-        textView.isScrollEnabled                              = false
-        textView.dataDetectorTypes                          = dataDetectorTypes
-        textView.delegate                                   = self
-        textView.gestureRecognizers                         = [gesturesRecognizer]
+        textView = UITextView(frame: bounds)
+        textView.backgroundColor = backgroundColor
+        textView.contentInset = UIEdgeInsets.zero
+        textView.textContainerInset = UIEdgeInsets.zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.layoutManager.allowsNonContiguousLayout = false
+        textView.isEditable = editable
+        textView.isScrollEnabled = false
+        textView.dataDetectorTypes = dataDetectorTypes
+        textView.delegate = self
+        textView.gestureRecognizers = [gesturesRecognizer]
         addSubview(textView)
 
         // Setup Layout
@@ -188,14 +183,14 @@ import UniformTypeIdentifiers
                 return
             }
 
-            let unwrappedView           = attachmentView!
-            unwrappedView.frame.origin  = self.textView.frameForTextInRange(range).integral.origin
+            let unwrappedView = attachmentView!
+            unwrappedView.frame.origin = self.textView.frameForTextInRange(range).integral.origin
             self.textView.addSubview(unwrappedView)
             self.attachmentViews.append(unwrappedView)
         }
     }
 
-    // MARK: - Overriden Methods
+    // MARK: - Overridden Methods
     open override var intrinsicContentSize: CGSize {
         guard let maxWidth = preferredMaxLayoutWidth else {
             return super.intrinsicContentSize
@@ -207,21 +202,22 @@ import UniformTypeIdentifiers
         return requiredSize
     }
 
-
     // MARK: - UITapGestureRecognizer Helpers
     @objc open func handleTextViewTap(_ recognizer: UITapGestureRecognizer) {
 
         // NOTE: Why do we need this?
         // Because this mechanism allows us to disable DataDetectors, and yet, detect taps on links.
         //
-        let textStorage         = textView.textStorage
-        let layoutManager       = textView.layoutManager
-        let textContainer       = textView.textContainer
+        let textStorage = textView.textStorage
+        let layoutManager = textView.layoutManager
+        let textContainer = textView.textContainer
 
-        let locationInTextView  = recognizer.location(in: textView)
-        let characterIndex      = layoutManager.characterIndex(for: locationInTextView,
-                                                                        in: textContainer,
-                                                                        fractionOfDistanceBetweenInsertionPoints: nil)
+        let locationInTextView = recognizer.location(in: textView)
+        let characterIndex = layoutManager.characterIndex(
+            for: locationInTextView,
+            in: textContainer,
+            fractionOfDistanceBetweenInsertionPoints: nil
+        )
 
         if characterIndex >= textStorage.length {
             return
@@ -233,7 +229,6 @@ import UniformTypeIdentifiers
             delegate?.textView?(textView, didPressLink: unwrappedURL)
         }
     }
-
 
     // MARK: - UITextViewDelegate Wrapped Methods
     open func textViewShouldBeginEditing(_ textView: UITextView) -> Bool {
@@ -264,14 +259,13 @@ import UniformTypeIdentifiers
         delegate?.textViewDidChangeSelection?(textView)
     }
 
-    open func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
-        return delegate?.textView?(textView, shouldInteractWith: URL, in: characterRange, interaction: interaction) ?? true
+    open func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+        delegate?.textView?(textView, primaryActionFor: textItem, defaultAction: defaultAction)
     }
 
-    open func textView(_ textView: UITextView, shouldInteractWith textAttachment: NSTextAttachment, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
-        return delegate?.textView?(textView, shouldInteractWith: textAttachment, in: characterRange, interaction: interaction) ?? true
+    public func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem, defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? {
+        delegate?.textView?(textView, menuConfigurationFor: textItem, defaultMenu: defaultMenu)
     }
-
 
     // MARK: - Private Properites
     fileprivate var textView: UITextView!

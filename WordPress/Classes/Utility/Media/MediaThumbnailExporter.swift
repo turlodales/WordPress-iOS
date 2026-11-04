@@ -1,6 +1,8 @@
-import Foundation
+import UIKit
+import WordPressShared
 import MobileCoreServices
 import UniformTypeIdentifiers
+import WordPressData
 
 /// Media export handling of thumbnail images from videos or images.
 ///
@@ -12,11 +14,17 @@ class MediaThumbnailExporter: MediaExporter {
 
     // MARK: Export Options
 
-    var options = Options()
+    var options: Options
 
     /// Available options for an thumbnail export.
     ///
     struct Options {
+
+        /// - parameter traitCollection: The trait collection of the view that displays
+        ///   the thumbnail. Its `displayScale` becomes the default `scale`.
+        init(traitCollection: UITraitCollection) {
+            self.scale = traitCollection.displayScale
+        }
 
         /// The preferred size of the image, in points, typically for the actual display
         /// of the image within a layout's dimensions. If nil, the image will not be resized.
@@ -29,10 +37,11 @@ class MediaThumbnailExporter: MediaExporter {
         /// The scale for the actual pixel size of the image when resizing,
         /// generally matching a screen scale of 1.0, 2.0, 3.0, etc.
         ///
-        /// - Note: Defaults to the main UIScreen scale. The final image may or may not match
+        /// - Note: Defaults to the display scale of the trait collection passed to
+        ///   `init(traitCollection:)`. The final image may or may not match
         ///   the intended scale/pixels, depending on the original image.
         ///
-        var scale: CGFloat = UIScreen.main.scale
+        var scale: CGFloat
 
         /// The compression quality of the thumbnail, if the image type supports compression.
         ///
@@ -135,8 +144,11 @@ class MediaThumbnailExporter: MediaExporter {
 
     let url: URL?
 
-    init(url: URL? = nil) {
+    /// - parameter traitCollection: The trait collection of the view that displays
+    ///   the thumbnail. It provides the default `options.scale`.
+    init(url: URL? = nil, traitCollection: UITraitCollection) {
         self.url = url
+        self.options = Options(traitCollection: traitCollection)
     }
 
     public func export(onCompletion: @escaping OnMediaExport, onError: @escaping OnExportError) -> Progress {
@@ -144,7 +156,7 @@ class MediaThumbnailExporter: MediaExporter {
             onError(exporterErrorWith(error: ThumbnailExportError.failedToGenerateThumbnailFileURL))
             return Progress.discreteCompletedProgress()
         }
-        return exportThumbnail(forFile: fileURL, onCompletion: { (identifier, export) in
+        return exportThumbnail(forFile: fileURL, onCompletion: { _, export in
             onCompletion(export)
         }, onError: onError)
     }
@@ -188,7 +200,7 @@ class MediaThumbnailExporter: MediaExporter {
         let exporter = MediaImageExporter(url: url)
         exporter.mediaDirectoryType = .temporary
         exporter.options = imageExporterOptions
-        return exporter.export(onCompletion: { (export) in
+        return exporter.export(onCompletion: { export in
             self.exportImageToThumbnailCache(export, onCompletion: onCompletion, onError: onError)
         },
                         onError: onError)
@@ -201,7 +213,7 @@ class MediaThumbnailExporter: MediaExporter {
         exporter.mediaDirectoryType = .temporary
         return exporter.exportPreviewImageForVideo(atURL: url,
                                             imageOptions: imageExporterOptions,
-                                            onCompletion: { (export) in
+                                            onCompletion: { export in
                                                 self.exportImageToThumbnailCache(export, onCompletion: onCompletion, onError: onError)
         },
                                             onError: onError)

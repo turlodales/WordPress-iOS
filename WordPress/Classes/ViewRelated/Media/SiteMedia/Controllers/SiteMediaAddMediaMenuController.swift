@@ -1,8 +1,13 @@
+import SwiftUI
 import UIKit
 import Photos
 import PhotosUI
+import WordPressData
+import WordPressShared
 
-final class SiteMediaAddMediaMenuController: NSObject, PHPickerViewControllerDelegate, ImagePickerControllerDelegate, ExternalMediaPickerViewDelegate, UIDocumentPickerDelegate {
+final class SiteMediaAddMediaMenuController: NSObject, PHPickerViewControllerDelegate, ImagePickerControllerDelegate,
+    ExternalMediaPickerViewDelegate, UIDocumentPickerDelegate, ImagePlaygroundPickerDelegate
+{ // swiftlint:disable:this opening_brace
     let blog: Blog
     let coordinator: MediaCoordinator
 
@@ -14,21 +19,41 @@ final class SiteMediaAddMediaMenuController: NSObject, PHPickerViewControllerDel
     func makeMenu(for viewController: UIViewController) -> UIMenu {
         let menu = MediaPickerMenu(viewController: viewController, isMultipleSelectionEnabled: true)
         var children: [UIMenuElement] = [
-            UIMenu(options: [.displayInline], children: [
-                menu.makePhotosAction(delegate: self),
-            ]),
-            UIMenu(options: [.displayInline], children: [
-                menu.makeCameraAction(delegate: self),
-                makeDocumentPickerAction(from: viewController)
-            ]),
-            UIMenu(options: [.displayInline], children: [
-                menu.makeStockPhotos(blog: blog, delegate: self),
-                menu.makeFreeGIFAction(blog: blog, delegate: self)
-            ])
+            UIMenu(
+                options: [.displayInline],
+                children: [
+                    menu.makePhotosAction(delegate: self)
+                ]
+            ),
+            UIMenu(
+                options: [.displayInline],
+                children: [
+                    menu.makeCameraAction(delegate: self),
+                    menu.makeImagePlaygroundAction(delegate: self),
+                    makeDocumentPickerAction(from: viewController)
+                ]
+                .compactMap { $0 }
+            )
         ]
-        if let quotaUsageDescription = blog.quotaUsageDescription {
+        let freeMediaActions: [UIAction] = [
+            menu.makeStockPhotos(blog: blog, delegate: self)
+        ]
+        .compactMap { $0 }
+        if !freeMediaActions.isEmpty {
             children += [
-                UIAction(subtitle: quotaUsageDescription, handler: { _ in })
+                UIMenu(options: [.displayInline], children: freeMediaActions)
+            ]
+        }
+        if blog.isHostedAtWPcom, blog.isQuotaAvailable {
+            children += [
+                UIAction(
+                    title: Strings.viewUsage,
+                    subtitle: blog.quotaUsageShortDescription,
+                    image: UIImage(systemName: "opticaldiscdrive")
+                ) { [weak self, weak viewController] _ in
+                    guard let self, let viewController else { return }
+                    self.showQuotaView(from: viewController)
+                }
             ]
         }
         return UIMenu(options: [.displayInline], children: children)
@@ -39,26 +64,48 @@ final class SiteMediaAddMediaMenuController: NSObject, PHPickerViewControllerDel
             .showPhotosPicker(delegate: self)
     }
 
+    private func showQuotaView(from viewController: UIViewController) {
+        guard let viewModel = try? MediaStorageDetailsViewModel(blog: blog) else { return }
+        let rootView = MediaStorageDetailsView(viewModel: viewModel)
+        viewController.present(UIHostingController(rootView: rootView), animated: true)
+    }
+
     // MARK: - PHPickerViewControllerDelegate
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.presentingViewController?.dismiss(animated: true)
 
-        guard results.count > 0 else {
+        guard !results.isEmpty else {
             return
         }
 
-        MediaHelper.advertiseImageOptimization() { [self] in
-            for result in results {
-                let info = MediaAnalyticsInfo(origin: .mediaLibrary(.deviceLibrary), selectionMethod: .fullScreenPicker)
-                coordinator.addMedia(from: result.itemProvider, to: blog, analyticsInfo: info)
-            }
+        for result in results {
+            let info = MediaAnalyticsInfo(origin: .mediaLibrary(.deviceLibrary), selectionMethod: .fullScreenPicker)
+            coordinator.addMedia(from: result.itemProvider, to: blog, analyticsInfo: info)
         }
+    }
+
+    // MARK: - ImagePlaygroundPickerDelegate
+
+    func imagePlaygroundViewController(_ viewController: UIViewController, didCreateImageAt imageURL: URL) {
+        viewController.presentingViewController?.dismiss(animated: true)
+
+        coordinator.addMedia(
+            from: MediaPickerMenu.makeItemProvider(with: imageURL),
+            to: blog,
+            analyticsInfo: MediaAnalyticsInfo(
+                origin: .mediaLibrary(.imagePlayground),
+                selectionMethod: .fullScreenPicker
+            )
+        )
     }
 
     // MARK: - ImagePickerControllerDelegate
 
-    func imagePicker(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+    func imagePicker(
+        _ picker: UIImagePickerController,
+        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+    ) {
         picker.presentingViewController?.dismiss(animated: true)
 
         func addAsset(from asset: ExportableAsset) {
@@ -71,9 +118,7 @@ final class SiteMediaAddMediaMenuController: NSObject, PHPickerViewControllerDel
         switch mediaType {
         case UTType.image.identifier:
             if let image = info[.originalImage] as? UIImage {
-                MediaHelper.advertiseImageOptimization() {
-                    addAsset(from: image)
-                }
+                addAsset(from: image)
             }
         case UTType.movie.identifier:
             if let videoURL = info[.mediaURL] as? URL {
@@ -86,17 +131,21 @@ final class SiteMediaAddMediaMenuController: NSObject, PHPickerViewControllerDel
 
     // MARK: - ExternalMediaPickerViewDelegate
 
-    func externalMediaPickerViewController(_ viewController: ExternalMediaPickerViewController, didFinishWithSelection assets: [ExternalMediaAsset]) {
+    func externalMediaPickerViewController(
+        _ viewController: ExternalMediaPickerViewController,
+        didFinishWithSelection assets: [ExternalMediaAsset]
+    ) {
         viewController.presentingViewController?.dismiss(animated: true)
         for asset in assets {
-            let info = MediaAnalyticsInfo(origin: .mediaLibrary(viewController.source), selectionMethod: .fullScreenPicker)
+            let info = MediaAnalyticsInfo(
+                origin: .mediaLibrary(viewController.source),
+                selectionMethod: .fullScreenPicker
+            )
             coordinator.addMedia(from: asset, to: blog, analyticsInfo: info)
 
             switch viewController.source {
             case .stockPhotos:
                 WPAnalytics.track(.stockMediaUploaded)
-            case .tenor:
-                WPAnalytics.track(.tenorUploaded)
             default:
                 assertionFailure("Unsupported source: \(viewController.source)")
             }
@@ -112,7 +161,10 @@ final class SiteMediaAddMediaMenuController: NSObject, PHPickerViewControllerDel
             attributes: [],
             handler: { [weak presentingViewController, blog] _ in
                 let allowedFileTypes = blog.allowedTypeIdentifiers.compactMap(UTType.init)
-                let viewController = UIDocumentPickerViewController(forOpeningContentTypes: allowedFileTypes, asCopy: true)
+                let viewController = UIDocumentPickerViewController(
+                    forOpeningContentTypes: allowedFileTypes,
+                    asCopy: true
+                )
                 viewController.delegate = self
                 viewController.allowsMultipleSelection = true
                 presentingViewController?.present(viewController, animated: true)
@@ -133,5 +185,14 @@ final class SiteMediaAddMediaMenuController: NSObject, PHPickerViewControllerDel
 }
 
 private enum Strings {
-    static let pickFromOtherApps = NSLocalizedString("mediaPicker.pickFromOtherApps", value: "Other Files", comment: "The name of the action in the context menu for selecting photos from other apps (Files app)")
+    static let pickFromOtherApps = NSLocalizedString(
+        "mediaPicker.pickFromOtherApps",
+        value: "Other Files",
+        comment: "The name of the action in the context menu for selecting photos from other apps (Files app)"
+    )
+    static let viewUsage = NSLocalizedString(
+        "mediaPicker.viewUsage",
+        value: "View Usage",
+        comment: "The menu item of viewing media library usage"
+    )
 }

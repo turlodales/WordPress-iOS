@@ -17,7 +17,6 @@
 		<string>applinks:wordpress.com</string>
 		<string>applinks:*.wordpress.com</string>
 		<string>applinks:public-api.wordpress.com</string>
-		<string>applinks:links.wp.a8cmail.com</string>
 	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
@@ -25,6 +24,7 @@
 	</array>
 	<key>keychain-access-groups</key>
 	<array>
+		<string>3TMU3BH3NK.org.wordpress.jetpack</string>
 		<string>3TMU3BH3NK.org.wordpress</string>
 	</array>
 </dict>

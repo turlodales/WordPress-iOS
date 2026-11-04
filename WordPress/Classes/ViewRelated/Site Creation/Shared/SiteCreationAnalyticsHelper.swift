@@ -1,6 +1,7 @@
 import Foundation
-import WordPressKit
 import AutomatticTracks
+import WordPressKit
+import WordPressShared
 
 extension Variation {
     var tracksProperty: String {
@@ -127,10 +128,10 @@ class SiteCreationAnalyticsHelper {
 
         for property: Any? in properties {
             if let siteDesign = property as? RemoteSiteDesign {
-                result.merge([siteDesignKey: siteDesign.slug]) { (_, new) in new }
+                result.merge([siteDesignKey: siteDesign.slug]) { _, new in new }
             }
             if let previewMode = property as? PreviewDevice {
-                result.merge([previewModeKey: previewMode.rawValue]) { (_, new) in new }
+                result.merge([previewModeKey: previewMode.rawValue]) { _, new in new }
             }
         }
 

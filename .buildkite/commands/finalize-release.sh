@@ -7,17 +7,13 @@ if [[ -z "${RELEASE_NUMBER}" ]]; then
     exit 1
 fi
 
-echo '--- :git: Configure Git for release management'
-.buildkite/commands/configure-git-for-release-management.sh
+echo '--- :robot_face: Use bot for Git operations'
+source use-bot-for-git
 
-echo '--- :git: Checkout release branch'
-.buildkite/commands/checkout-release-branch.sh "$RELEASE_NUMBER"
+checkout_release_branch "$RELEASE_NUMBER"
 
 echo '--- :ruby: Setup Ruby tools'
 install_gems
-
-echo '--- :closed_lock_with_key: Access secrets'
-bundle exec fastlane run configure_apply
 
 echo '--- :shipit: Finalize release'
 bundle exec fastlane finalize_release skip_confirm:true

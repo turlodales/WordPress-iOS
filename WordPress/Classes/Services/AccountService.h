@@ -1,36 +1,25 @@
 #import <Foundation/Foundation.h>
-#import "CoreDataService.h"
+#import <CoreData/CoreData.h>
+
+@import WordPressKitModels;
 
 NS_ASSUME_NONNULL_BEGIN
 
 @class WPAccount;
 @class RemoteUser;
+@protocol CoreDataStack;
 
-extern NSString *const WPAccountDefaultWordPressComAccountChangedNotification;
-extern NSNotificationName const WPAccountEmailAndDefaultBlogUpdatedNotification;
+@interface AccountService : NSObject
 
-@interface AccountService : CoreDataService
+@property (nonatomic, strong, readonly) id<CoreDataStack> coreDataStack;
+
+- (nonnull instancetype)initWithCoreDataStack:(id<CoreDataStack>)coreDataStack NS_DESIGNATED_INITIALIZER;
+
+- (instancetype)init NS_UNAVAILABLE;
 
 ///------------------------------------
 /// @name Default WordPress.com account
 ///------------------------------------
-
-/**
- Sets the default WordPress.com account
- 
- @param account the account to set as default for WordPress.com
- @see defaultWordPressComAccount
- @see removeDefaultWordPressComAccount
- */
-- (void)setDefaultWordPressComAccount:(WPAccount *)account;
-
-/**
- Removes the default WordPress.com account. Should only be called from the Main Thread
- 
- @see defaultWordPressComAccount
- @see setDefaultWordPressComAccount:
- */
-- (void)removeDefaultWordPressComAccount;
 
 /**
  Query to check if an email address is paired to a wpcom account. Used in the 
@@ -41,17 +30,6 @@ extern NSNotificationName const WPAccountEmailAndDefaultBlogUpdatedNotification;
  @param failure
  */
 - (void)isEmailAvailable:(NSString *)email success:(void (^)(BOOL available))success failure:(void (^)(NSError *error))failure;
-
-/**
- Query to check if a username is available. Used in the signup flow.
- 
- @param email
- @param success
- @param failure
- */
-- (void)isUsernameAvailable:(NSString *)username
-                    success:(void (^)(BOOL available))success
-                    failure:(void (^)(NSError *error))failure;
 
 /**
  Requests a verification email to be sent to the email address associated with the current account.
@@ -105,14 +83,10 @@ extern NSNotificationName const WPAccountEmailAndDefaultBlogUpdatedNotification;
  @param failure A failure block.
  */
 - (void)createOrUpdateAccountWithAuthToken:(NSString *)authToken
-                                   success:(void (^)(WPAccount * _Nonnull))success
+                                   success:(void (^)(WPAccount * _Nullable))success
                                    failure:(void (^)(NSError * _Nonnull))failure;
 
-/**
- Initializes the WordPress iOS Extensions with the WordPress.com Default Account.
- */
-- (void)setupAppExtensionsWithDefaultAccount;
-
+- (NSManagedObjectID *)createOrUpdateAccountWithUserDetails:(RemoteUser *)remoteUser authToken:(NSString *)authToken;
 
 /**
  Removes an account if it's not the default account and there are no associated blogs
@@ -125,15 +99,6 @@ extern NSNotificationName const WPAccountEmailAndDefaultBlogUpdatedNotification;
  side-effects from dispatching account changed notifications.
  */
 - (void)restoreDisassociatedAccountIfNecessary;
-
-///--------------------
-/// @name Visible blogs
-///--------------------
-
-/**
- Sets the visibility for the given blogs
- */
-- (void)setVisibility:(BOOL)visible forBlogs:(NSArray *)blogs;
 
 @end
 

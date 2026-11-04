@@ -1,8 +1,9 @@
 import UIKit
-import CocoaLumberjack
 import SVProgressHUD
+import WordPressData
 import WordPressShared
 import Gridicons
+import WordPressUI
 
 /// DeleteSiteViewController allows user delete their site.
 ///
@@ -13,7 +14,7 @@ open class DeleteSiteViewController: UITableViewController {
     /// - Parameter blog: A Blog instance.
     ///
     @objc class func controller(_ blog: Blog) -> DeleteSiteViewController {
-        let storyboard = UIStoryboard(name: "DeleteSite", bundle: Bundle.main)
+        let storyboard = UIStoryboard(name: "DeleteSite", bundle: Bundle.keystone)
         let controller = storyboard.instantiateViewController(withIdentifier: "DeleteSiteViewController") as! DeleteSiteViewController
         controller.blog = blog
         return controller
@@ -37,7 +38,7 @@ open class DeleteSiteViewController: UITableViewController {
     @IBOutlet fileprivate weak var sectionThreeBody: UILabel!
     @IBOutlet fileprivate weak var supportButton: UIButton!
     @IBOutlet fileprivate weak var deleteSiteButton: UIButton!
-    @IBOutlet private var deleteButtonContainerView: UIView!
+
     private let alertHelper = DestructiveAlertHelper()
 
     // MARK: - View Lifecycle
@@ -50,7 +51,7 @@ open class DeleteSiteViewController: UITableViewController {
         tableView.cellLayoutMarginsFollowReadableWidth = true
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 500.0
-        WPStyleGuide.configureColors(view: view, tableView: tableView)
+
         setupHeaderSection()
         setupListSection()
         setupMainBodySection()
@@ -72,11 +73,11 @@ open class DeleteSiteViewController: UITableViewController {
     fileprivate func setupHeaderSection() {
         let warningIcon = UIImage.gridicon(.notice, size: CGSize(width: 48.0, height: 48.0))
         warningImage.image = warningIcon
-        warningImage.tintColor = UIColor.warning
-        siteTitleLabel.textColor = .neutral(.shade70)
+        warningImage.tintColor = UIAppColor.warning
+        siteTitleLabel.textColor = UIAppColor.neutral(.shade70)
         siteTitleLabel.font = WPStyleGuide.fontForTextStyle(.footnote, fontWeight: .semibold)
-        siteTitleLabel.text = blog.displayURL as String?
-        siteTitleSubText.textColor = .neutral(.shade70)
+        siteTitleLabel.text = blog.displayURL
+        siteTitleSubText.textColor = UIAppColor.neutral(.shade70)
         siteTitleSubText.text = NSLocalizedString("will be unavailable in the future.",
                                                   comment: "Second part of delete screen title stating [the site] will be unavailable in the future.")
     }
@@ -84,9 +85,9 @@ open class DeleteSiteViewController: UITableViewController {
     /// One time setup of second section (list)
     ///
     fileprivate func setupListSection() {
-        sectionTwoHeader.textColor = .neutral(.shade30)
+        sectionTwoHeader.textColor = UIAppColor.neutral(.shade30)
         sectionTwoHeader.font = WPStyleGuide.fontForTextStyle(.footnote, fontWeight: .semibold)
-        sectionTwoColumnItems.forEach({ $0.textColor = .neutral(.shade70) })
+        sectionTwoColumnItems.forEach({ $0.textColor = UIAppColor.neutral(.shade70) })
 
         sectionTwoHeader.text = NSLocalizedString("these items will be deleted:",
                                                   comment: "Header of delete screen section listing things that will be deleted.").localizedUppercase
@@ -126,8 +127,8 @@ open class DeleteSiteViewController: UITableViewController {
         paragraphStyle.alignment = .natural
 
         let attributes: [NSAttributedString.Key: Any] = [.font: WPStyleGuide.fontForTextStyle(.body, fontWeight: .regular),
-                                                        .foregroundColor: UIColor.neutral(.shade70),
-                                                        .paragraphStyle: paragraphStyle ]
+                                                         .foregroundColor: UIAppColor.neutral(.shade70),
+                                                         .paragraphStyle: paragraphStyle ]
         let htmlAttributes: StyledHTMLAttributes = [.BodyAttribute: attributes]
 
         let attributedText1 = NSAttributedString.attributedStringWithHTML(paragraph1, attributes: htmlAttributes)
@@ -138,10 +139,10 @@ open class DeleteSiteViewController: UITableViewController {
         combinedAttributedString.append(NSAttributedString(string: "\n\r", attributes: attributes))
         combinedAttributedString.append(attributedText2)
         sectionThreeBody.attributedText = combinedAttributedString
-        sectionThreeBody.textColor = .neutral(.shade70)
+        sectionThreeBody.textColor = UIAppColor.neutral(.shade70)
 
-        let contactButtonAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.primary,
-                                                                     .underlineStyle: NSUnderlineStyle.single.rawValue]
+        let contactButtonAttributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIAppColor.primary,
+                                                                      .underlineStyle: NSUnderlineStyle.single.rawValue]
         supportButton.setAttributedTitle(NSAttributedString(string: NSLocalizedString("Contact Support",
                                                             comment: "Button label for contacting support"),
                                                             attributes: contactButtonAttributes),
@@ -153,15 +154,13 @@ open class DeleteSiteViewController: UITableViewController {
     /// One time setup of fourth section (delete button)
     ///
     fileprivate func setupDeleteButton() {
-        deleteButtonContainerView.backgroundColor = .listForeground
-
-        let trashIcon = UIImage.gridicon(.trash)
-        deleteSiteButton.setTitle(NSLocalizedString("Delete Site", comment: "Button label for deleting the current site"), for: .normal)
-        deleteSiteButton.tintColor = .error
-        deleteSiteButton.setImage(trashIcon.imageWithTintColor(.error), for: .normal)
-        deleteSiteButton.setImage(trashIcon.imageWithTintColor(.error(.shade70)), for: .highlighted)
-        deleteSiteButton.setTitleColor(.error, for: .normal)
-        deleteSiteButton.setTitleColor(.error(.shade70), for: .highlighted)
+        let trashIcon = UIImage(systemName: "trash") ?? .init()
+        deleteSiteButton.setTitle("  " + NSLocalizedString("Delete Site", comment: "Button label for deleting the current site"), for: .normal)
+        deleteSiteButton.tintColor = UIAppColor.error
+        deleteSiteButton.setImage(trashIcon.imageWithTintColor(UIAppColor.error), for: .normal)
+        deleteSiteButton.setImage(trashIcon.imageWithTintColor(UIAppColor.error(.shade70)), for: .highlighted)
+        deleteSiteButton.setTitleColor(UIAppColor.error, for: .normal)
+        deleteSiteButton.setTitleColor(UIAppColor.error(.shade70), for: .highlighted)
         deleteSiteButton.titleLabel?.font = WPStyleGuide.fontForTextStyle(.body, fontWeight: .semibold)
     }
 
@@ -178,7 +177,7 @@ open class DeleteSiteViewController: UITableViewController {
     @IBAction func contactSupport(_ sender: Any) {
         tableView.deselectSelectedRowWithAnimation(true)
 
-        WPAppAnalytics.track(.siteSettingsStartOverContactSupportClicked, with: blog)
+        WPAppAnalytics.track(.siteSettingsStartOverContactSupportClicked, blog: blog)
 
         let supportViewController = SupportTableViewController()
         supportViewController.sourceTag = .deleteSite
@@ -192,7 +191,7 @@ open class DeleteSiteViewController: UITableViewController {
     /// - Returns: UIAlertController
     ///
     fileprivate func confirmDeleteController() -> UIAlertController? {
-        guard let value = blog.displayURL as String? else {
+        guard let value = blog.displayURL else {
             return nil
         }
 
@@ -216,36 +215,36 @@ open class DeleteSiteViewController: UITableViewController {
         SVProgressHUD.show(withStatus: status)
 
         let trackedBlog = blog
-        WPAppAnalytics.track(.siteSettingsDeleteSiteRequested, with: trackedBlog)
-        let service = SiteManagementService(coreDataStack: ContextManager.sharedInstance())
-        service.deleteSiteForBlog(blog,
-                                  success: { [weak self] in
-                                    WPAppAnalytics.track(.siteSettingsDeleteSiteResponseOK, with: trackedBlog)
-                                    let status = NSLocalizedString("Site deleted", comment: "Overlay message displayed when site successfully deleted")
-                                    SVProgressHUD.showDismissibleSuccess(withStatus: status)
+        WPAppAnalytics.track(.siteSettingsDeleteSiteRequested, blog: trackedBlog)
 
-                                    self?.updateNavigationStackAfterSiteDeletion()
+        let service = SiteManagementService(coreDataStack: ContextManager.shared)
+        service.deleteSiteForBlog(blog, success: { [weak self] in
+            WPAppAnalytics.track(.siteSettingsDeleteSiteResponseOK, blog: trackedBlog)
 
-                                    let context = ContextManager.shared.mainContext
-                                    let account = try? WPAccount.lookupDefaultWordPressComAccount(in: context)
-                                    if let account = account {
-                                        AccountService(coreDataStack: ContextManager.sharedInstance()).updateUserDetails(for: account,
-                                                                                                        success: {},
-                                                                                                        failure: { _ in })
-                                    }
-            },
-                                  failure: { error in
-                                    DDLogError("Error deleting site: \(error.localizedDescription)")
-                                    WPAppAnalytics.track(.siteSettingsDeleteSiteResponseError, with: trackedBlog)
-                                    SVProgressHUD.dismiss()
+            let status = NSLocalizedString("Site deleted", comment: "Overlay message displayed when site successfully deleted")
+            SVProgressHUD.showDismissibleSuccess(status: status)
 
-                                    let errorTitle = NSLocalizedString("Delete Site Error", comment: "Title of alert when site deletion fails")
-                                    let alertController = UIAlertController(title: errorTitle, message: error.localizedDescription, preferredStyle: .alert)
+            self?.updateNavigationStackAfterSiteDeletion()
 
-                                    let okTitle = NSLocalizedString("OK", comment: "Alert dismissal title")
-                                    alertController.addDefaultActionWithTitle(okTitle, handler: nil)
+            let context = ContextManager.shared.mainContext
+            let account = try? WPAccount.lookupDefaultWordPressComAccount(in: context)
+            if let account {
+                AccountService(coreDataStack: ContextManager.shared).updateUserDetails(for: account,
+                                                                                                 success: {},
+                                                                                                 failure: { _ in })
+            }
+        }, failure: { error in
+            DDLogError("Error deleting site: \(error.localizedDescription)")
+            WPAppAnalytics.track(.siteSettingsDeleteSiteResponseError, blog: trackedBlog)
 
-                                    alertController.presentFromRootViewController()
+            SVProgressHUD.dismiss()
+
+            let errorTitle = NSLocalizedString("Delete Site Error", comment: "Title of alert when site deletion fails")
+            let alertController = UIAlertController(title: errorTitle, message: error.localizedDescription, preferredStyle: .alert)
+
+            alertController.addDefaultActionWithTitle(SharedStrings.Button.ok, handler: nil)
+
+            alertController.presentFromRootViewController()
         })
     }
 
@@ -266,7 +265,9 @@ open class DeleteSiteViewController: UITableViewController {
 
             // Pop the primary navigation controller back to the sites list
             primaryNavigationController.popToRootViewController(animated: true)
+        } else if let presentingViewController {
+            // This view is presented as a modal on iPad.
+            presentingViewController.dismiss(animated: true)
         }
     }
-
 }

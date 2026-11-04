@@ -2,25 +2,22 @@
 
 source 'https://rubygems.org'
 
-gem 'cocoapods', '~> 1.14'
-gem 'commonmarker'
-gem 'danger-dangermattic', git: 'https://github.com/Automattic/dangermattic'
+# Official Anthropic SDK — backs the AI translation tier of the localization pipeline (fastlane/lanes/ai_translator.rb).
+gem 'anthropic', '~> 2.3'
+gem 'danger-dangermattic', '~> 1.4'
 gem 'dotenv'
-# 2.217.0 includes a fix for Xcode 15 test results parsing in CI
-gem 'fastlane', '~> 2.217'
-gem 'fastlane-plugin-appcenter', '~> 2.1'
+# 2.223.1 includes a fix for an ASC-interfacing issue
+#
+# See failures like https://buildkite.com/automattic/wordpress-ios/builds/24053#019234f2-80a5-40f6-b55e-2f420e6483a8/3840-3915
+# and https://github.com/fastlane/fastlane/pull/22256
+gem 'fastlane', '~> 2.241'
+gem 'fastlane-plugin-firebase_app_distribution', '~> 1.0'
 gem 'fastlane-plugin-sentry'
 # This comment avoids typing to switch to a development version for testing.
 #
-# Attempt to address 'Bad CPU type in executable' on new Apple Silicon CI
-# See https://buildkite.com/automattic/wordpress-ios/builds/19609#018ced25-05f4-4c8b-9850-b314ea2f8d9e/1131-1330
-gem 'fastlane-plugin-wpmreleasetoolkit', git: 'git@github.com:wordpress-mobile/release-toolkit', ref: '2cb009edaee3d058a61cfeb503e533eb0647f108'
-# gem 'fastlane-plugin-wpmreleasetoolkit', '~> 9.1'
-gem 'rake'
-gem 'rubocop', '~> 1.30'
-gem 'rubocop-rake', '~> 0.6'
-gem 'xcpretty-travis-formatter'
-
+# gem 'fastlane-plugin-wpmreleasetoolkit', git: 'https://github.com/wordpress-mobile/release-toolkit', ref: ''
+gem 'fastlane-plugin-wpmreleasetoolkit', '~> 15.1'
+gem 'rubocop', '~> 1.92'
 group :screenshots, optional: true do
-  gem 'rmagick', '~> 3.2.0'
+  gem 'rmagick', '~> 7.2'
 end

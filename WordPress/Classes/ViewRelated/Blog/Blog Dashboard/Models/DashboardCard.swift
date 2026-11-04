@@ -1,4 +1,6 @@
 import Foundation
+import WordPressData
+import Support
 
 /// Describes all the available cards.
 ///
@@ -6,18 +8,20 @@ import Foundation
 /// precedence over the backend.
 ///
 /// Remote cards should be separately added to RemoteDashboardCard
-enum DashboardCard: String, CaseIterable {
+enum DashboardCard: String, CaseIterable, Sendable {
     case dynamic
     case jetpackInstall
-    case quickStart
-    case bloganuaryNudge = "bloganuary_nudge"
     case prompts
+    case extensiveLogging
     case googleDomains
     case blaze
     case freeToPaidPlansDashboardCard
     case domainRegistration
     case todaysStats = "todays_stats"
-    case jetpackSocial
+    /// The new Stats "Today" card (matches the new Stats screen). Declared
+    /// adjacent to `todaysStats` so it occupies the same dashboard position;
+    /// the two are mutually exclusive (see `shouldShow`).
+    case todaysStatsNew = "todays_stats_new"
     case draftPosts
     case scheduledPosts
     case pages
@@ -35,18 +39,18 @@ enum DashboardCard: String, CaseIterable {
         switch self {
         case .dynamic:
             return BlogDashboardDynamicCardCell.self
+        case .extensiveLogging:
+            return DashboardExtensiveLoggingCardCell.self
         case .jetpackInstall:
             return DashboardJetpackInstallCardCell.self
-        case .quickStart:
-            return DashboardQuickStartCardCell.self
         case .draftPosts:
             return DashboardDraftPostsCardCell.self
         case .scheduledPosts:
             return DashboardScheduledPostsCardCell.self
         case .todaysStats:
             return DashboardStatsCardCell.self
-        case .bloganuaryNudge:
-            return DashboardBloganuaryCardCell.self
+        case .todaysStatsNew:
+            return DashboardTodayStatsNewCardCell.self
         case .prompts:
             return DashboardPromptsCardCell.self
         case .ghost:
@@ -69,8 +73,6 @@ enum DashboardCard: String, CaseIterable {
             return DashboardPagesListCardCell.self
         case .activityLog:
             return DashboardActivityLogCardCell.self
-        case .jetpackSocial:
-            return DashboardJetpackSocialCardCell.self
         case .googleDomains:
             return DashboardGoogleDomainsCardCell.self
         }
@@ -90,7 +92,7 @@ enum DashboardCard: String, CaseIterable {
     func shouldShow(
         for blog: Blog,
         apiResponse: BlogDashboardRemoteEntity? = nil,
-        // The following three parameter should not have default values.
+        // The following three parameters should not have default values.
         // Unfortunately, this method is called many times because the type is an enum with many cases^.
         //
         // At the time of writing, the priority is addressing a test failure and pave the way for better testability.
@@ -104,16 +106,20 @@ enum DashboardCard: String, CaseIterable {
         switch self {
         case .jetpackInstall:
             return JetpackInstallPluginHelper.shouldShowCard(for: blog)
-        case .quickStart:
-            return QuickStartTourGuide.quickStartEnabled(for: blog)
         case .draftPosts, .scheduledPosts:
             return shouldShowRemoteCard(apiResponse: apiResponse)
         case .todaysStats:
-            return DashboardStatsCardCell.shouldShowCard(for: blog) && shouldShowRemoteCard(apiResponse: apiResponse)
-        case .bloganuaryNudge:
-            return DashboardBloganuaryCardCell.shouldShowCard(for: blog)
+            return DashboardStatsCardCell.shouldShowCard(for: blog)
+                && shouldShowRemoteCard(apiResponse: apiResponse)
+                && !DashboardCard.newStatsActive(for: blog)
+        case .todaysStatsNew:
+            return DashboardCard.newStatsActive(for: blog)
+                && DashboardStatsCardCell.shouldShowCard(for: blog)
+                && shouldShowRemoteCard(apiResponse: apiResponse)
         case .prompts:
             return DashboardPromptsCardCell.shouldShowCard(for: blog)
+        case .extensiveLogging:
+            return ExtensiveLogging.enabled
         case .ghost:
             return blog.dashboardState.isFirstLoad
         case .failure:
@@ -122,7 +128,8 @@ enum DashboardCard: String, CaseIterable {
             return JetpackBrandingVisibility.all.isEnabled(
                 isWordPress: isJetpack == false,
                 isDotComAvailable: isDotComAvailable,
-                shouldShowJetpackFeatures: shouldShowJetpackFeatures
+                shouldShowJetpackFeatures: shouldShowJetpackFeatures,
+                isStaticScreensWithReader: JetpackFeaturesRemovalCoordinator.isStaticScreensWithReader()
             )
         case .blaze:
             return BlazeHelper.shouldShowCard(for: blog)
@@ -135,11 +142,11 @@ enum DashboardCard: String, CaseIterable {
         case .personalize:
             return true
         case .pages:
-            return DashboardPagesListCardCell.shouldShowCard(for: blog) && shouldShowRemoteCard(apiResponse: apiResponse)
+            return DashboardPagesListCardCell.shouldShowCard(for: blog)
+                && shouldShowRemoteCard(apiResponse: apiResponse)
         case .activityLog:
-            return DashboardActivityLogCardCell.shouldShowCard(for: blog) && shouldShowRemoteCard(apiResponse: apiResponse)
-        case .jetpackSocial:
-            return DashboardJetpackSocialCardCell.shouldShowCard(for: blog)
+            return DashboardActivityLogCardCell.shouldShowCard(for: blog)
+                && shouldShowRemoteCard(apiResponse: apiResponse)
         case .googleDomains:
             return FeatureFlag.googleDomainsCard.enabled && isJetpack
         case .dynamic:
@@ -151,8 +158,29 @@ enum DashboardCard: String, CaseIterable {
         isJetpack && RemoteDashboardCard.dynamic.supported(by: blog)
     }
 
+    /// Whether the new Stats "Today" card is eligible for `blog`.
+    ///
+    /// This is intentionally a side-effect-free predicate over stored properties
+    /// only. It must NOT construct `StatsContext` or read
+    /// `WPAccount.wordPressComRestApi`: that getter posts the
+    /// sign-in-presenting `.wpAccountRequiresShowingSigninForWPComFixingAuthToken`
+    /// notification when the token is missing, and the `StatsContext(blog:)`
+    /// factory calls `wpAssertionFailure` on its failure path. Both are
+    /// unacceptable during routine dashboard parsing, where failing this check is
+    /// the normal legacy-fallback signal, not a bug. The stored `authToken` is
+    /// read directly precisely because it has no such side effects.
+    static func newStatsActive(for blog: Blog) -> Bool {
+        guard FeatureFlag.newStats.enabled,
+              blog.dotComID != nil,
+              let authToken = blog.account?.authToken,
+              !authToken.isEmpty else {
+            return false
+        }
+        return true
+    }
+
     private func shouldShowRemoteCard(apiResponse: BlogDashboardRemoteEntity?) -> Bool {
-        guard let apiResponse = apiResponse else {
+        guard let apiResponse else {
             return false
         }
         switch self {
@@ -160,7 +188,7 @@ enum DashboardCard: String, CaseIterable {
             return apiResponse.hasDrafts
         case .scheduledPosts:
             return apiResponse.hasScheduled
-        case .todaysStats:
+        case .todaysStats, .todaysStatsNew:
             return apiResponse.hasStats
         case .pages:
             return apiResponse.hasPages
@@ -210,31 +238,38 @@ enum DashboardCard: String, CaseIterable {
 
 private extension BlogDashboardRemoteEntity {
     var hasDrafts: Bool {
-        return (self.posts?.value?.draft?.count ?? 0) > 0
+        (self.posts?.value?.draft?.count ?? 0) > 0
     }
 
     var hasScheduled: Bool {
-        return (self.posts?.value?.scheduled?.count ?? 0) > 0
+        (self.posts?.value?.scheduled?.count ?? 0) > 0
     }
 
     var hasPages: Bool {
-        return self.pages?.value != nil
+        self.pages?.value != nil
     }
 
     var hasStats: Bool {
-        return self.todaysStats?.value != nil
+        self.todaysStats?.value != nil
     }
 
     var hasActivities: Bool {
-        return (self.activity?.value?.current?.orderedItems?.count ?? 0) > 0
+        (self.activity?.value?.current?.orderedItems?.count ?? 0) > 0
     }
- }
+}
 
 // MARK: - BlogDashboardAnalyticPropertiesProviding Protocol Conformance
 
 extension DashboardCard: BlogDashboardAnalyticPropertiesProviding {
 
     var analyticProperties: [AnyHashable: Any] {
-        return ["card": rawValue]
+        switch self {
+        case .todaysStatsNew:
+            // Report the same card identity as the legacy card so existing
+            // card-shown/tapped funnels stay comparable across the flag.
+            return ["card": DashboardCard.todaysStats.rawValue]
+        default:
+            return ["card": rawValue]
+        }
     }
 }

@@ -1,5 +1,5 @@
 import UIKit
-import CocoaLumberjack
+import WordPressKit
 import WordPressShared
 import WordPressUI
 
@@ -18,7 +18,6 @@ class JetpackRestoreStatusViewController: BaseRestoreStatusViewController {
     private lazy var coordinator: JetpackRestoreStatusCoordinator = {
         return JetpackRestoreStatusCoordinator(site: self.site, view: self)
     }()
-
 
     // MARK: - Initialization
 

@@ -1,5 +1,6 @@
 import Foundation
 import WordPressFlux
+import WordPressShared
 
 /// Notice represents a small notification that that can be displayed within
 /// the app, much like Android toasts or snackbars.
@@ -65,12 +66,25 @@ struct Notice {
         self.actionHandler = actionHandler
         self.style = style
     }
-
 }
 
 extension Notice: Equatable {
     static func ==(lhs: Notice, rhs: Notice) -> Bool {
         return lhs.identifier == rhs.identifier
+    }
+}
+
+extension Notice {
+    /// Creates a notice with a localized description of the given error.
+    init(error: Error, title: String? = nil) {
+        self.init(
+            title: title ?? SharedStrings.Error.generic,
+            message: error.localizedDescription.stringByDecodingXMLCharacters()
+        )
+    }
+
+    func post() {
+        ActionDispatcher.dispatch(NoticeAction.post(self))
     }
 }
 
@@ -142,12 +156,11 @@ enum NoticeAction: Action {
     case clearWithTag(Notice.Tag)
     /// Removes all Notices except the current one.
     case empty
-    // Prevents the notices from showing up untill an unlock action.
+    // Prevents the notices from showing up until an unlock action.
     case lock
     // Show the missed notices.
     case unlock
 }
-
 
 struct NoticeStoreState {
     fileprivate var notice: Notice?

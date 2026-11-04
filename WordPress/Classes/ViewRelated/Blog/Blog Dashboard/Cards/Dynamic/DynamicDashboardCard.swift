@@ -8,7 +8,7 @@ struct DynamicDashboardCard: View {
 
     struct Input {
         struct Row: Identifiable {
-            let id: UUID = UUID()
+            let id = UUID()
 
             let title: String?
             let description: String?
@@ -21,6 +21,7 @@ struct DynamicDashboardCard: View {
         }
 
         let featureImageURL: URL?
+        let featureImageWidthToHeightRatio: CGFloat
         let rows: [Row]
         let action: Action?
     }
@@ -32,47 +33,52 @@ struct DynamicDashboardCard: View {
     }
 
     var body: some View {
-        VStack(spacing: Length.Padding.single) {
+        VStack(spacing: .DS.Padding.single) {
             featureImage
             rowsVStack
             actionHStack
         }
-        .padding(.bottom, Length.Padding.single)
-        .padding(.horizontal, Length.Padding.double)
-        .fixedSize(horizontal: false, vertical: true)
+        .padding(.bottom, .DS.Padding.single)
+        .padding(.horizontal, .DS.Padding.double)
     }
 
     @ViewBuilder
     var featureImage: some View {
         if let featureImageURL = input.featureImageURL {
             AsyncImage(url: featureImageURL) { phase in
-                Group {
-                    if let image = phase.image {
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                    } else {
-                        Color.DS.Background.secondary
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 150)
-                    }
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(input.featureImageWidthToHeightRatio, contentMode: .fit)
+                default:
+                        Color(.secondarySystemBackground)
+                        .aspectRatio(input.featureImageWidthToHeightRatio, contentMode: .fit)
                 }
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: Length.Radius.small
-                    )
-                )
             }
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: .DS.Radius.small
+                )
+            )
         }
     }
 
     @ViewBuilder
     var rowsVStack: some View {
-        VStack(spacing: Length.Padding.single) {
+        VStack(spacing: .DS.Padding.single) {
             ForEach(input.rows) { row in
-                HStack(alignment: .top, spacing: Length.Padding.split) {
+                HStack(alignment: .center, spacing: .DS.Padding.split) {
                     if let imageURL = row.imageURL {
-                        AsyncImage(url: imageURL)
+                        AsyncImage(url: imageURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                            default:
+                                    Color(.secondarySystemBackground)
+                            }
+                        }
                             .frame(
                                 width: Constants.rowImageDiameter,
                                 height: Constants.rowImageDiameter
@@ -84,13 +90,13 @@ struct DynamicDashboardCard: View {
                         if let title = row.title {
                             Text(title)
                                 .style(.bodyLarge(.emphasized))
-                                .foregroundStyle(Color.DS.Foreground.primary)
+                                .foregroundStyle(.primary)
                         }
 
                         if let description = row.description {
                             Text(description)
                                 .style(.bodySmall(.regular))
-                                .foregroundStyle(Color.DS.Foreground.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     Spacer()
@@ -124,33 +130,23 @@ final class DynamicDashboardCardViewController: UIHostingController<DynamicDashb
     }
 }
 
-// DesignSystem.DSButtonStyle extension to omit `isJetpack` from project target.
-extension DSButtonStyle {
-    init(emphasis: DSButtonStyle.Emphasis, size: DSButtonStyle.Size) {
-        self.init(
-            emphasis: emphasis,
-            size: size,
-            isJetpack: AppConfiguration.isJetpack
-        )
-    }
-}
-
 #if DEBUG
 struct DynamicDashboardCard_Previews: PreviewProvider {
     static var previews: some View {
         DynamicDashboardCard(
             input: .init(
                 featureImageURL: URL(string: "https://i.pickadummy.com/index.php?imgsize=400x200")!,
+                featureImageWidthToHeightRatio: 2,
                 rows: [
                     .init(
                         title: "Title first",
                         description: "Description first",
-                        imageURL: URL(string: "https://i.pickadummy.com/index.php?imgsize=48x48")!
+                        imageURL: URL(string: "https://mobiledotblog.files.wordpress.com/2024/03/perf-icon.png")!
                     ),
                     .init(
                         title: "Title second",
                         description: "Description second",
-                        imageURL: URL(string: "https://i.pickadummy.com/index.php?imgsize=48x48")!
+                        imageURL: nil
                     )
                 ],
                 action: .init(title: "Action button", callback: {

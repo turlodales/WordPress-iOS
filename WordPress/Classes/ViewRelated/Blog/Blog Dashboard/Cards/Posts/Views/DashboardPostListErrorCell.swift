@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 class DashboardPostListErrorCell: UITableViewCell, Reusable {
 
@@ -36,7 +37,7 @@ class DashboardPostListErrorCell: UITableViewCell, Reusable {
     private lazy var errorTitle: UILabel = {
         let errorTitle = UILabel()
         errorTitle.textAlignment = .center
-        errorTitle.textColor = .textSubtle
+        errorTitle.textColor = .secondaryLabel
         WPStyleGuide.configureLabel(errorTitle, textStyle: .callout, fontWeight: .semibold)
         return errorTitle
     }()
@@ -45,7 +46,7 @@ class DashboardPostListErrorCell: UITableViewCell, Reusable {
         let retryLabel = UILabel()
         retryLabel.textAlignment = .center
         retryLabel.text = Strings.tapToRetry
-        retryLabel.textColor = .textSubtle
+        retryLabel.textColor = .secondaryLabel
         WPStyleGuide.configureLabel(retryLabel, textStyle: .callout, fontWeight: .regular)
         return retryLabel
     }()
@@ -80,7 +81,7 @@ class DashboardPostListErrorCell: UITableViewCell, Reusable {
     private func showRetry() {
         retryLabel.isHidden = false
         isUserInteractionEnabled = true
-        if let tapGestureRecognizer = tapGestureRecognizer {
+        if let tapGestureRecognizer {
             addGestureRecognizer(tapGestureRecognizer)
         }
     }
@@ -88,7 +89,7 @@ class DashboardPostListErrorCell: UITableViewCell, Reusable {
     private func hideRetry() {
         retryLabel.isHidden = true
         isUserInteractionEnabled = false
-        if let tapGestureRecognizer = tapGestureRecognizer {
+        if let tapGestureRecognizer {
             removeGestureRecognizer(tapGestureRecognizer)
         }
     }

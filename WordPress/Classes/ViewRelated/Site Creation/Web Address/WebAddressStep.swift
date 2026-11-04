@@ -1,3 +1,5 @@
+import UIKit
+import WordPressKit
 
 /// Site Creation: Domains
 final class WebAddressStep: WizardStep {
@@ -14,7 +16,7 @@ final class WebAddressStep: WizardStep {
             domainSelectionType: .siteCreation,
             primaryActionTitle: primaryActionTitle,
             includeSupportButton: false
-        ) { [weak self] (address) in
+        ) { [weak self] address in
             self?.didSelect(address)
         }
     }()

@@ -1,6 +1,7 @@
 import UIKit
+import WordPressShared
 
-class RegisterDomainSectionHeaderView: UITableViewHeaderFooterView {
+class RegisterDomainSectionHeaderView: UITableViewHeaderFooterView, NibLoadable {
 
     @IBOutlet private weak var titleLabel: UILabel!
     @IBOutlet private weak var descriptionLabel: UILabel!
@@ -10,13 +11,13 @@ class RegisterDomainSectionHeaderView: UITableViewHeaderFooterView {
         super.awakeFromNib()
         titleLabel.font = WPStyleGuide.fontForTextStyle(.subheadline,
                                                         fontWeight: .semibold)
-        titleLabel.textColor = .textSubtle
+        titleLabel.textColor = .secondaryLabel
         titleLabel.numberOfLines = 0
 
         descriptionLabel.font = WPStyleGuide.fontForTextStyle(.footnote)
-        descriptionLabel.textColor = .textSubtle
+        descriptionLabel.textColor = .secondaryLabel
         descriptionLabel.numberOfLines = 0
-        contentView.backgroundColor = .listBackground
+        contentView.backgroundColor = .systemGroupedBackground
     }
 
     func setTitle(_ title: String?) {
@@ -26,5 +27,4 @@ class RegisterDomainSectionHeaderView: UITableViewHeaderFooterView {
     func setDescription(_ description: String?) {
         descriptionLabel.text = description
     }
-
 }

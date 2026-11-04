@@ -1,5 +1,6 @@
 import UIKit
 import WordPressShared
+import WordPressUI
 
 /// A circular 'play' icon for use on videos that should match the system
 /// play button appearance in web views.
@@ -12,7 +13,7 @@ class PlayIconView: UIView {
 
     @objc var isHighlighted: Bool {
         didSet {
-            let iconColor: UIColor = isHighlighted ? .black : .neutral(.shade70)
+            let iconColor: UIColor = isHighlighted ? .black : UIAppColor.neutral(.shade70)
             playLayer.strokeColor = iconColor.cgColor
             playLayer.fillColor = iconColor.cgColor
         }

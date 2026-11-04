@@ -3,6 +3,7 @@ import Combine
 import UIKit
 import Gridicons
 import SVProgressHUD
+import WordPressData
 import WordPressShared
 
 /// Displays an image preview and metadata for a single Media asset.
@@ -40,11 +41,15 @@ final class MediaItemViewController: UITableViewController {
         tableView.showsVerticalScrollIndicator = false
         tableView.cellLayoutMarginsFollowReadableWidth = true
 
-        ImmuTable.registerRows([TextRow.self, EditableTextRow.self], tableView: tableView)
+        ImmuTable.registerRows([TextRow.self, EditableTextRow.self, TextViewRow.self], tableView: tableView)
 
         updateViewModel()
         updateNavigationItem()
         updateTitle()
+
+        if let mediaID = media.mediaID, mediaID.intValue > 0 {
+            tableView.tableFooterView = EntityMetadataTableFooterView.make(id: mediaID)
+        }
     }
 
     private func updateTitle() {
@@ -52,21 +57,21 @@ final class MediaItemViewController: UITableViewController {
     }
 
     private func updateViewModel() {
-        let titleRow = editableRowIfSupported(title: NSLocalizedString("Title", comment: "Noun. Label for the title of a media asset (image / video)"),
+        let titleRow = editableRowIfSupported(title: Strings.title,
                                               value: mediaMetadata.title,
                                               action: editTitle())
-        let captionRow = editableRowIfSupported(title: NSLocalizedString("Caption", comment: "Noun. Label for the caption for a media asset (image / video)"),
+        let captionRow = editableRowIfSupported(title: Strings.caption,
                                                 value: mediaMetadata.caption,
                                                 action: editCaption())
-        let descRow = editableRowIfSupported(title: NSLocalizedString("Description", comment: "Label for the description for a media asset (image / video)"),
+        let descRow = editableRowIfSupported(title: Strings.description,
                                              value: mediaMetadata.desc,
                                              action: editDescription())
-        let altRow = editableRowIfSupported(title: NSLocalizedString("Alt Text", comment: "Label for the alt for a media asset (image)"),
+        let altRow = editableRowIfSupported(title: Strings.altText,
                                             value: mediaMetadata.alt,
                                             action: editAlt())
 
         var mediaInfoRows = [titleRow, captionRow, descRow]
-        if media.mediaType == .image {
+        if media.mediaType == .image && media.blog.supports(BlogFeature.mediaAltEditing) {
             mediaInfoRows.append(altRow)
         }
 
@@ -90,22 +95,27 @@ final class MediaItemViewController: UITableViewController {
         // constraint doesn't seem to go into effect until after `viewDidLayoutSubviews`.
         headerMaxHeightConstraint.constant = view.bounds.height * 0.75
         tableView.sizeToFitHeaderView()
+        tableView.sizeToFitFooterView()
     }
 
     private var metadataRows: [ImmuTableRow] {
         let presenter = MediaMetadataPresenter(media: media)
 
         var rows = [ImmuTableRow]()
-        rows.append(TextRow(title: NSLocalizedString("File name", comment: "Label for the file name for a media asset (image / video)"), value: media.filename ?? ""))
-        rows.append(TextRow(title: NSLocalizedString("File type", comment: "Label for the file type (.JPG, .PNG, etc) for a media asset (image / video)"), value: presenter.fileType ?? ""))
+        rows.append(TextViewRow(title: Strings.url, details: media.remoteURL ?? ""))
+        rows.append(TextRow(title: Strings.fileName, value: media.filename ?? ""))
+        rows.append(TextRow(title: Strings.fileType, value: presenter.fileType ?? ""))
+        if let size = media.formattedSize {
+            rows.append(TextRow(title: Strings.fileSize, value: size))
+        }
 
         switch media.mediaType {
         case .image, .video:
-            rows.append(TextRow(title: NSLocalizedString("Dimensions", comment: "Label for the dimensions in pixels for a media asset (image / video)"), value: presenter.dimensions))
+            rows.append(TextRow(title: Strings.dimensions, value: presenter.dimensions))
         default: break
         }
 
-        rows.append(TextRow(title: NSLocalizedString("Uploaded", comment: "Label for the date a media asset (image / video) was uploaded"), value: media.creationDate?.toMediumString() ?? ""))
+        rows.append(TextRow(title: Strings.uploaded, value: media.creationDate?.toMediumString() ?? ""))
 
         return rows
     }
@@ -135,7 +145,7 @@ final class MediaItemViewController: UITableViewController {
     private func handleDeletedMedia() {
         SVProgressHUD.setDefaultMaskType(.clear)
         SVProgressHUD.setMinimumDismissTimeInterval(1.0)
-        SVProgressHUD.showError(withStatus: NSLocalizedString("This media item has been deleted.", comment: "Message displayed in Media Library if the user attempts to edit a media asset (image / video) after it has been deleted."))
+        SVProgressHUD.showError(withStatus: Strings.mediaDeleted)
         navigationController?.popViewController(animated: true)
     }
 
@@ -144,13 +154,13 @@ final class MediaItemViewController: UITableViewController {
                                         style: .plain,
                                         target: self,
                                         action: #selector(shareTapped))
-        shareItem.accessibilityLabel = NSLocalizedString("Share", comment: "Accessibility label for share buttons in nav bars")
+        shareItem.accessibilityLabel = SharedStrings.Button.share
 
         let trashItem = UIBarButtonItem(image: UIImage(systemName: "trash"),
                                         style: .plain,
                                         target: self,
                                         action: #selector(trashTapped))
-        trashItem.accessibilityLabel = NSLocalizedString("Trash", comment: "Accessibility label for trash buttons in nav bars")
+        trashItem.accessibilityLabel = Strings.trash
 
         if media.blog.supports(.mediaDeletion) {
             navigationItem.rightBarButtonItems = [ shareItem, trashItem ]
@@ -173,16 +183,15 @@ final class MediaItemViewController: UITableViewController {
     }
 
     private func presentImageViewControllerForMedia() {
-        let controller = WPImageViewController(media: self.media)
-        controller.modalTransitionStyle = .crossDissolve
-        controller.modalPresentationStyle = .fullScreen
-
-        self.present(controller, animated: true)
+        let controller = LightboxViewController(media: media)
+        controller.thumbnail = headerView.imageView.image
+        controller.configureZoomTransition(sourceView: headerView.imageView)
+        present(controller, animated: true)
     }
 
     private func presentVideoViewControllerForMedia() {
         media.videoAsset { [weak self] asset, error in
-            if let asset = asset,
+            if let asset,
                 let controller = self?.videoViewControllerForAsset(asset) {
 
                 controller.modalTransitionStyle = .crossDissolve
@@ -191,7 +200,7 @@ final class MediaItemViewController: UITableViewController {
                     controller.player?.play()
                 })
             } else if let _ = error {
-                SVProgressHUD.showError(withStatus: NSLocalizedString("Unable to load video.", comment: "Error shown when the app fails to load a video from the user's media library."))
+                SVProgressHUD.showError(withStatus: Strings.unableToLoadVideo)
             }
         }
     }
@@ -257,9 +266,9 @@ final class MediaItemViewController: UITableViewController {
         }
 
         let alertController = UIAlertController(title: nil,
-                                                message: NSLocalizedString("Are you sure you want to permanently delete this item?", comment: "Message prompting the user to confirm that they want to permanently delete a media item. Should match Calypso."), preferredStyle: .alert)
-        alertController.addCancelActionWithTitle(NSLocalizedString("Cancel", comment: "Verb. Button title. Tapping cancels an action."))
-        alertController.addDestructiveActionWithTitle(NSLocalizedString("Delete", comment: "Title for button that permanently deletes a media item (photo / video)"), handler: { action in
+                                                message: Strings.deleteConfirmation, preferredStyle: .alert)
+        alertController.addCancelActionWithTitle(Strings.cancel)
+        alertController.addDestructiveActionWithTitle(Strings.delete, handler: { _ in
             self.deleteMediaItem()
         })
 
@@ -274,7 +283,7 @@ final class MediaItemViewController: UITableViewController {
 
         SVProgressHUD.setDefaultMaskType(.clear)
         SVProgressHUD.setMinimumDismissTimeInterval(1.0)
-        SVProgressHUD.show(withStatus: NSLocalizedString("Deleting...", comment: "Text displayed in HUD while a media item is being deleted."))
+        SVProgressHUD.show(withStatus: Strings.deleting)
 
         let repository = MediaRepository(coreDataStack: ContextManager.shared)
         let mediaID = TaggedManagedObjectID(media)
@@ -282,10 +291,10 @@ final class MediaItemViewController: UITableViewController {
             do {
                 try await repository.delete(mediaID)
 
-                WPAppAnalytics.track(.mediaLibraryDeletedItems, withProperties: ["number_of_items_deleted": 1], with: self.media.blog)
-                SVProgressHUD.showSuccess(withStatus: NSLocalizedString("Deleted!", comment: "Text displayed in HUD after successfully deleting a media item"))
+                WPAppAnalytics.track(.mediaLibraryDeletedItems, properties: ["number_of_items_deleted": 1], blog: self.media.blog)
+                SVProgressHUD.showSuccess(withStatus: Strings.deleted)
             } catch {
-                SVProgressHUD.showError(withStatus: NSLocalizedString("Unable to delete media item.", comment: "Text displayed in HUD if there was an error attempting to delete a media item."))
+                SVProgressHUD.showError(withStatus: Strings.unableToDeleteMedia)
             }
         }
     }
@@ -293,18 +302,19 @@ final class MediaItemViewController: UITableViewController {
     private func saveChanges() {
         mediaMetadata.update(media)
 
-        let service = MediaService(managedObjectContext: ContextManager.sharedInstance().mainContext)
+        let service = MediaService(managedObjectContext: ContextManager.shared.mainContext)
         service.update(media, success: { [weak self] in
-            WPAppAnalytics.track(.mediaLibraryEditedItemMetadata, with: self?.media.blog)
+            guard let blog = self?.media.blog else { return }
+            WPAppAnalytics.track(.mediaLibraryEditedItemMetadata, blog: blog)
         }, failure: { _ in
-            SVProgressHUD.showError(withStatus: NSLocalizedString("Unable to save media item.", comment: "Text displayed in HUD when a media item's metadata (title, etc) couldn't be saved."))
+            SVProgressHUD.showError(withStatus: Strings.unableToSaveMedia)
         })
     }
 
     private func editTitle() -> ((ImmuTableRow) -> ()) {
         return { [weak self] row in
             let editableRow = row as! EditableTextRow
-            self?.pushSettingsController(for: editableRow, hint: NSLocalizedString("Image title", comment: "Hint for image title on image settings."),
+            self?.pushSettingsController(for: editableRow, hint: Strings.Hints.imageTitle,
                                         onValueChanged: { value in
                 self?.title = value
                 (self?.parent as? SiteMediaPageViewController)?.title = value
@@ -317,7 +327,7 @@ final class MediaItemViewController: UITableViewController {
     private func editCaption() -> ((ImmuTableRow) -> ()) {
         return { [weak self] row in
             let editableRow = row as! EditableTextRow
-            self?.pushSettingsController(for: editableRow, hint: NSLocalizedString("Image Caption", comment: "Hint for image caption on image settings."),
+            self?.pushSettingsController(for: editableRow, hint: Strings.Hints.imageCaption,
                                         onValueChanged: { value in
                 self?.mediaMetadata.caption = value
                 self?.reloadViewModel()
@@ -328,9 +338,9 @@ final class MediaItemViewController: UITableViewController {
     private func editDescription() -> ((ImmuTableRow) -> ()) {
         return { [weak self] row in
             let editableRow = row as! EditableTextRow
-            self?.pushSettingsController(for: editableRow, hint: NSLocalizedString("Image Description", comment: "Hint for image description on image settings."),
+            self?.pushSettingsController(for: editableRow, hint: Strings.Hints.imageDescription,
                                         onValueChanged: { value in
-                self?.mediaMetadata.desc  = value
+                self?.mediaMetadata.desc = value
                 self?.reloadViewModel()
             })
         }
@@ -339,9 +349,9 @@ final class MediaItemViewController: UITableViewController {
     private func editAlt() -> ((ImmuTableRow) -> ()) {
         return { [weak self] row in
             let editableRow = row as! EditableTextRow
-            self?.pushSettingsController(for: editableRow, hint: NSLocalizedString("Image Alt", comment: "Hint for image alt on image settings."),
+            self?.pushSettingsController(for: editableRow, hint: Strings.Hints.imageAlt,
                                          onValueChanged: { value in
-                                            self?.mediaMetadata.alt  = value
+                                            self?.mediaMetadata.alt = value
                                             self?.reloadViewModel()
             })
         }
@@ -365,8 +375,8 @@ final class MediaItemViewController: UITableViewController {
         activityController.modalPresentationStyle = .popover
         activityController.popoverPresentationController?.barButtonItem = sender
         activityController.completionWithItemsHandler = { [weak self] _, completed, _, _ in
-            if completed {
-                WPAppAnalytics.track(.mediaLibrarySharedItemLink, with: self?.media.blog)
+            if completed, let blog = self?.media.blog {
+                WPAppAnalytics.track(.mediaLibrarySharedItemLink, blog: blog)
             }
         }
         present(activityController, animated: true)
@@ -459,5 +469,35 @@ private struct MediaMetadata {
         media.caption = caption
         media.desc = desc
         media.alt = alt
+    }
+}
+
+private enum Strings {
+    static let url = NSLocalizedString("siteMedia.details.url", value: "URL", comment: "Title for the URL field")
+    static let title = NSLocalizedString("siteMedia.details.title", value: "Title", comment: "Noun. Label for the title of a media asset (image / video)")
+    static let caption = NSLocalizedString("siteMedia.details.caption", value: "Caption", comment: "Noun. Label for the caption for a media asset (image / video)")
+    static let description = NSLocalizedString("siteMedia.details.description", value: "Description", comment: "Label for the description for a media asset (image / video)")
+    static let altText = NSLocalizedString("siteMedia.details.altText", value: "Alt Text", comment: "Label for the alt for a media asset (image)")
+    static let fileName = NSLocalizedString("siteMedia.details.fileName", value: "File Name", comment: "Label for the file name for a media asset (image / video)")
+    static let fileType = NSLocalizedString("siteMedia.details.fileType", value: "File Type", comment: "Label for the file type (.JPG, .PNG, etc) for a media asset (image / video)")
+    static let fileSize = NSLocalizedString("siteMedia.details.fileSize", value: "File Size", comment: "Label for the file size for a media asset (image / video)")
+    static let dimensions = NSLocalizedString("siteMedia.details.dimensions", value: "Dimensions", comment: "Label for the dimensions in pixels for a media asset (image / video)")
+    static let uploaded = NSLocalizedString("siteMedia.details.uploaded", value: "Uploaded", comment: "Label for the date a media asset (image / video) was uploaded")
+    static let trash = NSLocalizedString("siteMedia.details.trash", value: "Trash", comment: "Accessibility label for trash buttons in nav bars")
+    static let mediaDeleted = NSLocalizedString("siteMedia.details.mediaDeleted", value: "This media item has been deleted.", comment: "Message displayed in Media Library if the user attempts to edit a media asset (image / video) after it has been deleted.")
+    static let unableToLoadVideo = NSLocalizedString("siteMedia.details.unableToLoadVideo", value: "Unable to load video.", comment: "Error shown when the app fails to load a video from the user's media library.")
+    static let deleteConfirmation = NSLocalizedString("siteMedia.details.deleteConfirmation", value: "Are you sure you want to permanently delete this item?", comment: "Message prompting the user to confirm that they want to permanently delete a media item. Should match Calypso.")
+    static let cancel = NSLocalizedString("siteMedia.details.cancel", value: "Cancel", comment: "Verb. Button title. Tapping cancels an action.")
+    static let delete = NSLocalizedString("siteMedia.details.delete", value: "Delete", comment: "Title for button that permanently deletes a media item (photo / video)")
+    static let deleting = NSLocalizedString("siteMedia.details.deleting", value: "Deleting...", comment: "Text displayed in HUD while a media item is being deleted.")
+    static let deleted = NSLocalizedString("siteMedia.details.deleted", value: "Deleted!", comment: "Text displayed in HUD after successfully deleting a media item")
+    static let unableToDeleteMedia = NSLocalizedString("siteMedia.details.unableToDeleteMedia", value: "Unable to delete media item.", comment: "Text displayed in HUD if there was an error attempting to delete a media item.")
+    static let unableToSaveMedia = NSLocalizedString("siteMedia.details.unableToSaveMedia", value: "Unable to save media item.", comment: "Text displayed in HUD when a media item's metadata (title, etc) couldn't be saved.")
+
+    enum Hints {
+        static let imageTitle = NSLocalizedString("siteMedia.hints.imageTitle", value: "Image title", comment: "Hint for image title on image settings.")
+        static let imageCaption = NSLocalizedString("siteMedia.hints.imageCaption", value: "Image Caption", comment: "Hint for image caption on image settings.")
+        static let imageDescription = NSLocalizedString("siteMedia.hints.imageDescription", value: "Image Description", comment: "Hint for image description on image settings.")
+        static let imageAlt = NSLocalizedString("siteMedia.hints.imageAlt", value: "Image Alt", comment: "Hint for image alt on image settings.")
     }
 }

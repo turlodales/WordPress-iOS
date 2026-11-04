@@ -24,6 +24,7 @@ struct SettingsPicker<T: Hashable>: View {
 
 struct SettingsPickerValue<T: Hashable>: Identifiable {
     let title: String
+    var details: String?
     let id: T
     var hint: String?
 }
@@ -50,15 +51,21 @@ struct SettingsPickerListView<T: Hashable>: View {
             guard selection != value.id else { return }
             selection = value.id
         }) {
-            HStack {
-                Text(value.title)
-                Spacer()
-                if value.id == selection {
-                    Image(systemName: "checkmark")
-                        .font(.headline)
-                        .foregroundColor(.accentColor)
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark")
+                    .font(.headline)
+                    .foregroundColor(.accentColor)
+                    .opacity(value.id == selection ? 1 : 0)
 
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(value.title)
+                    if let details = value.details {
+                        Text(details)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                Spacer()
             }
             .contentShape(Rectangle())
         }

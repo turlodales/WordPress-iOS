@@ -1,7 +1,10 @@
 import Foundation
 import WordPressKit
 import WordPressFlux
+import WordPressShared
 import WidgetKit
+import JetpackStatsWidgetsCore
+import WordPressSharedUI
 
 enum InsightAction: Action {
 
@@ -260,18 +263,23 @@ private extension StatsInsightsStore {
 
     // MARK: - Insights Overview
 
-    func fetchInsights() {
+    func fetchInsights(forceRefresh: Bool) {
         updateFetchingStatusForVisibleCards(.loading)
-        fetchInsightsCards()
+        fetchInsightsCards(forceRefresh: forceRefresh)
     }
 
-    func fetchInsightsCards() {
+    func fetchInsightsCards(forceRefresh: Bool) {
         guard let api = statsRemote() else {
             setAllFetchingStatus(.idle)
             return
         }
 
         currentDataTypes.forEach {
+            guard forceRefresh || cache.isExpired || !hasCache(forDataType: $0) else {
+                DDLogInfo("Stats: Insights Overview refresh requested for \($0) but we still have valid cache data.")
+                return
+            }
+
             fetchInsightsForCard(type: $0, api: api)
         }
     }
@@ -280,7 +288,7 @@ private extension StatsInsightsStore {
         switch type {
         case .latestPost:
             api.getInsight { (lastPost: StatsLastPostInsight?, error) in
-                if let error = error {
+                if let error {
                     DDLogError("Error fetching last posts insights: \(error.localizedDescription)")
                 }
                 self.actionDispatcher.dispatch(InsightAction.receivedLastPostInsight(lastPost, error))
@@ -288,7 +296,7 @@ private extension StatsInsightsStore {
             }
         case .allTime:
             api.getInsight { (allTimesStats: StatsAllTimesInsight?, error) in
-                if let error = error {
+                if let error {
                     DDLogError("Error fetching all time insights: \(error.localizedDescription)")
                 }
                 self.actionDispatcher.dispatch(InsightAction.receivedAllTimeStats(allTimesStats, error))
@@ -297,7 +305,7 @@ private extension StatsInsightsStore {
 
         case .annualAndMostPopular:
             api.getInsight { (annualAndTime: StatsAnnualAndMostPopularTimeInsight?, error) in
-                if let error = error {
+                if let error {
                     DDLogError("Error fetching annual/most popular time: \(error.localizedDescription)")
                 }
                 self.actionDispatcher.dispatch(InsightAction.receivedAnnualAndMostPopularTimeStats(annualAndTime, error))
@@ -305,7 +313,7 @@ private extension StatsInsightsStore {
             }
         case .tagsAndCategories:
             api.getInsight { (tagsAndCategoriesInsight: StatsTagsAndCategoriesInsight?, error) in
-                if let error = error {
+                if let error {
                     DDLogError("Error fetching tags and categories insight: \(error.localizedDescription)")
                 }
 
@@ -315,7 +323,7 @@ private extension StatsInsightsStore {
 
         case .comments:
             api.getInsight { (commentsInsights: StatsCommentsInsight?, error) in
-                if let error = error {
+                if let error {
                     DDLogError("Error fetching comment insights: \(error.localizedDescription)")
                 }
                 self.actionDispatcher.dispatch(InsightAction.receivedCommentsInsight(commentsInsights, error))
@@ -323,7 +331,7 @@ private extension StatsInsightsStore {
             }
         case .followers:
             api.getInsight { (wpComFollowers: StatsDotComFollowersInsight?, error) in
-                if let error = error {
+                if let error {
                     DDLogError("Error fetching WP.com followers: \(error.localizedDescription)")
                 }
                 self.actionDispatcher.dispatch(InsightAction.receivedDotComFollowers(wpComFollowers, error))
@@ -331,7 +339,7 @@ private extension StatsInsightsStore {
             }
 
             api.getInsight { (emailFollowers: StatsEmailFollowersInsight?, error) in
-                if let error = error {
+                if let error {
                     DDLogError("Error fetching email followers: \(error.localizedDescription)")
                 }
                 self.actionDispatcher.dispatch(InsightAction.receivedEmailFollowers(emailFollowers, error))
@@ -339,7 +347,7 @@ private extension StatsInsightsStore {
             }
         case .today:
             api.getInsight { (todayInsight: StatsTodayInsight?, error) in
-                if let error = error {
+                if let error {
                     DDLogError("Error fetching today's insight: \(error.localizedDescription)")
                 }
 
@@ -348,7 +356,7 @@ private extension StatsInsightsStore {
             }
         case .postingActivity:
             api.getInsight(limit: 5000) { (streak: StatsPostingStreakInsight?, error) in
-                if let error = error {
+                if let error {
                     DDLogError("Error fetching posting activity insight: \(error.localizedDescription)")
                 }
 
@@ -357,7 +365,7 @@ private extension StatsInsightsStore {
             }
         case .publicize:
             api.getInsight { (publicizeInsight: StatsPublicizeInsight?, error) in
-                if let error = error {
+                if let error {
                     DDLogError("Error fetching publicize insights: \(error.localizedDescription)")
                 }
                 self.actionDispatcher.dispatch(InsightAction.receivedPublicize(publicizeInsight, error))
@@ -385,20 +393,40 @@ private extension StatsInsightsStore {
             state.topCommentsInsight = getValue(.topCommentsInsight)
             state.dotComFollowers = getValue(.dotComFollowers)
             state.emailFollowers = getValue(.emailFollowers)
-
-            state.lastPostSummaryStatus = state.lastPostInsight == nil ? .error : .success
-            state.allTimeStatus = state.allTimeStats == nil ? .error : .success
-            state.annualAndMostPopularTimeStatus = state.annualAndMostPopularTime != nil ? .error : .success
-            state.publicizeFollowersStatus = state.publicizeFollowers == nil ? .error : .success
-            state.todaysStatsStatus = state.todaysStats == nil ? .error : .success
-            state.postingActivityStatus = state.postingActivity == nil ? .error : .success
-            state.tagsAndCategoriesStatus = state.topTagsAndCategories == nil ? .error : .success
-            state.commentsInsightStatus = state.topCommentsInsight == nil ? .error : .success
-            state.dotComFollowersStatus = state.dotComFollowers == nil ? .error : .success
-            state.emailFollowersStatus = state.emailFollowers == nil ? .error : .success
         }
 
         DDLogInfo("Insights load from cache")
+    }
+
+    private func hasCache(forDataType type: InsightDataType) -> Bool {
+        guard let siteID = SiteStatsInformation.sharedInstance.siteID else {
+            return false
+        }
+
+        func hasValue(_ record: StatsInsightsCache.Record) -> Bool {
+            cache.hasValue(record: record, siteID: siteID)
+        }
+
+        switch type {
+        case .latestPost:
+            return hasValue(.lastPostInsight)
+        case .allTime:
+            return hasValue(.allTimeStats)
+        case .annualAndMostPopular:
+            return hasValue(.annualAndMostPopularTime)
+        case .tagsAndCategories:
+            return hasValue(.topTagsAndCategories)
+        case .comments:
+            return hasValue(.topCommentsInsight)
+        case .followers:
+            return hasValue(.dotComFollowers) && hasValue(.emailFollowers)
+        case .today:
+            return hasValue(.todaysStats)
+        case .postingActivity:
+            return hasValue(.postingActivity)
+        case .publicize:
+            return hasValue(.publicizeFollowers)
+        }
     }
 
     func statsRemote() -> StatsServiceRemoteV2? {
@@ -419,33 +447,12 @@ private extension StatsInsightsStore {
             return
         }
 
-        guard forceRefresh || cache.isExpired else {
-            DDLogInfo("Stats: Insights Overview refresh requested but we still have valid cache data.")
-            return
-        }
-
         if forceRefresh {
             DDLogInfo("Stats: Forcing an Insights refresh.")
         }
 
         saveDataInCache()
-        fetchInsights()
-    }
-
-    func fetchLastPostSummary() {
-        guard let api = statsRemote() else {
-            setAllFetchingStatus(.idle)
-            state.lastPostSummaryStatus = .idle
-            return
-        }
-
-        api.getInsight { (lastPost: StatsLastPostInsight?, error) in
-            if error != nil {
-                DDLogInfo("Error fetching last posts insights: \(String(describing: error?.localizedDescription))")
-            }
-            self.actionDispatcher.dispatch(InsightAction.receivedLastPostInsight(lastPost, error))
-            DDLogInfo("Stats: Insights - successfully fetched latest post summary.")
-        }
+        fetchInsights(forceRefresh: forceRefresh)
     }
 
     func fetchStatsForInsightsLatestPost() {
@@ -456,7 +463,7 @@ private extension StatsInsightsStore {
         }
 
         api.getDetails(forPostID: postID) { (postStats: StatsPostDetails?, error: Error?) in
-            if let error = error {
+            if let error {
                 DDLogError("Insights: Error fetching Post Stats: \(error.localizedDescription)")
             }
             DDLogInfo("Stats: Insights - successfully fetched latest post details.")
@@ -807,23 +814,12 @@ extension StatsInsightsStore {
     func getTotalFollowerCount() -> Int {
         let totalDotComFollowers = getDotComFollowers()?.dotComFollowersCount ?? 0
         let totalEmailFollowers = getEmailFollowers()?.emailFollowersCount ?? 0
-        let totalPublicize = getPublicizeCount()
 
-        return totalDotComFollowers + totalEmailFollowers + totalPublicize
+        return totalDotComFollowers + totalEmailFollowers
     }
 
     func getPublicize() -> StatsPublicizeInsight? {
         return state.publicizeFollowers
-    }
-
-    func getPublicizeCount() -> Int {
-        var totalPublicize = 0
-        if let publicize = getPublicize(),
-           !publicize.publicizeServices.isEmpty {
-            totalPublicize = publicize.publicizeServices.compactMap({$0.followers}).reduce(0, +)
-        }
-
-        return totalPublicize
     }
 
     func getTopCommentsInsight() -> StatsCommentsInsight? {
@@ -836,15 +832,6 @@ extension StatsInsightsStore {
 
     func getTopTagsAndCategories() -> StatsTagsAndCategoriesInsight? {
         return state.topTagsAndCategories
-    }
-
-    /// Summarizes the daily posting count for the month in the given date.
-    /// Returns an array containing every day of the month and associated post count.
-    ///
-    func getMonthlyPostingActivity(for date: Date) -> [PostingStreakEvent] {
-        let postingEventDates = getPostingEventsDates()
-
-        return getMonthlyPostingActivityFor(date: date, postingEventsDates: postingEventDates)
     }
 
     func getQuarterlyPostingActivity(from date: Date) -> [[PostingStreakEvent]] {
@@ -950,7 +937,7 @@ extension StatsInsightsStore {
          * with value .loading. If at least one exists then the store is still fetching the overview.
          */
         let mirror = Mirror(reflecting: state)
-        return mirror.children.compactMap { $0.value as? StoreFetchingStatus }.first { $0 == .loading } != nil
+        return mirror.children.compactMap { $0.value as? StoreFetchingStatus }.contains { $0 == .loading }
     }
 
     var isFetchingAllFollowers: Bool {
@@ -1010,7 +997,7 @@ extension StatsInsightsStore {
          * If the result is nil the store failed loading the overview.
          */
         let mirror = Mirror(reflecting: state)
-        return mirror.children.compactMap { $0.value as? StoreFetchingStatus }.first { $0 != .error } == nil
+        return !mirror.children.compactMap { $0.value as? StoreFetchingStatus }.contains { $0 != .error }
     }
 
     func fetchingFailed(for query: InsightQuery) -> Bool {
@@ -1064,7 +1051,6 @@ private extension StatsInsightsStore {
         }
 
         return mappedMonth
-
     }
 
     private func getPostingEventsDates() -> [Date: PostingStreakEvent] {

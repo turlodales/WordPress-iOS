@@ -1,52 +1,37 @@
 import UIKit
+import WordPressData
+import WordPressUI
+import WordPressReader
 
 protocol ReaderDetailToolbarDelegate: AnyObject {
-    func didTapLikeButton(isLiked: Bool)
+    var notificationID: String? { get }
 }
 
-class ReaderDetailToolbar: UIView, NibLoadable {
-    @IBOutlet weak var dividerView: UIView!
-    @IBOutlet weak var saveForLaterButton: UIButton!
-    @IBOutlet weak var reblogButton: PostMetaButton!
-    @IBOutlet weak var commentButton: PostMetaButton!
-    @IBOutlet weak var likeButton: PostMetaButton!
-
-    /// The reader post that the toolbar interacts with
+class ReaderDetailToolbar {
     private var post: ReaderPost?
-
-    /// The VC where the toolbar is inserted
     private weak var viewController: UIViewController?
 
-    /// An observer of the number of likes of the post
     private var likeCountObserver: NSKeyValueObservation?
-
-    /// An observer of the number of likes of the post
     private var commentCountObserver: NSKeyValueObservation?
 
-    /// If we should hide the comments button
-    var shouldHideComments = false
+    /// The buttons currently shown in the toolbar.
+    ///
+    /// They are updated in place rather than recreated on every change. On iOS 26, while the toolbar
+    /// is over a dark image, new items can come up in the dark style while the toolbar and the other
+    /// items stay light, mixing black and white icons.
+    private var buttons: Buttons?
 
-    weak var delegate: ReaderDetailToolbarDelegate? = nil
+    weak var delegate: ReaderDetailToolbarDelegate?
 
-    private var likeButtonTitle: String {
-        guard let post else {
-            return likeLabel(count: likeCount)
-        }
-        return post.isLiked ? Constants.likedButtonTitle : Constants.likeButtonTitle
+    /// Whether the user is signed in to WordPress.com.
+    private let isLoggedIn: () -> Bool
+
+    init(isLoggedIn: @escaping () -> Bool = { ReaderHelpers.isLoggedIn() }) {
+        self.isLoggedIn = isLoggedIn
     }
 
     private var likeCount: Int {
         post?.likeCount?.intValue ?? 0
-    }
-
-    override func awakeFromNib() {
-        super.awakeFromNib()
-
-        applyStyles()
-
-        adjustInsetsForTextDirection()
-
-        prepareActionButtonsForVoiceOver()
     }
 
     func viewWillAppear() {
@@ -57,12 +42,8 @@ class ReaderDetailToolbar: UIView, NibLoadable {
         unsubscribePostChanges()
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
-            configureActionButtons()
-        }
-        configureButtonTitles()
+    func configure(for viewController: UIViewController) {
+        self.viewController = viewController
     }
 
     func configure(for post: ReaderPost, in viewController: UIViewController) {
@@ -70,45 +51,178 @@ class ReaderDetailToolbar: UIView, NibLoadable {
         self.viewController = viewController
 
         subscribePostChanges()
-        configureActionButtons()
+        updateToolbarItems()
+    }
+
+    private func updateToolbarItems() {
+        guard let viewController, let post else { return }
+
+        let layout = Layout(
+            showsReblogButton: isLoggedIn() && !post.isBlogPrivate,
+            showsCommentButton: shouldShowCommentActionButton,
+            showsLikeButton: post.isLikesEnabled
+        )
+
+        // A like, a save or a new count keeps the same buttons, so update them in place.
+        // Rebuild the toolbar only when a button has to be added or removed.
+        if let buttons, buttons.layout == layout {
+            configure(buttons, for: post)
+            return
+        }
+
+        let buttons = Buttons(
+            // Custom views, so they can sit on the frosted capsules on iOS 26+.
+            saveForLater: makeCustomButton(action: #selector(didTapSaveForLater)),
+            reblog: layout.showsReblogButton ? makeCustomButton(action: #selector(didTapReblog)) : nil,
+            comment: layout.showsCommentButton ? makeCustomButton(action: #selector(didTapComment)) : nil,
+            like: layout.showsLikeButton ? makeCustomButton(action: #selector(didTapLike)) : nil
+        )
+        configure(buttons, for: post)
+        self.buttons = buttons
+        viewController.setToolbarItems(buttons.toolbarItems, animated: false)
+    }
+
+    // MARK: - Configure Buttons
+
+    private func configure(_ buttons: Buttons, for post: ReaderPost) {
+        configureSaveForLaterButton(buttons.saveForLater, for: post)
+        if let reblog = buttons.reblog {
+            configureReblogButton(reblog)
+        }
+        if let comment = buttons.comment {
+            configureCommentButton(comment, for: post)
+        }
+        if let like = buttons.like {
+            configureLikeButton(like, for: post)
+        }
+        // A capsule doesn't resize by itself when a count changes, like a custom view button.
+        buttons.capsules.forEach { ($0.customView as? FrostedCapsule)?.contentDidChange() }
+    }
+
+    private func configureSaveForLaterButton(_ button: UIBarButtonItem, for post: ReaderPost) {
+        let isSaved = post.isSavedForLater
+
+        configureCustomButton(
+            button,
+            image: isSaved
+                ? WPStyleGuide.ReaderDetail.saveSelectedToolbarIcon : WPStyleGuide.ReaderDetail.saveToolbarIcon,
+            title: nil,
+            isSelected: isSaved
+        )
+        button.customView?.accessibilityLabel =
+            isSaved ? Constants.savedButtonAccessibilityLabel : Constants.saveButtonAccessibilityLabel
+        button.customView?.accessibilityHint = isSaved ? Constants.savedButtonHint : Constants.saveButtonHint
+    }
+
+    private func configureReblogButton(_ button: UIBarButtonItem) {
+        configureCustomButton(button, image: WPStyleGuide.ReaderDetail.reblogToolbarIcon, title: nil)
+        button.customView?.accessibilityLabel = NSLocalizedString(
+            "Reblog post",
+            comment: "Accessibility label for the reblog button."
+        )
+        button.customView?.accessibilityHint = NSLocalizedString(
+            "Reblog this post",
+            comment: "Accessibility hint for the reblog button."
+        )
+    }
+
+    private func configureCommentButton(_ button: UIBarButtonItem, for post: ReaderPost) {
+        let count = post.commentCount?.intValue ?? 0
+
+        configureCustomButton(
+            button,
+            image: WPStyleGuide.ReaderDetail.commentToolbarIcon,
+            title: count.formatted(.number.notation(.compactName))
+        )
+    }
+
+    private func configureLikeButton(_ button: UIBarButtonItem, for post: ReaderPost) {
+        let isLiked = post.isLiked
+
+        configureCustomButton(
+            button,
+            image: isLiked ? WPStyleGuide.ReaderDetail.likeSelectedToolbarIcon : WPStyleGuide.ReaderDetail.likeToolbarIcon,
+            title: likeCount.formatted(.number.notation(.compactName)),
+            isSelected: isLiked
+        )
+        button.customView?.accessibilityHint = isLiked ? Constants.likedButtonHint : Constants.likeButtonHint
+    }
+
+    private func makeCustomButton(action: Selector) -> UIBarButtonItem {
+        let button = UIButton(configuration: .plain(), primaryAction: nil)
+        button.addTarget(self, action: action, for: .touchUpInside)
+        return UIBarButtonItem(customView: button)
+    }
+
+    private func configureCustomButton(
+        _ item: UIBarButtonItem,
+        image: UIImage?,
+        title: String?,
+        isSelected: Bool = false
+    ) {
+        guard let button = item.customView as? UIButton else { return }
+
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = image
+        configuration.title = title
+
+        // Apply colors based on display settings and selection state. On the frosted capsules (iOS 26+),
+        // only the icon is green: green text on the light capsule is below the 4.5:1 contrast text needs.
+        let tintColor = isSelected ? UIAppColor.primary : .label
+        if #available(iOS 26, *) {
+            let iconColor = isSelected ? FrostedCapsule.selectedColor : .label
+            configuration.baseForegroundColor = .label
+            configuration.imageColorTransformer = UIConfigurationColorTransformer { _ in iconColor }
+        } else {
+            configuration.baseForegroundColor = tintColor
+        }
+        configuration.imagePadding = 5
+
+        // Set font
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .system(size: 15)
+            return outgoing
+        }
+
+        button.configuration = configuration
+        button.tintColor = tintColor
+        // The toolbar doesn't resize a custom view when its content changes, e.g. when the like count gets longer.
+        // Not `sizeToFit()`: it measures the button at its current width, so a slightly wider count gets clipped
+        // to that width instead of the button growing.
+        button.frame.size = button.sizeThatFits(UIView.layoutFittingCompressedSize)
     }
 
     // MARK: - Actions
 
-    @IBAction func didTapSaveForLater(_ sender: Any) {
+    @objc private func didTapSaveForLater(_ sender: Any) {
         guard let readerPost = post, let context = readerPost.managedObjectContext,
-            let viewController = viewController as? UIViewController & UIViewControllerTransitioningDelegate else {
+              let viewController = viewController as? UIViewController & UIViewControllerTransitioningDelegate else {
             return
         }
-
-        if !readerPost.isSavedForLater {
-            FancyAlertViewController.presentReaderSavedPostsAlertControllerIfNecessary(from: viewController)
-        }
-
         ReaderSaveForLaterAction().execute(with: readerPost, context: context, origin: .postDetail, viewController: viewController) { [weak self] in
-            self?.saveForLaterButton.isSelected = readerPost.isSavedForLater
-            self?.prepareActionButtonsForVoiceOver()
+            self?.updateToolbarItems()
         }
     }
 
-    @IBAction func didTapReblog(_ sender: Any) {
-        guard let post = post, let viewController = viewController else {
+    @objc private func didTapReblog(_ sender: Any) {
+        guard let post, let viewController else {
             return
         }
 
         ReaderReblogAction().execute(readerPost: post, origin: viewController, reblogSource: .detail)
     }
 
-    @IBAction func didTapComment(_ sender: Any) {
-        guard let post = post, let viewController = viewController else {
+    @objc private func didTapComment(_ sender: Any) {
+        guard let post, let viewController else {
             return
         }
 
-        ReaderCommentAction().execute(post: post, origin: viewController, source: .postDetails)
+        ReaderCommentAction().execute(post: post, origin: viewController, source: .postDetails, trackingSource: ScreenTrackingSource(ScreenID.Reader.article, component: ElementID.Reader.toolbarComment))
     }
 
-    @IBAction func didTapLike(_ sender: Any) {
-        guard let post = post else {
+    @objc private func didTapLike(_ sender: Any) {
+        guard let post else {
             return
         }
 
@@ -116,232 +230,42 @@ class ReaderDetailToolbar: UIView, NibLoadable {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
 
+        toggleLike()
+    }
+
+    private func toggleLike() {
         let service = ReaderPostService(coreDataStack: ContextManager.shared)
         service.toggleLiked(for: post, success: { [weak self] in
+            if let notificationID = self?.delegate?.notificationID {
+                let mediator = NotificationSyncMediator()
+                mediator?.invalidateCacheForNotification(notificationID, completion: {
+                    mediator?.syncNote(with: notificationID)
+                })
+            }
             self?.trackArticleDetailsLikedOrUnliked()
+            self?.updateToolbarItems()
         }, failure: { [weak self] (error: Error?) in
             self?.trackArticleDetailsLikedOrUnliked()
-            if let anError = error {
-                DDLogError("Error (un)liking post: \(anError.localizedDescription)")
+            if let error {
+                DDLogError("Error (un)liking post: \(error.localizedDescription)")
+                Notice(error: error).post()
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
             }
+            self?.updateToolbarItems()
         })
-    }
-
-    // MARK: - Styles
-
-    private func applyStyles() {
-        backgroundColor = .listForeground
-        dividerView.backgroundColor = .divider
-
-        WPStyleGuide.applyReaderCardActionButtonStyle(commentButton)
-        WPStyleGuide.applyReaderCardActionButtonStyle(likeButton)
-    }
-
-    // MARK: - Configuration
-
-    private func configureActionButtons() {
-        resetActionButton(likeButton)
-        resetActionButton(commentButton)
-        resetActionButton(saveForLaterButton)
-        resetActionButton(reblogButton)
-
-        configureLikeActionButton()
-        configureCommentActionButton()
-        configureReblogButton()
-        configureSaveForLaterButton()
-        configureButtonTitles()
-    }
-
-    private func resetActionButton(_ button: UIButton) {
-        button.setTitle(nil, for: UIControl.State())
-        button.setTitle(nil, for: .highlighted)
-        button.setTitle(nil, for: .disabled)
-        button.setImage(nil, for: UIControl.State())
-        button.setImage(nil, for: .highlighted)
-        button.setImage(nil, for: .disabled)
-        button.isSelected = false
-        button.isEnabled = true
-    }
-
-    private func configureActionButton(_ button: UIButton, title: String?, image: UIImage?, highlightedImage: UIImage?, selected: Bool) {
-        button.setTitle(title, for: UIControl.State())
-        button.setTitle(title, for: .highlighted)
-        button.setTitle(title, for: .disabled)
-        button.setImage(image, for: UIControl.State())
-        button.setImage(highlightedImage, for: .highlighted)
-        button.setImage(highlightedImage, for: .selected)
-        button.setImage(highlightedImage, for: [.highlighted, .selected])
-        button.setImage(image, for: .disabled)
-        button.isSelected = selected
-
-        configureActionButtonStyle(button)
-    }
-
-    private func configureActionButtonStyle(_ button: UIButton) {
-        let disabledColor = UIColor(light: .muriel(color: .gray, .shade10),
-                                    dark: .textQuaternary)
-
-        WPStyleGuide.applyReaderActionButtonStyle(button,
-                                                  titleColor: .textSubtle,
-                                                  imageColor: .textSubtle,
-                                                  disabledColor: disabledColor)
-
-        var configuration = UIButton.Configuration.plain()
-
-        // Vertically stack the button's image and title.
-        configuration.imagePlacement = .top
-        configuration.contentInsets = Constants.buttonContentInsets
-        configuration.imagePadding = Constants.buttonImagePadding
-
-        /// Override the button's title label font.
-        /// When the button's configuration exists, updating the font via `titleLabel` no longer works somehow.
-        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var outgoing = incoming
-            outgoing.font = WPStyleGuide.fontForTextStyle(.footnote)
-            return outgoing
-        }
-
-        // Don't allow the button title to wrap.
-        configuration.titleLineBreakMode = .byTruncatingTail
-
-        button.configuration = configuration
-
-        /// Remove default background styles. The `.plain()` configuration adds a gray background to selected state.
-        button.configurationUpdateHandler = { button in
-            switch button.state {
-            case .selected:
-                button.configuration?.background.backgroundColor = .clear
-            default:
-                return
-            }
-        }
-    }
-
-    private func configureLikeActionButton(_ animated: Bool = false) {
-        guard let post = post else {
-            return
-        }
-
-        let selected = post.isLiked
-        likeButton.isEnabled = (ReaderHelpers.isLoggedIn() || likeCount > 0) && !post.isExternal
-        likeButton.accessibilityHint = selected ? Constants.likedButtonHint : Constants.likeButtonHint
-
-        configureActionButton(likeButton,
-                              title: likeButtonTitle,
-                              image: WPStyleGuide.ReaderDetail.likeToolbarIcon,
-                              highlightedImage: WPStyleGuide.ReaderDetail.likeSelectedToolbarIcon,
-                              selected: selected)
-
-        if animated {
-            playLikeButtonAnimation()
-        }
-    }
-
-    /// Uses the configuration in WPStyleGuide for the reblog button
-    private func configureReblogButton() {
-        guard let post = post else {
-            return
-        }
-
-        reblogButton.isEnabled = ReaderHelpers.isLoggedIn() && !post.isPrivate()
-        WPStyleGuide.applyReaderReblogActionButtonStyle(reblogButton, showTitle: false)
-
-        configureActionButtonStyle(reblogButton)
-        prepareReblogForVoiceOver()
-    }
-
-    private func playLikeButtonAnimation() {
-        guard let likeImageView = likeButton.imageView else {
-            return
-        }
-
-        let animationDuration = 0.3
-        let imageView = UIImageView(image: WPStyleGuide.ReaderDetail.likeSelectedToolbarIcon)
-
-        /// When using `UIButton.Configuration`, calling `bringSubviewToFront` somehow does not work.
-        /// To work around this, let's add the faux image to the image view instead, so it can be
-        /// properly placed in front of the masking view.
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        likeImageView.addSubview(imageView)
-        likeImageView.pinSubviewAtCenter(imageView)
-
-        if likeButton.isSelected {
-            // Prep a mask to hide the likeButton's image, since changes to visibility and alpha are ignored
-            let mask = UIView(frame: frame)
-            mask.backgroundColor = backgroundColor
-            likeImageView.addSubview(mask)
-            likeImageView.pinSubviewToAllEdges(mask)
-            mask.translatesAutoresizingMaskIntoConstraints = false
-            likeImageView.bringSubviewToFront(imageView)
-
-            // Configure starting state
-            imageView.alpha = 0.0
-            let angle = (-270.0 * CGFloat.pi) / 180.0
-            let rotate = CGAffineTransform(rotationAngle: angle)
-            let scale = CGAffineTransform(scaleX: 3.0, y: 3.0)
-            imageView.transform = rotate.concatenating(scale)
-
-            // Perform the animations
-            UIView.animate(withDuration: animationDuration,
-                animations: { () in
-                    let angle = (1.0 * CGFloat.pi) / 180.0
-                    let rotate = CGAffineTransform(rotationAngle: angle)
-                    let scale = CGAffineTransform(scaleX: 0.75, y: 0.75)
-                    imageView.transform = rotate.concatenating(scale)
-                    imageView.alpha = 1.0
-                    imageView.center = likeImageView.center // In case the button's imageView shifted position
-                },
-                completion: { (_) in
-                    UIView.animate(withDuration: animationDuration,
-                        animations: { () in
-                            imageView.transform = CGAffineTransform(scaleX: 1.0, y: 1.0)
-                        },
-                        completion: { (_) in
-                            mask.removeFromSuperview()
-                            imageView.removeFromSuperview()
-                    })
-            })
-
-        } else {
-
-            UIView .animate(withDuration: animationDuration,
-                animations: { () -> Void in
-                    let angle = (120.0 * CGFloat.pi) / 180.0
-                    let rotate = CGAffineTransform(rotationAngle: angle)
-                    let scale = CGAffineTransform(scaleX: 3.0, y: 3.0)
-                    imageView.transform = rotate.concatenating(scale)
-                    imageView.alpha = 0
-                },
-                completion: { (_) in
-                    imageView.removeFromSuperview()
-            })
-
-        }
-    }
-
-    private func configureCommentActionButton() {
-        commentButton.isEnabled = shouldShowCommentActionButton
-
-        commentButton.setImage(WPStyleGuide.ReaderDetail.commentToolbarIcon, for: .normal)
-        commentButton.setImage(WPStyleGuide.ReaderDetail.commentHighlightedToolbarIcon, for: .selected)
-        commentButton.setImage(WPStyleGuide.ReaderDetail.commentHighlightedToolbarIcon, for: .highlighted)
-        commentButton.setImage(WPStyleGuide.ReaderDetail.commentHighlightedToolbarIcon, for: [.highlighted, .selected])
-        commentButton.setImage(WPStyleGuide.ReaderDetail.commentToolbarIcon, for: .disabled)
-
-        configureActionButtonStyle(commentButton)
     }
 
     private var shouldShowCommentActionButton: Bool {
         // Show comments if logged in and comments are enabled, or if comments exist.
         // But only if it is from wpcom (jetpack and external is not yet supported).
         // Nesting this conditional cos it seems clearer that way
-        guard let post = post else {
+        guard let post else {
             return false
         }
 
-        if (post.isWPCom || post.isJetpack) && !shouldHideComments {
+        if post.isWPCom || post.isJetpack {
             let commentCount = post.commentCount?.intValue ?? 0
-            if (ReaderHelpers.isLoggedIn() && post.commentsOpen) || commentCount > 0 {
+            if (isLoggedIn() && post.commentsOpen) || commentCount > 0 {
                 return true
             }
         }
@@ -349,78 +273,19 @@ class ReaderDetailToolbar: UIView, NibLoadable {
         return false
     }
 
-    private func configureSaveForLaterButton() {
-        WPStyleGuide.applyReaderSaveForLaterButtonStyle(saveForLaterButton)
-        WPStyleGuide.applyReaderSaveForLaterButtonTitles(saveForLaterButton, showTitle: false)
-
-        let isSaved = post?.isSavedForLater ?? false
-        saveForLaterButton.isSelected = isSaved
-        prepareActionButtonsForVoiceOver()
-
-        configureActionButtonStyle(saveForLaterButton)
-    }
-
-    private func adjustInsetsForTextDirection() {
-        let buttonsToAdjust: [UIButton] = [
-            likeButton,
-            commentButton,
-            saveForLaterButton,
-            reblogButton]
-        for button in buttonsToAdjust {
-            button.flipInsetsForRightToLeftLayoutDirection()
-        }
-    }
-
-    fileprivate func configureButtonTitles() {
-        let commentTitle = Constants.commentButtonTitle
-
-        likeButton.setTitle(likeButtonTitle, for: .normal)
-        likeButton.setTitle(likeButtonTitle, for: .highlighted)
-
-        commentButton.setTitle(commentTitle, for: .normal)
-        commentButton.setTitle(commentTitle, for: .highlighted)
-
-        WPStyleGuide.applyReaderSaveForLaterButtonTitles(saveForLaterButton, showTitle: true)
-        WPStyleGuide.applyReaderReblogActionButtonTitle(reblogButton, showTitle: true)
-    }
-
-    private func likeLabel(count: Int) -> String {
-        if traitCollection.horizontalSizeClass == .compact {
-            return count > 0 ? String(count) : ""
-        } else {
-            return WPStyleGuide.likeCountForDisplay(count)
-        }
-    }
-
     // MARK: - Analytics
 
     private func trackArticleDetailsLikedOrUnliked() {
-        guard let post = post else {
+        guard let post else {
             return
         }
 
-        let stat: WPAnalyticsStat  = post.isLiked
-            ? .readerArticleDetailLiked
-            : .readerArticleDetailUnliked
+        let stat: WPAnalyticsStat = post.isLiked ? .readerArticleDetailLiked : .readerArticleDetailUnliked
 
         var properties = [AnyHashable: Any]()
         properties[WPAppAnalyticsKeyBlogID] = post.siteID
         properties[WPAppAnalyticsKeyPostID] = post.postID
         WPAnalytics.track(stat, withProperties: properties)
-    }
-
-    // MARK: - Voice Over
-
-    private func prepareActionButtonsForVoiceOver() {
-        let isSaved = post?.isSavedForLater ?? false
-        saveForLaterButton.accessibilityLabel = isSaved ? Constants.savedButtonAccessibilityLabel : Constants.saveButtonAccessibilityLabel
-        saveForLaterButton.accessibilityHint = isSaved ? Constants.savedButtonHint : Constants.saveButtonHint
-    }
-
-    private func prepareReblogForVoiceOver() {
-        reblogButton.accessibilityLabel = NSLocalizedString("Reblog post", comment: "Accessibility label for the reblog button.")
-        reblogButton.accessibilityHint = NSLocalizedString("Reblog this post", comment: "Accessibility hint for the reblog button.")
-        reblogButton.accessibilityTraits = UIAccessibilityTraits.button
     }
 }
 
@@ -428,10 +293,93 @@ class ReaderDetailToolbar: UIView, NibLoadable {
 
 private extension ReaderDetailToolbar {
 
-    struct Constants {
-        static let buttonContentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
-        static let buttonImagePadding: CGFloat = 0
+    /// Which of the optional buttons the toolbar shows.
+    struct Layout: Equatable {
+        /// Hidden when the user can't reblog the post: signed out, or a private site.
+        let showsReblogButton: Bool
+        let showsCommentButton: Bool
+        let showsLikeButton: Bool
+    }
 
+    struct Buttons {
+        let saveForLater: UIBarButtonItem
+        let reblog: UIBarButtonItem?
+        let comment: UIBarButtonItem?
+        let like: UIBarButtonItem?
+
+        /// iOS 26+: the buttons grouped on frosted capsules, which replace the shared Liquid Glass background.
+        let capsules: [UIBarButtonItem]
+
+        init(
+            saveForLater: UIBarButtonItem,
+            reblog: UIBarButtonItem?,
+            comment: UIBarButtonItem?,
+            like: UIBarButtonItem?
+        ) {
+            self.saveForLater = saveForLater
+            self.reblog = reblog
+            self.comment = comment
+            self.like = like
+
+            if #available(iOS 26, *) {
+                capsules = [[saveForLater, reblog].compactMap { $0 }, [comment, like].compactMap { $0 }]
+                    .filter { !$0.isEmpty }
+                    .map { group in
+                        let item = UIBarButtonItem(customView: FrostedCapsule(views: group.compactMap(\.customView)))
+                        item.hidesSharedBackground = true
+                        return item
+                    }
+            } else {
+                capsules = []
+            }
+        }
+
+        var layout: Layout {
+            Layout(showsReblogButton: reblog != nil, showsCommentButton: comment != nil, showsLikeButton: like != nil)
+        }
+
+        var toolbarItems: [UIBarButtonItem] {
+            if #available(iOS 26, *) {
+                return [capsules[0], .flexibleSpace()] + capsules.dropFirst()
+            }
+
+            var items: [UIBarButtonItem] = []
+
+            if #unavailable(iOS 26) {
+                items.append(.flexibleSpace())
+            }
+
+            items.append(saveForLater)
+
+            if let reblog {
+                if #unavailable(iOS 26) {
+                    items.append(.flexibleSpace())
+                }
+                items.append(reblog)
+            }
+
+            items.append(.flexibleSpace())
+
+            if let comment {
+                items.append(comment)
+            }
+
+            if let like {
+                if #unavailable(iOS 26) {
+                    items.append(.flexibleSpace())
+                }
+                items.append(like)
+            }
+
+            if #unavailable(iOS 26) {
+                items.append(.flexibleSpace())
+            }
+
+            return items
+        }
+    }
+
+    struct Constants {
         // MARK: Strings
 
         static let savedButtonAccessibilityLabel = NSLocalizedString(
@@ -507,11 +455,91 @@ private extension ReaderDetailToolbar {
     }
 }
 
+// MARK: - Frosted Capsule
+
+/// A frosted background for a group of toolbar buttons (iOS 26+).
+///
+/// The shared Liquid Glass background takes its colour from the content under it, and over some images
+/// it ends up close in brightness to the icons. This material stays near white or near black, and switches
+/// together with the icons, so they stay legible over any content.
+private final class FrostedCapsule: UIView {
+    private static let height: CGFloat = 48
+    private static let spacing: CGFloat = 6
+    private static let inset: CGFloat = 8
+
+    /// The color of a selected icon (liked, saved). One shade darker than the regular light mode color,
+    /// which falls just below 3:1 on the light capsule over dark or saturated content.
+    static let selectedColor = UIColor(light: UIAppColor.primary(.shade50), dark: UIAppColor.primary(.shade30))
+
+    private let views: [UIView]
+    private let widths: [NSLayoutConstraint]
+
+    init(views: [UIView]) {
+        self.views = views
+        self.widths = views.map { $0.widthAnchor.constraint(equalToConstant: 0) }
+        super.init(frame: .zero)
+
+        let background = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
+        background.clipsToBounds = true
+        background.layer.cornerRadius = Self.height / 2
+        background.layer.cornerCurve = .continuous
+
+        let stack = UIStackView(arrangedSubviews: views)
+        stack.spacing = Self.spacing
+        stack.alignment = .center
+
+        addSubview(background)
+        addSubview(stack)
+        background.translatesAutoresizingMaskIntoConstraints = false
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate(
+            widths + [
+                background.leadingAnchor.constraint(equalTo: leadingAnchor),
+                background.trailingAnchor.constraint(equalTo: trailingAnchor),
+                background.topAnchor.constraint(equalTo: topAnchor),
+                background.bottomAnchor.constraint(equalTo: bottomAnchor),
+                stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+                stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.inset),
+                stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.inset),
+                heightAnchor.constraint(equalToConstant: Self.height)
+            ]
+        )
+        contentDidChange()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let content = widths.reduce(0) { $0 + $1.constant } + Self.spacing * CGFloat(max(0, widths.count - 1))
+        return CGSize(width: content + 2 * Self.inset, height: Self.height)
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        intrinsicContentSize
+    }
+
+    /// Resizes the capsule after its buttons change, e.g. when a count gets wider.
+    ///
+    /// A button's intrinsic content size lags behind a new configuration until its next layout pass, and the
+    /// stack view would size it from that stale value and clip the new title. `sizeThatFits(_:)` is current,
+    /// so pin each button to it.
+    func contentDidChange() {
+        for (view, width) in zip(views, widths) {
+            width.constant = ceil(view.sizeThatFits(UIView.layoutFittingCompressedSize).width)
+        }
+        invalidateIntrinsicContentSize()
+        sizeToFit()
+    }
+}
+
 // MARK: - Observe Post
 
 private extension ReaderDetailToolbar {
     func subscribePostChanges() {
-        likeCountObserver = post?.observe(\.likeCount, options: [.old, .new]) { [weak self] updatedPost, change in
+        likeCountObserver = post?.observe(\.likeCount, options: [.old, .new]) { [weak self] _, change in
             // ensure that we only update the like button when there's actual change.
             let oldValue = change.oldValue??.intValue ?? 0
             let newValue = change.newValue??.intValue ?? 0
@@ -519,8 +547,7 @@ private extension ReaderDetailToolbar {
                 return
             }
 
-            self?.configureLikeActionButton(true)
-            self?.delegate?.didTapLikeButton(isLiked: updatedPost.isLiked)
+            self?.updateToolbarItems()
         }
 
         commentCountObserver = post?.observe(\.commentCount, options: [.old, .new]) { [weak self] _, change in
@@ -531,7 +558,7 @@ private extension ReaderDetailToolbar {
                 return
             }
 
-            self?.configureCommentActionButton()
+            self?.updateToolbarItems()
         }
     }
 

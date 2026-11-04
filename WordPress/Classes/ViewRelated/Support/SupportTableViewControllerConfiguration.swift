@@ -1,17 +1,18 @@
 import Foundation
+import WordPressData
 
 struct SupportTableViewControllerConfiguration {
 
     // MARK: Properties
 
-    var meHeaderConfiguration: MeHeaderView.Configuration?
+    var meHeaderConfiguration: MeHeaderViewModel?
     var showsLogOutButton: Bool = false
     var showsLogsSection: Bool = true
 
     // MARK: Default Configurations
 
     static func currentAccountConfiguration() -> Self {
-        var config = Self.init()
+        var config = Self()
         if let account = Self.makeAccount() {
             config.meHeaderConfiguration = .init(account: account)
             config.showsLogOutButton = true

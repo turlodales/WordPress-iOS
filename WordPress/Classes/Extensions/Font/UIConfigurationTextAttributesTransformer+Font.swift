@@ -1,3 +1,4 @@
+import UIKit
 
 extension UIConfigurationTextAttributesTransformer {
 
@@ -9,5 +10,4 @@ extension UIConfigurationTextAttributesTransformer {
             return outgoing
         }
     }
-
 }

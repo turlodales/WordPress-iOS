@@ -1,5 +1,7 @@
 import Foundation
 import UserNotifications
+import WordPressData
+import WordPressShared
 
 /// Encapsulates the local notification scheduling logic for Blogging Prompts.
 ///
@@ -57,7 +59,7 @@ class PromptRemindersScheduler {
         }
 
         pushAuthorizer.requestAuthorization { [weak self] allowed in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
@@ -162,7 +164,7 @@ private extension PromptRemindersScheduler {
         let reminderTime = Time(from: time) ?? Constants.defaultTime
         let currentDate = currentDateProvider.date()
         promptsService.fetchPrompts(from: currentDate, number: Constants.promptsToFetch) { [weak self] prompts in
-            guard let self = self else {
+            guard let self else {
                 completion(.failure(Errors.unknown))
                 return
             }
@@ -179,7 +181,6 @@ private extension PromptRemindersScheduler {
                 // additionally, if today's prompt is included, only include it if the reminder time has not passed.
                 return weekdays.contains(weekday)
                 && (!prompt.inSameDay(as: currentDate) || reminderTime.compare(with: currentDate) == .orderedDescending)
-
             }
 
             // Step 2: Schedule prompt reminders.
@@ -198,7 +199,7 @@ private extension PromptRemindersScheduler {
             // first, check the last reminder date. If there are no prompts scheduled (perhaps due to unavailable prompts),
             // this will schedule local notifications after the current date instead of the last scheduled date.
             let lastReminderDate: Date = {
-                guard let lastScheduledPrompt = lastScheduledPrompt,
+                guard let lastScheduledPrompt,
                       let lastReminderDateComponents = self.reminderDateComponents(for: lastScheduledPrompt, at: reminderTime),
                       let lastReminderDate = Calendar.current.date(from: lastReminderDateComponents) else {
                     return currentDate
@@ -222,7 +223,6 @@ private extension PromptRemindersScheduler {
             }
 
             completion(.success(()))
-
         } failure: { error in
             completion(.failure(error ?? Errors.unknown))
         }
@@ -358,7 +358,7 @@ private extension PromptRemindersScheduler {
 
         // schedule the local notification.
         notificationScheduler.add(request) { error in
-            if let error = error {
+            if let error {
                 DDLogError("[PromptRemindersScheduler] Error adding notification request: \(error.localizedDescription)")
             }
         }
@@ -369,7 +369,7 @@ private extension PromptRemindersScheduler {
     func notificationPayload(for siteID: Int, prompt: BloggingPrompt? = nil) -> [AnyHashable: Any] {
         var userInfo: [AnyHashable: Any] = [BloggingPrompt.NotificationKeys.siteID: siteID]
 
-        if let prompt = prompt {
+        if let prompt {
             userInfo[BloggingPrompt.NotificationKeys.promptID] = Int(prompt.promptID)
         }
 
@@ -424,7 +424,7 @@ private extension PromptRemindersScheduler {
         let fileURL = try defaultFileURL()
         var allReceipts = try fetchAllReceipts(from: fileURL)
 
-        if let receipts = receipts, !receipts.isEmpty {
+        if let receipts, !receipts.isEmpty {
             allReceipts[siteID] = receipts
         } else {
             allReceipts.removeValue(forKey: siteID)
@@ -456,46 +456,5 @@ protocol CurrentDateProvider {
 struct DefaultCurrentDateProvider: CurrentDateProvider {
     func date() -> Date {
         return Date()
-    }
-}
-
-// MARK: - Local Store
-
-/// A wrapper protocol intended for `FileManager`.
-/// Created to simplify unit testing.
-///
-protocol LocalFileStore {
-    func data(from url: URL) throws -> Data
-
-    func fileExists(at url: URL) -> Bool
-
-    @discardableResult
-    func save(contents: Data, at url: URL) -> Bool
-
-    func containerURL(forAppGroup appGroup: String) -> URL?
-
-    func removeItem(at url: URL) throws
-
-    func copyItem(at srcURL: URL, to dstURL: URL) throws
-}
-
-extension LocalFileStore {
-    func data(from url: URL) throws -> Data {
-        return try Data(contentsOf: url)
-    }
-}
-
-extension FileManager: LocalFileStore {
-    func containerURL(forAppGroup appGroup: String) -> URL? {
-        return containerURL(forSecurityApplicationGroupIdentifier: appGroup)
-    }
-
-    func fileExists(at url: URL) -> Bool {
-        return fileExists(atPath: url.path)
-    }
-
-    @discardableResult
-    func save(contents: Data, at url: URL) -> Bool {
-        return createFile(atPath: url.path, contents: contents)
     }
 }

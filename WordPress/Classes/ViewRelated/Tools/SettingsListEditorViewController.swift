@@ -1,7 +1,6 @@
 import Foundation
 import WordPressShared
-
-
+import WordPressUI
 
 /// The purpose of this class is to render an interface that allows the user to Insert / Edit / Delete
 /// a set of strings.
@@ -14,7 +13,6 @@ open class SettingsListEditorViewController: UITableViewController {
     @objc open var editTitle: String?
     @objc open var onChange: ((Set<String>) -> Void)?
 
-
     // MARK: - Initialiers
     @objc public convenience init(collection: Set<String>?) {
         self.init(style: .insetGrouped)
@@ -26,8 +24,6 @@ open class SettingsListEditorViewController: UITableViewController {
         }
     }
 
-
-
     // MARK: - View Lifecycle
     open override func viewDidLoad() {
         super.viewDidLoad()
@@ -35,15 +31,11 @@ open class SettingsListEditorViewController: UITableViewController {
         setupTableView()
     }
 
-
-
     // MARK: - Helpers
     fileprivate func notifyDidChange() {
         let orderedRows = Set<String>(rows.array as! [String])
         onChange?(orderedRows)
     }
-
-
 
     // MARK: - Setup Helpers
     fileprivate func setupNavBar() {
@@ -55,9 +47,8 @@ open class SettingsListEditorViewController: UITableViewController {
     fileprivate func setupTableView() {
         tableView.register(WPTableViewCell.self, forCellReuseIdentifier: reuseIdentifier)
         WPStyleGuide.configureColors(view: view, tableView: tableView)
+        tableView.cellLayoutMarginsFollowReadableWidth = true
     }
-
-
 
     // MARK: - Button Handlers
     @IBAction func addItemPressed(_ sender: AnyObject?) {
@@ -71,8 +62,6 @@ open class SettingsListEditorViewController: UITableViewController {
 
         navigationController?.pushViewController(settingsViewController, animated: true)
     }
-
-
 
     // MARK: - UITableViewDataSoutce Methods
     open override func numberOfSections(in tableView: UITableView) -> Int {
@@ -92,7 +81,7 @@ open class SettingsListEditorViewController: UITableViewController {
 
         cell.accessoryType = isEmpty() ? .none : .disclosureIndicator
         cell.textLabel?.text = isEmpty() ? emptyText : stringAtIndexPath(indexPath)
-        cell.textLabel?.textColor = isEmpty() ? .neutral(.shade10) : .neutral(.shade70)
+        cell.textLabel?.textColor = isEmpty() ? UIAppColor.neutral(.shade10) : UIAppColor.neutral(.shade70)
 
         return cell
     }
@@ -152,8 +141,6 @@ open class SettingsListEditorViewController: UITableViewController {
         }
     }
 
-
-
     // MARK: - Helpers
     fileprivate func stringAtIndexPath(_ indexPath: IndexPath) -> String {
         return rows.object(at: indexPath.row) as! String
@@ -186,10 +173,9 @@ open class SettingsListEditorViewController: UITableViewController {
     }
 
     fileprivate func isEmpty() -> Bool {
+        // swiftlint:disable:next empty_count
         return rows.count == 0
     }
-
-
 
     // MARK: - Constants
     fileprivate let reuseIdentifier = "WPTableViewCell"

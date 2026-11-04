@@ -1,13 +1,11 @@
-#import "LocalCoreDataService.h"
-
-@import CoreData;
-
-NS_ASSUME_NONNULL_BEGIN
+#import <CoreData/CoreData.h>
 
 @class Blog;
 @class Menu;
-@class MenuLocation;
 @class MenuItem;
+@class MenuLocation;
+
+NS_ASSUME_NONNULL_BEGIN
 
 typedef void(^MenusServiceSuccessBlock)(void);
 typedef void(^MenusServiceCreateOrUpdateMenuRequestSuccessBlock)(void);
@@ -15,7 +13,12 @@ typedef void(^MenusServiceMenusRequestSuccessBlock)(NSArray<Menu *> * _Nullable 
 typedef void(^MenusServiceLocationsRequestSuccessBlock)(NSArray<MenuLocation *> * _Nullable locations);
 typedef void(^MenusServiceFailureBlock)(NSError *error);
 
-@interface MenusService : LocalCoreDataService
+@interface MenusService : NSObject
+
+@property (nonatomic, readonly) NSManagedObjectContext *managedObjectContext;
+
+- (instancetype)initWithManagedObjectContext:(NSManagedObjectContext *)context NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
 
 #pragma mark - Menus availability
 

@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 class SiteCreationRotatingMessageView: UIView {
     private struct Margins {
@@ -54,7 +55,7 @@ class SiteCreationRotatingMessageView: UIView {
         label.translatesAutoresizingMaskIntoConstraints = false
 
         label.font = WPStyleGuide.fontForTextStyle(.title2)
-        label.textColor = .textSubtle
+        label.textColor = .secondaryLabel
         label.textAlignment = .center
 
         return label
@@ -101,7 +102,6 @@ class SiteCreationRotatingMessageView: UIView {
                                                    userInfo: nil,
                                                    repeats: true)
     }
-
 
     /// Cancels the timer, and stops the rotating animations
     func stopAnimating() {
@@ -158,7 +158,6 @@ class SiteCreationRotatingMessageView: UIView {
             statusStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Margins.horizontalMargin),
             statusStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: Margins.horizontalMargin),
             statusStackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: Margins.verticalMargin),
-
         ])
     }
 

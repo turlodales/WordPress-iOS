@@ -1,3 +1,7 @@
+import UIKit
+import WordPressData
+import WordPressShared
+
 // View Controller for the Revision HML preview
 //
 class RevisionDiffViewController: UIViewController, StoryboardLoadable {
@@ -8,7 +12,6 @@ class RevisionDiffViewController: UIViewController, StoryboardLoadable {
     @IBOutlet private var scrollView: UIScrollView!
 
     var revision: Revision?
-
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -23,17 +26,17 @@ class RevisionDiffViewController: UIViewController, StoryboardLoadable {
 
 private extension RevisionDiffViewController {
     private func setupUI() {
-        view.backgroundColor = .basicBackground
-        scrollView.backgroundColor = .basicBackground
+        view.backgroundColor = .systemBackground
+        scrollView.backgroundColor = .systemBackground
 
         titleLabel.font = WPFontManager.notoBoldFont(ofSize: 24.0)
         contentLabel.font = WPFontManager.notoRegularFont(ofSize: 16)
-        titleLabel.textColor = .text
-        contentLabel.textColor = .text
+        titleLabel.textColor = .label
+        contentLabel.textColor = .label
     }
 
     private func showRevision() {
-        guard let revision = revision else {
+        guard let revision else {
             return
         }
 

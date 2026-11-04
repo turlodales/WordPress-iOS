@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 
 extension ReaderTagTopic {
 
@@ -21,7 +22,7 @@ extension ReaderTagTopic {
     /// - Parameter slug: The slug of the topic to find in core data.
     /// - Returns: A matching `ReaderTagTopic` instance or nil.
     @objc(lookupWithSlug:inContext:)
-    static func objc_lookup(withSlug slug: String, in context: NSManagedObjectContext) -> ReaderTagTopic? {
+    public static func objc_lookup(withSlug slug: String, in context: NSManagedObjectContext) -> ReaderTagTopic? {
         try? lookup(withSlug: slug, in: context)
     }
 
@@ -44,8 +45,7 @@ extension ReaderTagTopic {
     /// - Parameter tagID: The tag id of the topic to find in core data.
     /// - Returns: A matching `ReaderTagTopic` instance or nil.
     @objc(lookupWithTagID:inContext:)
-    static func objc_lookup(withTagID tagID: NSNumber, in context: NSManagedObjectContext) -> ReaderTagTopic? {
+    public static func objc_lookup(withTagID tagID: NSNumber, in context: NSManagedObjectContext) -> ReaderTagTopic? {
         try? lookup(withTagID: tagID, in: context)
     }
-
 }

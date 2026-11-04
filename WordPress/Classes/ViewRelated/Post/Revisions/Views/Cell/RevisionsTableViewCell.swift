@@ -1,6 +1,8 @@
 import Gridicons
+import WordPressUI
+import Gravatar
 
-class RevisionsTableViewCell: UITableViewCell {
+class RevisionsTableViewCell: UITableViewCell, NibLoadable {
     static let reuseIdentifier = "RevisionsTableViewCellIdentifier"
 
     @IBOutlet private var titleLabel: UILabel!
@@ -39,16 +41,15 @@ class RevisionsTableViewCell: UITableViewCell {
         didSet {
             avatarImageView.image = UIImage(named: "gravatar")
 
-            if let avatarURL = avatarURL,
+            if let avatarURL,
                 let placeholder = UIImage(named: "gravatar") {
                 let url = URL(string: avatarURL)
-                avatarImageView.downloadGravatar(url.flatMap { Gravatar($0) },
+                avatarImageView.downloadGravatar(url.flatMap { AvatarURL(url: $0) },
                                                  placeholder: placeholder,
                                                  animate: false)
             }
         }
     }
-
 
     override func awakeFromNib() {
         super.awakeFromNib()
@@ -71,18 +72,17 @@ class RevisionsTableViewCell: UITableViewCell {
     }
 }
 
-
 private extension RevisionsTableViewCell {
     private func setupStyles() {
         // Setup cell style
         WPStyleGuide.configureTableViewCell(self)
-        contentView.backgroundColor = .listForeground
+        contentView.backgroundColor = .secondarySystemGroupedBackground
 
         // Setup labels
-        titleLabel.backgroundColor = .listForeground
-        titleLabel.textColor = .text
-        subTitleLabel.backgroundColor = .listForeground
-        subTitleLabel.textColor = .textSubtle
+        titleLabel.backgroundColor = .secondarySystemGroupedBackground
+        titleLabel.textColor = .label
+        subTitleLabel.backgroundColor = .secondarySystemGroupedBackground
+        subTitleLabel.textColor = .secondaryLabel
 
         // Setup del operations
         delOperation = RevisionOperation(.del)

@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 
 /// Media Progress Coordinator Delegate comunicates changes on media progress.
 ///
@@ -13,6 +14,8 @@ extension ProgressUserInfoKey {
     static let mediaID = ProgressUserInfoKey("mediaID")
     static let mediaError = ProgressUserInfoKey("mediaError")
     static let mediaObject = ProgressUserInfoKey("mediaObject")
+    static let uploadProgress = ProgressUserInfoKey("uploadProgress")
+    static let suppressSuccessNotice = ProgressUserInfoKey("suppressSuccessNotice")
 }
 
 /// Media Progress Coordinator allow the tracking of progress on multiple media objects.
@@ -30,7 +33,7 @@ public class MediaProgressCoordinator: NSObject {
         return [String: Progress]()
     }()
 
-    private var mediaProgressObserverContext: String = "mediaProgressObserverContext"
+    private static var mediaProgressObserverContext = 0
 
     deinit {
         mediaGlobalProgress?.removeObserver(self, forKeyPath: #keyPath(Progress.fractionCompleted))
@@ -49,7 +52,7 @@ public class MediaProgressCoordinator: NSObject {
 
         if mediaGlobalProgress == nil {
             mediaGlobalProgress = Progress.discreteProgress(totalUnitCount: 0)
-            mediaGlobalProgress?.addObserver(self, forKeyPath: #keyPath(Progress.fractionCompleted), options: [.new], context: &mediaProgressObserverContext)
+            mediaGlobalProgress?.addObserver(self, forKeyPath: #keyPath(Progress.fractionCompleted), options: [.new], context: &Self.mediaProgressObserverContext)
 
             delegate?.mediaProgressCoordinatorDidStartUploading(self)
         }
@@ -261,7 +264,7 @@ public class MediaProgressCoordinator: NSObject {
 
     public override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
         guard
-            context == &mediaProgressObserverContext,
+            context == &Self.mediaProgressObserverContext,
             keyPath == #keyPath(Progress.fractionCompleted)
             else {
                 super.observeValue(forKeyPath: keyPath,

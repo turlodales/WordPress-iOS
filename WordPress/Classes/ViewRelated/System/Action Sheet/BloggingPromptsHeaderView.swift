@@ -1,4 +1,6 @@
 import UIKit
+import WordPressData
+import WordPressShared
 
 class BloggingPromptsHeaderView: UIView, NibLoadable {
     @IBOutlet private weak var containerStackView: UIStackView!
@@ -61,14 +63,14 @@ private extension BloggingPromptsHeaderView {
         infoButton.accessibilityLabel = Strings.infoButtonAccessibilityLabel
         answerPromptButton.setTitle(Strings.answerButtonTitle, for: .normal)
         answeredLabel.text = Strings.answeredLabelTitle
-        shareButton.titleLabel?.text = Strings.shareButtonTitle
+        shareButton.titleLabel?.text = SharedStrings.Button.share
     }
 
     func configureStyles() {
         titleLabel.font = WPStyleGuide.fontForTextStyle(.subheadline, fontWeight: .semibold)
         titleLabel.adjustsFontForContentSizeCategory = true
         infoButton.setImage(.gridicon(.helpOutline), for: .normal)
-        infoButton.tintColor = .listSmallIcon
+        infoButton.tintColor = .systemGray
         promptLabel.font = WPStyleGuide.BloggingPrompts.promptContentFont
         promptLabel.adjustsFontForContentSizeCategory = true
         answerPromptButton.titleLabel?.font = WPStyleGuide.BloggingPrompts.buttonTitleFont
@@ -82,11 +84,12 @@ private extension BloggingPromptsHeaderView {
         shareButton.titleLabel?.adjustsFontSizeToFitWidth = true
         shareButton.setTitleColor(WPStyleGuide.BloggingPrompts.buttonTitleColor, for: .normal)
         attributionLabel.adjustsFontForContentSizeCategory = true
+        backgroundColor = .clear
     }
 
     func configureConstraints() {
         NSLayoutConstraint.activate([
-            dividerView.heightAnchor.constraint(equalToConstant: .hairlineBorderWidth),
+            dividerView.makeHairlineConstraint(for: dividerView.heightAnchor)
         ])
     }
 
@@ -145,8 +148,6 @@ private extension BloggingPromptsHeaderView {
         static let title = NSLocalizedString("Prompts", comment: "Title label for blogging prompts in the create new bottom action sheet.")
         static let answerButtonTitle = NSLocalizedString("Answer Prompt", comment: "Title for a call-to-action button in the create new bottom action sheet.")
         static let answeredLabelTitle = NSLocalizedString("✓ Answered", comment: "Title label that indicates the prompt has been answered.")
-        static let shareButtonTitle = NSLocalizedString("Share", comment: "Title for a button that allows the user to share their answer to the prompt.")
         static let infoButtonAccessibilityLabel = NSLocalizedString("Learn more about prompts", comment: "Accessibility label for the blogging prompts info button on the prompts header view.")
     }
-
 }

@@ -1,6 +1,15 @@
 import Foundation
+import WordPressData
+import WordPressKit
 
-@objc class JetpackScanService: CoreDataService {
+class JetpackScanService {
+
+    let coreDataStack: CoreDataStack
+
+    init(coreDataStack: CoreDataStack) {
+        self.coreDataStack = coreDataStack
+    }
+
     private lazy var service: JetpackScanServiceRemote = {
         let api = coreDataStack.performQuery {
             WordPressComRestApi.defaultApi(in: $0, localeKey: WordPressComRestApi.LocaleKeyV2)
@@ -62,7 +71,7 @@ import Foundation
                         continue
                     }
 
-                    var threat = threats.filter({ $0.id == item.threatId }).first
+                    var threat = threats.first(where: { $0.id == item.threatId })
                     if item.status == .inProgress {
                         threat?.status = .fixing
                     }

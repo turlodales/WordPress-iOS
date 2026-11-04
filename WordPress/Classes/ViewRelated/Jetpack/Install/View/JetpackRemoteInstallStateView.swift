@@ -1,4 +1,5 @@
-import WordPressAuthenticator
+import UIKit
+import WordPressUI
 
 protocol JetpackRemoteInstallStateViewDelegate: AnyObject {
     func mainButtonDidTouch()
@@ -38,7 +39,7 @@ class JetpackRemoteInstallStateView: UIViewController {
     }
 
     func toggleHidingImageView(for collection: UITraitCollection) {
-        imageView.isHidden = collection.containsTraits(in: UITraitCollection(verticalSizeClass: .compact))
+        imageView.isHidden = collection.verticalSizeClass == .compact
     }
 
     func configure(with viewModel: JetpackRemoteInstallStateViewModel) {
@@ -68,12 +69,31 @@ private extension JetpackRemoteInstallStateView {
         descriptionLabel.adjustsFontForContentSizeCategory = true
         descriptionLabel.textColor = Constants.Description.color
 
-        configureTitleLabel(for: mainButton, font: Constants.MainButton.font)
+        var configuration = UIButton.Configuration.plain()
+        configuration.contentInsets = Constants.MainButton.contentInsets
+        configuration.baseForegroundColor = Constants.MainButton.titleColor
+        configuration.titleAlignment = .center
+        configuration.titleLineBreakMode = .byWordWrapping
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            attributes.font = Constants.MainButton.font
+            return attributes
+        }
+        mainButton.configuration = configuration
+        mainButton.configurationUpdateHandler = { button in
+            var configuration = button.configuration
+            configuration?.background.image =
+                button.isEnabled
+                ? Constants.MainButton.normalBackground(traitCollection: button.traitCollection)
+                : Constants.MainButton.loadingBackground(traitCollection: button.traitCollection)
+            button.configuration = configuration
+        }
+        // The background images are rendered for one display scale, so rebuild the configuration when it changes.
+        registerForTraitChanges([UITraitDisplayScale.self]) { (self: JetpackRemoteInstallStateView, _) in
+            self.mainButton.setNeedsUpdateConfiguration()
+        }
         mainButton.setTitleColor(Constants.MainButton.titleColor, for: .normal)
         mainButton.setTitle(String(), for: .disabled)
-        mainButton.setBackgroundImage(Constants.MainButton.normalBackground, for: .normal)
-        mainButton.setBackgroundImage(Constants.MainButton.loadingBackground, for: .disabled)
-        mainButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 20, bottom: 12, right: 20)
 
         mainButton.addSubview(activityIndicator)
         mainButton.pinSubviewAtCenter(activityIndicator)
@@ -106,7 +126,7 @@ private extension JetpackRemoteInstallStateView {
         }
     }
 
-    @IBAction func mainButtonAction(_ sender: NUXButton) {
+    @IBAction func mainButtonAction(_ sender: UIButton) {
         delegate?.mainButtonDidTouch()
     }
 
@@ -119,24 +139,29 @@ private extension JetpackRemoteInstallStateView {
     struct Constants {
         struct Title {
             static let font = WPStyleGuide.fontForTextStyle(.title2)
-            static let color = UIColor.text
+            static let color = UIColor.label
         }
 
         struct Description {
             static let font = WPStyleGuide.fontForTextStyle(.callout)
-            static let color = UIColor.textSubtle
+            static let color = UIColor.secondaryLabel
         }
 
         struct MainButton {
-            static let normalBackground = UIImage.renderBackgroundImage(fill: .brand)
-            static let loadingBackground = UIImage.renderBackgroundImage(fill: .muriel(color: .jetpackGreen, .shade70))
+            static let contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20)
+            static func normalBackground(traitCollection: UITraitCollection) -> UIImage {
+                UIImage.renderBackgroundImage(fill: UIAppColor.primary, traitCollection: traitCollection)
+            }
+            static func loadingBackground(traitCollection: UITraitCollection) -> UIImage {
+                UIImage.renderBackgroundImage(fill: UIAppColor.jetpackGreen(.shade70), traitCollection: traitCollection)
+            }
             static let titleColor = UIColor.white
             static let font = WPStyleGuide.fontForTextStyle(.body, fontWeight: .semibold)
             static let activityIndicatorColor = UIColor.white
         }
 
         struct SupportButton {
-            static let color = UIColor.brand
+            static let color = UIAppColor.primary
             static let font = WPStyleGuide.fontForTextStyle(.body)
             static let text = NSLocalizedString("Contact Support", comment: "Contact Support button title")
         }

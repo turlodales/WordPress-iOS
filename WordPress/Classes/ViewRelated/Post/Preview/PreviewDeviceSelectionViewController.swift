@@ -1,4 +1,5 @@
-import Foundation
+import UIKit
+import WordPressShared
 
 class PreviewDeviceSelectionViewController: UIViewController {
     enum PreviewDevice: String, CaseIterable {
@@ -52,7 +53,7 @@ class PreviewDeviceSelectionViewController: UIViewController {
         }
     }
 
-    var selectedOption: PreviewDevice = PreviewDevice.default
+    var selectedOption = PreviewDevice.default
 
     var onDeviceChange: ((PreviewDevice) -> Void)?
 
@@ -84,8 +85,6 @@ class PreviewDeviceSelectionViewController: UIViewController {
         effectView.contentView.addSubview(tableView)
 
         effectView.contentView.pinSubviewToAllEdges(tableView)
-
-        tableView.separatorEffect = UIVibrancyEffect(blurEffect: blurEffect)
 
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
     }

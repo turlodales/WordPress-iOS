@@ -1,7 +1,6 @@
-#!/bin/bash -euo pipefail
+#!/usr/bin/env bash
 
-# The Secrets File Sources
-SECRETS_ROOT="${HOME}/.configure/wordpress-ios/secrets"
+set -euo pipefail
 
 # To help the Xcode build system optimize the build, we want to ensure each of
 # the secrets we want to copy is defined as an input file for the run script
@@ -47,48 +46,28 @@ function ensure_is_in_input_files_list() {
   fi
 }
 
-PRODUCTION_SECRETS_FILE="${SECRETS_ROOT}/WordPress-Secrets.swift"
-ensure_is_in_input_files_list $PRODUCTION_SECRETS_FILE
-INTERNAL_SECRETS_FILE="${SECRETS_ROOT}/WordPress-Secrets-Internal.swift"
-ensure_is_in_input_files_list $INTERNAL_SECRETS_FILE
-ALPHA_SECRETS_FILE="${SECRETS_ROOT}/WordPress-Secrets-Alpha.swift"
-ensure_is_in_input_files_list $ALPHA_SECRETS_FILE
-JETPACK_SECRETS_FILE="${SECRETS_ROOT}/Jetpack-Secrets.swift"
-ensure_is_in_input_files_list $JETPACK_SECRETS_FILE
+# Reach the repo root by trimming SRCROOT's last component rather than appending `/..`.
+# The `.xcfilelist` this path is matched against is the one Xcode resolved, and Xcode collapses `..` when it writes it.
+ENCRYPTED_SECRETS_FILE="${SRCROOT%/*}/.a8c-secrets/Secrets.swift.age"
+ensure_is_in_input_files_list $ENCRYPTED_SECRETS_FILE
 
 LOCAL_SECRETS_FILE="${SRCROOT}/Credentials/Secrets.swift"
 EXAMPLE_SECRETS_FILE="${SRCROOT}/Credentials/Secrets-example.swift"
 ensure_is_in_input_files_list $EXAMPLE_SECRETS_FILE
 
 # The Secrets file destination
-SECRETS_DESTINATION_FILE="${BUILD_DIR}/Secrets/Secrets.swift"
-mkdir -p $(dirname "$SECRETS_DESTINATION_FILE")
+SECRETS_DESTINATION_FILE="${SCRIPT_OUTPUT_FILE_0}"
+mkdir -p "$(dirname "$SECRETS_DESTINATION_FILE")"
 
-# If the WordPress Production Secrets are available for WordPress, use them
-if [ -f "$PRODUCTION_SECRETS_FILE" ] && [ "$BUILD_SCHEME" == "WordPress" ]; then
+# Build phases don't inherit the shell's PATH, so point at a8c-secrets' default
+# install location.
+export PATH="$HOME/.local/bin:$PATH"
+
+# `a8c-secrets which` exits non-zero when the file has not been decrypted yet.
+# NOTE: WordPress, Jetpack, and Reader use all the same secrets at this time.
+if command -v a8c-secrets > /dev/null 2>&1 && SECRETS_FILE=$(a8c-secrets which Secrets.swift 2>/dev/null); then
     echo "Applying Production Secrets"
-    cp -v "$PRODUCTION_SECRETS_FILE" "${SECRETS_DESTINATION_FILE}"
-    exit 0
-fi
-
-# If the WordPress Internal Secrets are available, use them
-if [ -f "$INTERNAL_SECRETS_FILE" ] && [ "${BUILD_SCHEME}" == "WordPress Internal" ]; then
-    echo "Applying Internal Secrets"
-    cp -v "$INTERNAL_SECRETS_FILE" "${SECRETS_DESTINATION_FILE}"
-    exit 0
-fi
-
-# If the WordPress Alpha Secrets are available, use them
-if [ -f "$ALPHA_SECRETS_FILE" ] && [ "${BUILD_SCHEME}" == "WordPress Alpha" ]; then
-    echo "Applying Alpha Secrets"
-    cp -v "$ALPHA_SECRETS_FILE" "${SECRETS_DESTINATION_FILE}"
-    exit 0
-fi
-
-# If the Jetpack Secrets are available (and if we're building Jetpack) use them
-if [ -f "$JETPACK_SECRETS_FILE" ] && [ "${BUILD_SCHEME}" == "Jetpack" ]; then
-    echo "Applying Jetpack Secrets"
-    cp -v "$JETPACK_SECRETS_FILE" "${SECRETS_DESTINATION_FILE}"
+    cp "$SECRETS_FILE" "$SECRETS_DESTINATION_FILE"
     exit 0
 fi
 
@@ -103,21 +82,21 @@ if [ -f "$LOCAL_SECRETS_FILE" ]; then
 
     echo "warning: Using local Secrets from $LOCAL_SECRETS_FILE. If you are an external contributor, this is expected and you can ignore this warning. If you are an internal contributor, make sure to use our shared credentials instead."
     echo "Applying Local Secrets"
-    cp -v "$LOCAL_SECRETS_FILE" "${SECRETS_DESTINATION_FILE}"
+    cp "$LOCAL_SECRETS_FILE" "$SECRETS_DESTINATION_FILE"
     exit 0
 fi
 
 # None of the above secrets was found. Use the example secrets file as a last
 # resort, unless building for Release.
 
-COULD_NOT_FIND_SECRET_MSG="Could not find secrets file at ${SECRETS_DESTINATION_FILE}. This is likely due to the source secrets being missing from ${SECRETS_ROOT}"
-INTERNAL_CONTRIBUTOR_MSG="If you are an internal contributor, run \`bundle exec fastlane run configure_apply\` to update your secrets and try again"
-EXTERNAL_CONTRIBUTOR_MSG="If you are an external contributor, run \`bundle exec rake init:oss\` to set up and use your own credentials"
+COULD_NOT_FIND_SECRET_MSG="Could not find secrets file at ${SECRETS_DESTINATION_FILE}. This is likely due to the secrets not having been decrypted"
+INTERNAL_CONTRIBUTOR_MSG="If you are an internal contributor, run \`a8c-secrets decrypt\` to update your secrets and try again (see https://github.com/Automattic/a8c-secrets for setup)"
+EXTERNAL_CONTRIBUTOR_MSG="If you are an external contributor, run \`make credentials\` to set up and use your own credentials"
 
 case $CONFIGURATION in
   Release*)
-    # There are three release configurations: Release, Release-Alpha, and
-    # Release-Internal. Since they all start with "Release" we can use a
+    # There are two release configurations: Release and Release-Alpha.
+    # Since they all start with "Release", we can use a
     # pattern to check for them.
     echo "error: $COULD_NOT_FIND_SECRET_MSG. Cannot continue Release build. $INTERNAL_CONTRIBUTOR_MSG. $EXTERNAL_CONTRIBUTOR_RELEASE_MSG."
     exit 1
@@ -125,6 +104,6 @@ case $CONFIGURATION in
   *)
     echo "warning: $COULD_NOT_FIND_SECRET_MSG. Falling back to $EXAMPLE_SECRETS_FILE. In a Release build, this would be an error. $INTERNAL_CONTRIBUTOR_MSG. $EXTERNAL_CONTRIBUTOR_MSG."
     echo "Applying Example Secrets"
-    cp -v "$EXAMPLE_SECRETS_FILE" "${SECRETS_DESTINATION_FILE}"
+    cp "$EXAMPLE_SECRETS_FILE" "$SECRETS_DESTINATION_FILE"
     ;;
 esac

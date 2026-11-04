@@ -1,4 +1,6 @@
 import Foundation
+import WordPressData
+import WordPressKit
 
 // MARK: - ReaderInterestViewModel
 class ReaderInterestViewModel {
@@ -54,7 +56,7 @@ class ReaderInterestsDataSource {
     init(topics: [ReaderTagTopic], service: ReaderInterestsService? = nil) {
         self.topics = topics
 
-        guard let service = service else {
+        guard let service else {
             self.interestsService = ReaderTopicService(coreDataStack: ContextManager.shared)
             return
         }
@@ -65,7 +67,7 @@ class ReaderInterestsDataSource {
     /// Fetches the interests from the topic service
     public func reload() {
         interestsService.fetchInterests(success: { [weak self] interests in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
@@ -87,7 +89,6 @@ class ReaderInterestsDataSource {
                     })
                 }
                 .map { ReaderInterestViewModel(interest: $0) }
-
         }) { [weak self] (error: Error) in
             DDLogError("Error: Could not retrieve reader interests: \(String(describing: error))")
 
@@ -102,8 +103,8 @@ class ReaderInterestsDataSource {
 
     /// Returns a reader interest for the specified row
     /// - Parameter row: The index of the item you want to return
-    /// - Returns: A reader interest model
-    public func interest(for row: Int) -> ReaderInterestViewModel {
-        return interests[row]
+    /// - Returns: A reader interest model if exists; or nil otherwise.
+    public func interest(for row: Int) -> ReaderInterestViewModel? {
+        return interests[safe: row]
     }
 }

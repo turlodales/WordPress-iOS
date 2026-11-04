@@ -1,5 +1,7 @@
-import Foundation
 import CoreData
+import WordPressShared
+import Foundation
+import WordPressData
 
 protocol PostSearchServiceDelegate: AnyObject {
     func service(_ service: PostSearchService, didAppendPosts page: [AbstractPost])
@@ -26,7 +28,7 @@ final class PostSearchService {
     init(blog: Blog,
          settings: PostListFilterSettings,
          criteria: PostSearchCriteria,
-         coreDataStack: CoreDataStackSwift = ContextManager.shared
+         coreDataStack: CoreDataStack = ContextManager.shared
     ) {
         self.blog = blog
         self.settings = settings
@@ -81,7 +83,9 @@ final class PostSearchService {
             offset += posts.count
             hasMore = !posts.isEmpty
 
-            let newPosts = posts.filter { !postIDs.contains($0.objectID) }
+            let newPosts = posts
+                .deduplicated(by: \.objectID)
+                .filter { !postIDs.contains($0.objectID) }
             postIDs.formUnion(newPosts.map(\.objectID))
             self.delegate?.service(self, didAppendPosts: newPosts)
         case .failure(let error):

@@ -1,6 +1,9 @@
 import UIKit
+import BuildSettingsKit
 import Combine
 import AutomatticTracks
+import AutomatticEncryptedLogs
+import WordPressData
 
 /// A wrapper around the logging stack – provides shared initialization and configuration for Tracks Crash and Event Logging
 struct WPLoggingStack {
@@ -10,13 +13,16 @@ struct WPLoggingStack {
     let crashLogging: CrashLogging
     let eventLogging: EventLogging
 
-    private let eventLoggingDataProvider = EventLoggingDataProvider.fromDDFileLogger(WPLogger.shared().fileLogger)
+    private let eventLoggingDataProvider: EventLoggingDataSource
     // swiftlint:disable:next weak_delegate
     private let eventLoggingDelegate = EventLoggingDelegate()
 
     private let enterForegroundObserver: AnyCancellable
 
     init() {
+        // Adds the file logger to CocoaLumberjack. Lines logged before this never reach the log files.
+        _ = WPLogger.shared()
+        eventLoggingDataProvider = EventLoggingDataProvider.from(.shared)
 
         let eventLogging = EventLogging(dataSource: eventLoggingDataProvider, delegate: eventLoggingDelegate)
 
@@ -38,29 +44,36 @@ struct WPLoggingStack {
 
 struct WPCrashLoggingDataProvider: CrashLoggingDataProvider {
     private let contextManager: ContextManager
+    let sentryDSN: String
 
-    init(contextManager: ContextManager = .shared) {
+    init(
+        contextManager: ContextManager = .shared,
+        sentryDSN: String = BuildSettings.current.sentryDSN
+    ) {
         self.contextManager = contextManager
+        self.sentryDSN = sentryDSN
     }
-
-    let sentryDSN: String = ApiCredentials.sentryDSN
 
     var userHasOptedOut: Bool {
         return UserSettings.userHasOptedOutOfCrashLogging
     }
 
-    var buildType: String = BuildConfiguration.current.rawValue
+    var buildType: String { BuildConfiguration.current.rawValue }
 
     var shouldEnableAutomaticSessionTracking: Bool {
         return !UserSettings.userHasOptedOutOfCrashLogging
     }
 
+    let performanceTracking: PerformanceTracking = .disabled
+
     var currentUser: TracksUser? {
         return contextManager.performQuery { context -> TracksUser? in
-            guard let account = try? WPAccount.lookupDefaultWordPressComAccount(in: context) else {
+            guard let account = try? WPAccount.lookupDefaultWordPressComAccount(in: context),
+                  let userID = account.userID
+            else {
                 return nil
             }
-            return TracksUser(userID: account.userID.stringValue, email: account.email, username: account.username)
+            return TracksUser(userID: userID.stringValue, email: account.email, username: account.username)
         }
     }
 }

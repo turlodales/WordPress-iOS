@@ -1,6 +1,9 @@
 import UIKit
+import WordPressKit
+import WordPressUI
+import WordPressShared
 
-struct OverviewTabData: FilterTabBarItem {
+struct OverviewTabData: FilterTabBarItem, Hashable {
     var tabTitle: String
     var tabData: Int
     var tabDataStub: String?
@@ -35,19 +38,17 @@ struct OverviewTabData: FilterTabBarItem {
     var attributedTitle: NSAttributedString? {
 
         let attributedTitle = NSMutableAttributedString(string: tabTitle.localizedUppercase)
-        attributedTitle.addAttributes([.font: WPStyleGuide.Stats.overviewCardFilterTitleFont],
-                                      range: NSMakeRange(0, attributedTitle.string.count))
+        attributedTitle.addAttributes([.font: WPStyleGuide.Stats.overviewCardFilterTitleFont])
 
         let dataString: String = {
-            if let tabDataStub = tabDataStub {
+            if let tabDataStub {
                 return tabDataStub
             }
             return tabData.abbreviatedString()
         }()
 
         let attributedData = NSMutableAttributedString(string: dataString)
-        attributedData.addAttributes([.font: WPStyleGuide.Stats.overviewCardFilterDataFont],
-                                     range: NSMakeRange(0, attributedData.string.count))
+        attributedData.addAttributes([.font: WPStyleGuide.Stats.overviewCardFilterDataFont])
 
         attributedTitle.append(NSAttributedString(string: "\n"))
         attributedTitle.append(attributedData)
@@ -56,18 +57,23 @@ struct OverviewTabData: FilterTabBarItem {
     }
 
     var differenceLabel: String {
-        let stringFormat = NSLocalizedString("%@%@ (%@%%)", comment: "Difference label for Period Overview stat, indicating change from previous period. Ex: +99.9K (5%)")
+        let stringFormat = NSLocalizedString(
+            "stats.overview.differenceLabelWithNumber",
+            value: "%1$@%2$@ (%3$@)",
+            comment: "Text for the Stats Traffic Overview stat difference label. Shows the change from the previous period, including the percentage value. E.g.: +12.3K (5%). %1$@ is the placeholder for the change sign ('-', '+', or none). %2$@ is the placeholder for the change numerical value. %3$@ is the placeholder for the change percentage value."
+        )
+
         return String.localizedStringWithFormat(stringFormat,
                                                 difference < 0 ? "" : "+",
                                                 difference.abbreviatedString(),
-                                                differencePercent.abbreviatedString())
+                                                differencePercent.percentageString())
     }
 
     var differenceTextColor: UIColor {
-        if let date = date,
-            let period = period,
+        if let date,
+            let period,
             StatsPeriodHelper().dateAvailableAfterDate(date, period: period) == false {
-            return .neutral(.shade40)
+            return UIAppColor.neutral(.shade40)
         }
 
         return difference < 0 ? WPStyleGuide.Stats.negativeColor : WPStyleGuide.Stats.positiveColor
@@ -87,6 +93,15 @@ struct OverviewTabData: FilterTabBarItem {
 
     var accessibilityValue: String? {
         return tabDataStub != nil ? "" : "\(tabData)"
+    }
+
+    // MARK: - Equatable
+
+    static func == (lhs: OverviewTabData, rhs: OverviewTabData) -> Bool {
+        return lhs.tabTitle == rhs.tabTitle &&
+            lhs.tabData == rhs.tabData &&
+            lhs.difference == rhs.difference &&
+            lhs.differencePercent == rhs.differencePercent
     }
 }
 
@@ -126,7 +141,8 @@ class OverviewCell: UITableViewCell, NibLoadable {
                    barChartStyling: [BarChartStyling] = [],
                    period: StatsPeriodUnit? = nil,
                    statsBarChartViewDelegate: StatsBarChartViewDelegate? = nil,
-                   barChartHighlightIndex: Int? = nil) {
+                   barChartHighlightIndex: Int? = nil,
+                   tabIndex: Int) {
         self.tabsData = tabsData
         self.chartData = barChartData
         self.chartStyling = barChartStyling
@@ -134,12 +150,11 @@ class OverviewCell: UITableViewCell, NibLoadable {
         self.chartHighlightIndex = barChartHighlightIndex
         self.period = period
 
+        setupFilterBar(selectedIndex: tabIndex)
         configureLabelsStackView()
         configureChartView()
-        setupFilterBar()
         updateLabels()
     }
-
 }
 
 // MARK: - Private Extension
@@ -154,7 +169,7 @@ private extension OverviewCell {
         Style.configureViewAsSeparator(bottomSeparatorLine)
     }
 
-    func setupFilterBar() {
+    func setupFilterBar(selectedIndex: Int) {
 
         // If there is only one tab data, this is being displayed on the
         // Post Stats view, which does not have a filterTabBar.
@@ -174,9 +189,8 @@ private extension OverviewCell {
         filterTabBar.equalWidthSpacing = 12
         filterTabBar.addTarget(self, action: #selector(selectedFilterDidChange(_:)), for: .valueChanged)
 
-        if AppConfiguration.statsRevampV2Enabled {
-            filterTabBar.dividerColor = .clear
-        }
+        filterTabBar.dividerColor = .clear
+        filterTabBar.setSelectedIndex(selectedIndex, animated: false)
     }
 
     @objc func selectedFilterDidChange(_ filterBar: FilterTabBar) {
@@ -186,6 +200,7 @@ private extension OverviewCell {
 
         configureChartView()
         updateLabels()
+        statsBarChartViewDelegate?.statsBarChartTabSelected(filterTabBar.selectedIndex)
     }
 
     func updateLabels() {
@@ -241,7 +256,7 @@ private extension OverviewCell {
             chartView.trailingAnchor.constraint(equalTo: chartContainerView.trailingAnchor),
             chartView.topAnchor.constraint(equalTo: chartContainerView.topAnchor),
             chartView.bottomAnchor.constraint(equalTo: chartContainerView.bottomAnchor)
-            ])
+        ])
     }
 
     func resetChartContainerView() {
@@ -258,13 +273,12 @@ private extension OverviewCell {
     // MARK: - Analytics support
 
     func captureAnalyticsEvent(_ event: WPAnalyticsStat) {
-        let properties: [AnyHashable: Any] = [StatsPeriodUnit.analyticsPeriodKey: period?.description as Any]
+        let properties: [String: Any] = [StatsPeriodUnit.analyticsPeriodKey: period?.description as Any]
 
         if let blogIdentifier = SiteStatsInformation.sharedInstance.siteID {
-            WPAppAnalytics.track(event, withProperties: properties, withBlogID: blogIdentifier)
+            WPAppAnalytics.track(event, properties: properties, blogID: blogIdentifier)
         } else {
             WPAppAnalytics.track(event, withProperties: properties)
         }
     }
-
 }

@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 
 enum MediaExportProgressUnits {
     static let done: Int64 = 100
@@ -118,6 +119,13 @@ extension MediaExporter {
             return error
         default:
             return MediaExportSystemError.failedWith(systemError: error)
+        }
+    }
+
+    func export() async throws -> MediaExport {
+        try await withUnsafeThrowingContinuation { continuation in
+            export(onCompletion: { continuation.resume(returning: $0) },
+                   onError: { continuation.resume(throwing: $0) })
         }
     }
 }

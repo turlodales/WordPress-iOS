@@ -1,0 +1,235 @@
+import WebKit
+import WordPressShared
+import WordPressUI
+
+/// Renders the comment body with a web view. Provides the best visual experience but has the highest performance cost.
+@MainActor
+public final class WebCommentContentRenderer: NSObject, CommentContentRenderer {
+    // MARK: Properties
+
+    public weak var delegate: CommentContentRendererDelegate?
+
+    public var view: UIView { webView }
+
+    private let webView = WKWebView(
+        frame: .zero,
+        configuration: {
+            let configuration = WKWebViewConfiguration()
+            configuration.allowsInlineMediaPlayback = true
+            configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+            return configuration
+        }()
+    )
+
+    /// It can't be changed at the moment, but this capability was included from the
+    /// start, and this implementation continues supporting it.
+    public var displaySettings = ReaderDisplaySettings.standard
+
+    /// - warning: This has to be configured _before_ you render.
+    public var tintColor: UIColor {
+        get { webView.tintColor }
+        set {
+            webView.tintColor = newValue
+            cachedHead = nil
+        }
+    }
+
+    /// Padding applied to the document body, in CSS pixels (equal to points
+    /// at the standard display size). Use this when the web view fills its
+    /// region and scrolls on its own: the text is inset while the scroll
+    /// indicator stays at the view's edge, and the padding scrolls with the
+    /// content. Hosts that inset the web view themselves should leave it at
+    /// zero. The height reported through the delegate includes the padding.
+    ///
+    /// - warning: This has to be configured _before_ you render.
+    public var contentPadding: UIEdgeInsets = .zero {
+        didSet { cachedHead = nil }
+    }
+
+    /// Google requires an HTTP referrer for YouTube embeds, otherwise the player shows an error
+    /// instead of the video. Matches the referrer `ReaderWebView` uses for post content so that
+    /// embeds behave the same way in comments.
+    ///
+    /// Documentation: https://developers.google.com/youtube/terms/required-minimum-functionality#set-the-referer
+    private static let baseURL = URL(string: "https://wordpress.com/reader")!
+
+    private var cachedHead: String?
+    private var comment: String?
+    private var currentNavigation: WKNavigation?
+    private var lastReloadDate: Date?
+    private var isReloadNeeded = false
+
+    // MARK: Methods
+    public init(isScrollEnabled: Bool = false) {
+        super.init()
+
+        webView.isInspectable = true
+        webView.backgroundColor = .clear
+        webView.isOpaque = false // gets rid of the white flash upon content load in dark mode.
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        webView.navigationDelegate = self
+        webView.scrollView.backgroundColor = .clear
+        webView.scrollView.isScrollEnabled = isScrollEnabled
+        webView.scrollView.bounces = isScrollEnabled
+        // WebKit turns this on for its scroll view; off so a comment that
+        // fits its region stays still.
+        webView.scrollView.alwaysBounceVertical = false
+        webView.scrollView.showsVerticalScrollIndicator = isScrollEnabled
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+    }
+
+    public override convenience init() {
+        self.init(isScrollEnabled: false)
+    }
+
+    public func render(comment: String) {
+        self.comment = comment
+        actuallyRender(comment: comment)
+    }
+
+    private func actuallyRender(comment: String) {
+        currentNavigation = webView.loadHTMLString(formattedHTMLString(for: comment), baseURL: Self.baseURL)
+    }
+
+    public func prepareForReuse() {
+        comment = nil
+        currentNavigation = nil
+        webView.stopLoading()
+    }
+
+    @objc private func applicationWillEnterForeground() {
+        reloadIfNeeded()
+    }
+
+    private func reloadIfNeeded() {
+        guard isReloadNeeded, Date.now.timeIntervalSince((lastReloadDate ?? .distantPast)) > 8, let comment else {
+            return
+        }
+        isReloadNeeded = false
+        lastReloadDate = Date()
+        actuallyRender(comment: comment)
+    }
+}
+
+// MARK: - WKNavigationDelegate
+
+extension WebCommentContentRenderer: WKNavigationDelegate {
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard let comment, navigation === currentNavigation else {
+            return
+        }
+        // Wait until the HTML document finished loading.
+        // This also waits for all of resources within the HTML (images, video thumbnail images) to be fully loaded.
+        webView.evaluateJavaScript("document.readyState") { [weak self] complete, _ in
+            guard let self, complete != nil, navigation === self.currentNavigation else {
+                return
+            }
+
+            // To capture the content height, the methods to use is either `document.body.scrollHeight` or `document.documentElement.scrollHeight`.
+            // `document.body` does not capture margins on <body> tag, so we'll use `document.documentElement` instead.
+            webView.evaluateJavaScript("document.documentElement.scrollHeight") { height, _ in
+                guard let height = height as? CGFloat,
+                    navigation === self.currentNavigation
+                else {
+                    return
+                }
+
+                /// The display setting's custom size is applied through the HTML's initial-scale property
+                /// in the meta tag. The `scrollHeight` value seems to return the height as if it's at 1.0 scale,
+                /// so we'll need to add the custom scale into account.
+                let actualHeight = round(height * self.displaySettings.size.scale)
+                self.delegate?.renderer(self, asyncRenderCompletedWithHeight: actualHeight, comment: comment)
+            }
+        }
+    }
+
+    public func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction
+    ) async -> WKNavigationActionPolicy {
+        switch navigationAction.navigationType {
+        case .other:
+            // allow local file requests.
+            return .allow
+        default:
+            guard let destinationURL = navigationAction.request.url else {
+                return .allow
+            }
+            self.delegate?.renderer(self, interactedWithURL: destinationURL)
+            return .cancel
+        }
+    }
+
+    public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        isReloadNeeded = true
+        if UIApplication.shared.applicationState == .active {
+            reloadIfNeeded()
+        }
+    }
+}
+
+private extension WebCommentContentRenderer {
+    /// Returns a formatted HTML string by loading the template for rich comment.
+    ///
+    /// The method will try to return cached content if possible, by detecting whether the content matches the previous content.
+    /// If it's different (e.g. due to edits), it will reprocess the HTML string.
+    ///
+    /// - Parameter content: The content value from the `Comment` object.
+    /// - Returns: Formatted HTML string to be displayed in the web view.
+    ///
+    func formattedHTMLString(for comment: String) -> String {
+        // remove empty HTML elements from the `content`, as the content often contains empty paragraph elements which adds unnecessary padding/margin.
+        // `rawContent` does not have this problem, but it's not used because `rawContent` gets rid of links (<a> tags) for mentions.
+        let comment =
+            comment
+            .replacingOccurrences(of: Self.emptyElementRegexPattern, with: "", options: [.regularExpression])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return """
+            <html dir="auto">
+            \(makeHead())
+            <body>
+                \(comment)
+            </body>
+            </html>
+            """
+    }
+
+    static let emptyElementRegexPattern = "<[a-z]+>(<!-- [a-zA-Z0-9\\/: \"{}\\-\\.,\\?=\\[\\]]+ -->)+<\\/[a-z]+>"
+
+    /// Returns HTML page <head> with the preconfigured styles and scripts.
+    private func makeHead() -> String {
+        if let cachedHead {
+            return cachedHead
+        }
+        let head = actuallyMakeHead()
+        cachedHead = head
+        return head
+    }
+
+    private func actuallyMakeHead() -> String {
+        let meta =
+            "width=device-width,initial-scale=\(displaySettings.size.scale),maximum-scale=\(displaySettings.size.scale),user-scalable=no,shrink-to-fit=no"
+        var styles = displaySettings.makeStyles(tintColor: webView.tintColor)
+        if contentPadding != .zero {
+            let p = contentPadding
+            styles += "\nbody { padding: \(p.top)px \(p.right)px \(p.bottom)px \(p.left)px; }"
+        }
+        return String(format: Self.headTemplate, meta, styles)
+    }
+
+    private static let headTemplate: String = {
+        guard let fileURL = Bundle.module.url(forResource: "gutenbergCommentHeadTemplate", withExtension: "html"),
+            let string = try? String(contentsOf: fileURL, encoding: .utf8)
+        else {
+            assertionFailure("template missing")
+            return ""
+        }
+        return string
+    }()
+}

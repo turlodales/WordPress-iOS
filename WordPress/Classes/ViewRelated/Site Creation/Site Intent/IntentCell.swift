@@ -1,6 +1,7 @@
 import UIKit
+import WordPressShared
 
-final class IntentCell: UITableViewCell, ModelSettableCell {
+final class IntentCell: UITableViewCell, ModelSettableCell, NibLoadable {
     @IBOutlet weak var title: UILabel!
     @IBOutlet weak var emojiContainer: UIView!
     @IBOutlet weak var emoji: UILabel!
@@ -27,7 +28,11 @@ final class IntentCell: UITableViewCell, ModelSettableCell {
     }
 
     private func commonInit() {
-        selectedBackgroundView?.backgroundColor = .clear
+        if #available(iOS 26, *) {
+            selectionStyle = .none
+        } else {
+            selectedBackgroundView?.backgroundColor = .clear
+        }
 
         accessibilityTraits = .button
         accessibilityHint = NSLocalizedString("Selects this topic as the intent for your site.",

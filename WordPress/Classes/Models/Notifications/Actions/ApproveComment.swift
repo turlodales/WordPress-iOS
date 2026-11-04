@@ -1,3 +1,8 @@
+import UIKit
+import WordPressShared
+import WordPressUI
+import FormattableContentKit
+
 /// Encapsulates logic to approve a comment
 class ApproveComment: DefaultNotificationActionCommand {
     enum TitleStrings {
@@ -15,7 +20,7 @@ class ApproveComment: DefaultNotificationActionCommand {
     }
 
     override var actionColor: UIColor {
-        return on ? .neutral(.shade30) : .primary
+        return on ? UIAppColor.neutral(.shade30) : UIAppColor.primary
     }
 
     override func execute<ObjectType: FormattableContent>(context: ActionContext<ObjectType>) {

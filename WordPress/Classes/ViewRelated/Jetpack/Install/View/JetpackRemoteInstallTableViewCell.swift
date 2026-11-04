@@ -1,7 +1,9 @@
 import UIKit
+import WordPressData
+import WordPressShared
 
 @objcMembers
-class JetpackRemoteInstallTableViewCell: UITableViewCell {
+public class JetpackRemoteInstallTableViewCell: UITableViewCell {
 
     // MARK: Properties
 
@@ -51,7 +53,7 @@ class JetpackRemoteInstallTableViewCell: UITableViewCell {
 
     // MARK: Functions
 
-    func configure(blog: Blog, viewController: BlogDetailsViewController?) {
+    public func configure(blog: Blog, viewController: BlogDetailsViewController?) {
         self.blog = blog
         self.presenterViewController = viewController
         cardView.updatePlugin(JetpackPlugin(from: blog.jetpackConnectionActivePlugins))
@@ -61,22 +63,11 @@ class JetpackRemoteInstallTableViewCell: UITableViewCell {
         contentView.addSubview(cardView)
         contentView.pinSubviewToAllEdges(cardView, priority: .defaultHigh)
     }
-
 }
 
 // MARK: - BlogDetailsViewController view model
 
 extension BlogDetailsViewController: JetpackRemoteInstallDelegate {
-
-    @objc func jetpackInstallSectionViewModel() -> BlogDetailsSection {
-        let row = BlogDetailsRow()
-        row.callback = {}
-        let section = BlogDetailsSection(title: nil,
-                                         rows: [row],
-                                         footerTitle: nil,
-                                         category: .jetpackInstallCard)
-        return section
-    }
 
     func jetpackRemoteInstallCompleted() {
         dismiss(animated: true)
@@ -89,5 +80,4 @@ extension BlogDetailsViewController: JetpackRemoteInstallDelegate {
     func jetpackRemoteInstallWebviewFallback() {
         // No op
     }
-
 }

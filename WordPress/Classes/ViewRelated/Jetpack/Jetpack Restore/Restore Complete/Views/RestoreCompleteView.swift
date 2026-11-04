@@ -25,14 +25,14 @@ class RestoreCompleteView: UIView, NibLoadable {
     // MARK: - Styling
 
     private func applyStyles() {
-        backgroundColor = .basicBackground
+        backgroundColor = .systemBackground
 
         titleLabel.font = WPStyleGuide.fontForTextStyle(.title3, fontWeight: .semibold)
-        titleLabel.textColor = .text
+        titleLabel.textColor = .label
         titleLabel.numberOfLines = 0
 
         descriptionLabel.font = WPStyleGuide.fontForTextStyle(.body)
-        descriptionLabel.textColor = .textSubtle
+        descriptionLabel.textColor = .secondaryLabel
         descriptionLabel.numberOfLines = 0
 
         primaryButton.isPrimary = true
@@ -40,7 +40,7 @@ class RestoreCompleteView: UIView, NibLoadable {
         secondaryButton.isPrimary = false
 
         hintLabel.font = WPStyleGuide.fontForTextStyle(.subheadline)
-        hintLabel.textColor = .textSubtle
+        hintLabel.textColor = .secondaryLabel
         hintLabel.numberOfLines = 0
         hintLabel.textAlignment = .center
     }
@@ -64,21 +64,21 @@ class RestoreCompleteView: UIView, NibLoadable {
 
         secondaryButton.setTitle(secondaryButtonTitle, for: .normal)
 
-        if let primaryButtonTitle = primaryButtonTitle {
+        if let primaryButtonTitle {
             primaryButton.setTitle(primaryButtonTitle, for: .normal)
             primaryButton.isHidden = false
         } else {
             primaryButton.isHidden = true
         }
 
-        if let secondaryButtonTitle = secondaryButtonTitle {
+        if let secondaryButtonTitle {
             secondaryButton.setTitle(secondaryButtonTitle, for: .normal)
             secondaryButton.isHidden = false
         } else {
             secondaryButton.isHidden = true
         }
 
-        if let hint = hint {
+        if let hint {
             hintLabel.text = hint
             hintLabel.isHidden = false
         } else {

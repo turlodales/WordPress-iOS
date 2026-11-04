@@ -10,18 +10,18 @@ struct DomainsStateView: View {
     }
 
     var body: some View {
-        VStack(spacing: Length.Padding.single) {
+        VStack(spacing: .DS.Padding.single) {
             Text(viewModel.title)
                 .font(Font.DS.heading3)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(Color.DS.Foreground.secondary)
+                .foregroundStyle(Color(.secondaryLabel))
             Text(viewModel.description)
                 .font(Font.DS.Body.medium)
-                .foregroundStyle(Color.DS.Foreground.secondary)
+                .foregroundStyle(Color(.secondaryLabel))
                 .multilineTextAlignment(.center)
             if let button = viewModel.button {
                 Spacer()
-                    .frame(height: Length.Padding.single)
+                    .frame(height: .DS.Padding.single)
                 DSButton(title: button.title, style: .init(emphasis: .primary, size: .medium)) {
                     button.action()
                 }

@@ -1,5 +1,5 @@
 import Foundation
-import CocoaLumberjack
+import WordPressData
 import WordPressShared
 
 /// This class will display the Blog's date and time settings, and will allow the user to modify them.
@@ -47,6 +47,7 @@ open class DateAndTimeFormatSettingsViewController: UITableViewController {
         title = NSLocalizedString("Date and Time Format", comment: "Title for the Date and Time Format Settings Screen")
         ImmuTable.registerRows([NavigationItemRow.self], tableView: tableView)
         WPStyleGuide.configureColors(view: view, tableView: tableView)
+        tableView.cellLayoutMarginsFollowReadableWidth = true
         reloadViewModel()
     }
 
@@ -110,7 +111,7 @@ open class DateAndTimeFormatSettingsViewController: UITableViewController {
     // MARK: - Row Handlers
 
     func pressedDateFormat() -> ImmuTableAction {
-        return { [unowned self] row in
+        return { [unowned self] _ in
             let settingsViewController = SettingsSelectionViewController(style: .insetGrouped)
             settingsViewController.title = NSLocalizedString("Date Format",
                                                              comment: "Writing Date Format Settings Title")
@@ -134,7 +135,9 @@ open class DateAndTimeFormatSettingsViewController: UITableViewController {
             settingsViewController.onItemSelected = { [weak self] (selected: Any?) in
                 if let newDateFormat = selected as? String {
                     self?.settings.dateFormat = newDateFormat
-                    self?.saveSettings()
+                    let changes = BlogSettingsChanges()
+                    changes.dateFormat = newDateFormat
+                    self?.saveSettings(changes)
                     WPAnalytics.trackSettingsChange("date_format", fieldName: "date_format")
                 }
             }
@@ -144,7 +147,7 @@ open class DateAndTimeFormatSettingsViewController: UITableViewController {
     }
 
     func pressedTimeFormat() -> ImmuTableAction {
-        return { [unowned self] row in
+        return { [unowned self] _ in
             let settingsViewController = SettingsSelectionViewController(style: .insetGrouped)
             settingsViewController.title = NSLocalizedString("Time Format",
                                                              comment: "Writing Time Format Settings Title")
@@ -168,9 +171,10 @@ open class DateAndTimeFormatSettingsViewController: UITableViewController {
             settingsViewController.onItemSelected = { [weak self] (selected: Any?) in
                 if let newTimeFormat = selected as? String {
                     self?.settings.timeFormat = newTimeFormat
-                    self?.saveSettings()
+                    let changes = BlogSettingsChanges()
+                    changes.timeFormat = newTimeFormat
+                    self?.saveSettings(changes)
                     WPAnalytics.trackSettingsChange("date_format", fieldName: "time_format")
-
                 }
             }
 
@@ -179,7 +183,7 @@ open class DateAndTimeFormatSettingsViewController: UITableViewController {
     }
 
     func pressedStartOfWeek() -> ImmuTableAction {
-        return { [unowned self] row in
+        return { [unowned self] _ in
             let settingsViewController = SettingsSelectionViewController(style: .insetGrouped)
             settingsViewController.title = NSLocalizedString("Week starts on",
                                                              comment: "Blog Writing Settings: Weeks starts on")
@@ -189,7 +193,9 @@ open class DateAndTimeFormatSettingsViewController: UITableViewController {
             settingsViewController.onItemSelected = { [weak self] (selected: Any?) in
                 if let newStartOfWeek = selected as? String {
                     self?.settings.startOfWeek = newStartOfWeek
-                    self?.saveSettings()
+                    let changes = BlogSettingsChanges()
+                    changes.startOfWeek = newStartOfWeek
+                    self?.saveSettings(changes)
                     WPAnalytics.trackSettingsChange("date_format",
                                                     fieldName: "start_of_week",
                                                     value: newStartOfWeek as Any)
@@ -203,7 +209,7 @@ open class DateAndTimeFormatSettingsViewController: UITableViewController {
     // MARK: - Footer handler
 
     @objc fileprivate func handleLearnMoreTap(_ sender: UITapGestureRecognizer) {
-        guard let url =  URL(string: DateAndTimeFormatSettingsViewController.learnMoreUrl) else {
+        guard let url = URL(string: DateAndTimeFormatSettingsViewController.learnMoreUrl) else {
             return
         }
         let webViewController = WebViewControllerFactory.controller(url: url, source: "site_settings_date_time_format_learn_more")
@@ -218,8 +224,8 @@ open class DateAndTimeFormatSettingsViewController: UITableViewController {
 
     // MARK: - Persistance
 
-    fileprivate func saveSettings() {
-        service.updateSettings(for: blog,
+    fileprivate func saveSettings(_ changes: BlogSettingsChanges) {
+        service.updateSettings(for: blog, changes: changes,
                                success: { SiteStatsInformation.sharedInstance.updateTimeZone() },
                                failure: { [weak self] (error: Error) -> Void in
                                     self?.refreshSettings()
@@ -238,5 +244,4 @@ open class DateAndTimeFormatSettingsViewController: UITableViewController {
                                 DDLogError("Error while sync'ing blog settings: \(error)")
                              })
     }
-
 }

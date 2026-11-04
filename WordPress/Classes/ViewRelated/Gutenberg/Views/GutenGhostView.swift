@@ -1,4 +1,5 @@
 import UIKit
+import WordPressUI
 
 class GutenGhostView: UIView {
     override init(frame: CGRect) {
@@ -21,16 +22,15 @@ class GutenGhostView: UIView {
 
     @IBOutlet var blockElementViews: [UIView]! {
         didSet {
-            blockElementViews.forEach { (view) in
+            blockElementViews.forEach { view in
                 view.backgroundColor = .ghostBlockBackground
             }
         }
     }
 
-
     @IBOutlet var buttonsViews: [UIView]! {
         didSet {
-            buttonsViews.forEach { (view) in
+            buttonsViews.forEach { view in
                 view.backgroundColor = .clear
             }
         }
@@ -45,7 +45,7 @@ class GutenGhostView: UIView {
 
     @IBOutlet private var roundedCornerViews: [UIView]! {
         didSet {
-            roundedCornerViews.forEach { (view) in
+            roundedCornerViews.forEach { view in
                 view.layer.cornerRadius = 6
                 view.clipsToBounds = true
             }
@@ -60,16 +60,12 @@ class GutenGhostView: UIView {
     }
 
     func startAnimation() {
-        let style = GhostStyle(beatDuration: GhostStyle.Defaults.beatDuration,
-                               beatStartColor: .placeholderElement,
-                               beatEndColor: .beatEndColor)
-        startGhostAnimation(style: style)
+        startGhostAnimation()
     }
 
     private func commonInit() {
-        let bundle = Bundle(for: GutenGhostView.self)
         guard
-            let nibViews = bundle.loadNibNamed("GutenGhostView", owner: self, options: nil),
+            let nibViews = Bundle.keystone.loadNibNamed("GutenGhostView", owner: self, options: nil),
             let contentView = nibViews.first as? UIView
         else {
             return

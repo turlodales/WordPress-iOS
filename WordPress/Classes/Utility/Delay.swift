@@ -1,4 +1,5 @@
 import Foundation
+import WordPressShared
 
 /// A delayed action implemented using GCD
 ///
@@ -17,7 +18,7 @@ struct DispatchDelayedAction {
     // all, why not use a Bool instead?
     //
     // The goal is to have a simple to use API, but one that allows
-    // cancellation.  So you could do something as simple as:
+    // cancellation. So you could do something as simple as:
     //
     //     DispatchDelayedAction(delay: 5) { doSomething() }
     //
@@ -58,32 +59,6 @@ struct DispatchDelayedAction {
         init(_ canceled: Bool) {
             self.canceled = canceled
         }
-    }
-}
-
-/// Provides a sequence of incremental delays, repeating the last one
-/// indefinitely.
-///
-public struct IncrementalDelay<Element> {
-    public var current: Element
-
-    private let delaySequence: AnySequence<Element>
-    private var iterator: AnyIterator<Element>
-
-    public init(_ sequence: [Element]) {
-        precondition(!sequence.isEmpty, "IncrementalDelay sequence can't be empty")
-        delaySequence = sequence.repeatingLast()
-        iterator = delaySequence.makeIterator()
-        current = iterator.next()!
-    }
-
-    public mutating func increment() {
-        current = iterator.next()!
-    }
-
-    public mutating func reset() {
-        iterator = delaySequence.makeIterator()
-        current = iterator.next()!
     }
 }
 

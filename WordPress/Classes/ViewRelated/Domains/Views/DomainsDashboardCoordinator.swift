@@ -1,7 +1,8 @@
 import UIKit
+import WordPressData
+import WordPressShared
 
-@objc final class DomainsDashboardCoordinator: NSObject {
-    @objc(presentDomainsDashboardWithPresenter:source:blog:)
+final class DomainsDashboardCoordinator: NSObject {
     static func presentDomainsDashboard(with presenter: BlogDetailsPresentationDelegate,
                                         source: String,
                                         blog: Blog) {

@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 import WordPressKit
 
 class FollowCommentsService: NSObject {
@@ -35,7 +36,7 @@ class FollowCommentsService: NSObject {
     /// Returns a Bool indicating whether or not the comments on the post can be followed.
     ///
     @objc var canFollowConversation: Bool {
-        return post.canSubscribeComments
+        return post.canActuallySubscribeToComments
     }
 
     /// Fetches the subscription status of the specified post for the current user.
@@ -95,7 +96,7 @@ class FollowCommentsService: NSObject {
                                           failure: @escaping (Error?) -> Void) {
 
         remote.updateNotificationSettingsForPost(with: postID, siteID: siteID, receiveNotifications: isNotificationsEnabled) { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 failure(nil)
                 return
             }
@@ -110,5 +111,4 @@ class FollowCommentsService: NSObject {
             failure(error)
         }
     }
-
 }

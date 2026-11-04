@@ -1,4 +1,6 @@
 import Foundation
+import WordPressData
+import WordPressKit
 
 extension ReaderPostService {
 

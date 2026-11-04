@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import WordPressData
 
 final class BlogDashboardDynamicCardCell: DashboardCollectionViewCell {
 
@@ -120,7 +121,12 @@ private extension DynamicDashboardCard {
             return .init(title: title, callback: callback)
         }()
 
-        let input = Input(featureImageURL: featureImageURL, rows: rows, action: action)
+        let input = Input(
+            featureImageURL: featureImageURL,
+            featureImageWidthToHeightRatio: payload.featuredImageSize?.widthToHeightRatio ?? 2,
+            rows: rows,
+            action: action
+        )
         self.init(input: input)
     }
 }

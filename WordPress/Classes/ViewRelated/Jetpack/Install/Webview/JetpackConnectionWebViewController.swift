@@ -1,8 +1,9 @@
 import UIKit
-import WebKit
+@preconcurrency import WebKit
 import Gridicons
-import WordPressAuthenticator
 import Combine
+import WordPressData
+import WordPressShared
 
 protocol JetpackConnectionWebDelegate: AnyObject {
     func jetpackConnectionCompleted()
@@ -18,7 +19,6 @@ class JetpackConnectionWebViewController: UIViewController {
     // Sometimes wp-login doesn't redirect to the expected URL, so we're storing
     // it and redirecting manually
     fileprivate var pendingSiteRedirect: URL?
-    fileprivate var pendingDotComRedirect: URL?
     fileprivate var account: WPAccount?
 
     private var analyticsErrorWasTracked = false
@@ -47,7 +47,7 @@ class JetpackConnectionWebViewController: UIViewController {
         let stackView = UIStackView(arrangedSubviews: [
             progressView,
             webView
-            ])
+        ])
         stackView.axis = .vertical
         view = stackView
     }
@@ -205,17 +205,16 @@ private extension JetpackConnectionWebViewController {
     }
 
     func isSiteLogin(url: URL) -> Bool {
-        guard let loginURL = URL(string: blog.loginUrl()) else {
+        guard let loginURL = blog.loginURL else {
             return false
         }
-
         return url.matchesPath(in: loginURL)
     }
 
     /// Returns a function that matches a wp-admin URL with the given path
     ///
     func isSiteAdmin(path: String) -> (URL) -> Bool {
-        guard let adminURL = URL(string: blog.adminUrl(withPath: path)) else {
+        guard let adminURL = blog.makeAdminURL(path: path) else {
             return { _ in return false }
         }
         return { url in
@@ -242,7 +241,7 @@ private extension JetpackConnectionWebViewController {
         let success: () -> Void = { [weak self] in
             self?.delegate?.jetpackConnectionCompleted()
         }
-        let failure: (Error) -> Void = { (error) in
+        let failure: (Error) -> Void = { error in
             DDLogError("\(error)")
             success()
         }
@@ -255,8 +254,23 @@ private extension JetpackConnectionWebViewController {
                     // There could be no account in some cases where user has connected
                     // their site to .com account on webView
                     // without logging into the account in the app
-                    self.startObservingLoginNotifications()
-                    WordPressAuthenticator.showLoginForJustWPCom(from: self, jetpackLogin: true, connectedEmail: self.blog.jetpack?.connectedEmail)
+                    Task { @MainActor in
+                        let email = self.blog.jetpack?.connectedEmail
+                        let accountID = await WordPressDotComAuthenticator().signIn(from: self, context: .jetpackSite(accountEmail: email))
+                        guard let accountID else {
+                            return
+                        }
+                        do {
+                            let account = try ContextManager.shared.mainContext.existingObject(with: accountID)
+                            service.associateSyncedBlogs(
+                                toJetpackAccount: account,
+                                success: success,
+                                failure: failure
+                            )
+                        } catch {
+                            failure(error)
+                        }
+                    }
 
                     return
                 }
@@ -286,9 +300,8 @@ private extension JetpackConnectionWebViewController {
 
     func performDotComLogin(redirect: URL) {
         if let account = defaultAccount(),
-            let token = account.authToken,
-            let username = account.username {
-            authenticateWithDotCom(username: username, token: token, redirect: redirect)
+            let token = account.authToken {
+            authenticateWithDotCom(username: account.username, token: token, redirect: redirect)
         } else {
             presentDotComLogin(redirect: redirect)
         }
@@ -304,35 +317,14 @@ private extension JetpackConnectionWebViewController {
     }
 
     func presentDotComLogin(redirect: URL) {
-        pendingDotComRedirect = redirect
-        startObservingLoginNotifications()
 
-        WordPressAuthenticator.showLoginForJustWPCom(from: self, jetpackLogin: true, connectedEmail: blog.jetpack?.connectedEmail)
-    }
+        Task { @MainActor in
+            let email = self.blog.jetpack?.connectedEmail
+            guard let _ = await WordPressDotComAuthenticator().signIn(from: self, context: .jetpackSite(accountEmail: email)) else {
+                return
+            }
 
-    func startObservingLoginNotifications() {
-        NotificationCenter.default.addObserver(self, selector: #selector(self.handleFinishedJetpackLogin), name: .wordpressLoginFinishedJetpackLogin, object: nil)
-    }
-
-    func stopObservingLoginNotifications() {
-        NotificationCenter.default.removeObserver(self, name: .wordpressLoginFinishedJetpackLogin, object: nil)
-    }
-
-    @objc func handleLoginCancelled() {
-        stopObservingLoginNotifications()
-        pendingDotComRedirect = nil
-    }
-
-    @objc func handleFinishedJetpackLogin(notification: NSNotification) {
-        stopObservingLoginNotifications()
-        defer {
-            pendingDotComRedirect = nil
-        }
-        account = notification.object as? WPAccount
-        if let redirect = pendingDotComRedirect {
-            performDotComLogin(redirect: redirect)
-        } else {
-            delegate?.jetpackConnectionCompleted()
+            self.performDotComLogin(redirect: redirect)
         }
     }
 
@@ -349,7 +341,7 @@ private extension JetpackConnectionWebViewController {
             guard enabled else {
                 return
             }
-            DDLogDebug(message)
+            DDLogDebug("\(message)")
         }
     }
 }
@@ -361,7 +353,7 @@ private extension JetpackConnectionWebViewController {
 ///
 private extension JetpackConnectionWebViewController {
     func startNativeConnectionFlow() {
-        guard let api = blog.wordPressOrgRestApi else {
+        guard let api = blog.selfHostedSiteRestApi else {
             DDLogInfo("WordPressOrgRestAPI not loaded to perform native Jetpack connection")
             startConnectionFlow()
             return

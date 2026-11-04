@@ -1,4 +1,6 @@
 import Foundation
+import WordPressData
+import WordPressKit
 
 final class MediaRepository {
 
@@ -8,10 +10,10 @@ final class MediaRepository {
         case unknown
     }
 
-    private let coreDataStack: CoreDataStackSwift
+    private let coreDataStack: CoreDataStack
     private let remoteFactory: MediaServiceRemoteFactory
 
-    init(coreDataStack: CoreDataStackSwift, remoteFactory: MediaServiceRemoteFactory = .init()) {
+    init(coreDataStack: CoreDataStack, remoteFactory: MediaServiceRemoteFactory = .init()) {
         self.coreDataStack = coreDataStack
         self.remoteFactory = remoteFactory
     }
@@ -20,9 +22,11 @@ final class MediaRepository {
     func getMedia(withID mediaID: NSNumber, in blogID: TaggedManagedObjectID<Blog>) async throws -> TaggedManagedObjectID<Media> {
         let remote = try await remote(for: blogID)
         let remoteMedia: RemoteMedia? = try await withCheckedThrowingContinuation { continuation in
-            remote.getMediaWithID(
-                mediaID, success: continuation.resume(returning:),
-                failure: { continuation.resume(throwing: $0 ?? MediaRepository.Error.unknown) })
+            remote.getMediaWithID(mediaID) {
+                continuation.resume(returning: $0)
+            } failure: {
+                continuation.resume(throwing: $0 ?? MediaRepository.Error.unknown)
+            }
         }
         guard let remoteMedia else {
             throw MediaRepository.Error.mediaNotFound
@@ -71,7 +75,6 @@ final class MediaRepository {
             context.delete(media)
         }
     }
-
 }
 
 private extension MediaRepository {
@@ -83,12 +86,19 @@ private extension MediaRepository {
     }
 }
 
-@objc class MediaServiceRemoteFactory: NSObject {
+@objc public class MediaServiceRemoteFactory: NSObject {
 
     @objc(remoteForBlog:error:)
-    func remote(for blog: Blog) throws -> MediaServiceRemote {
-        if blog.supports(.wpComRESTAPI), let dotComID = blog.dotComID, let api = blog.wordPressComRestApi() {
+    public func remote(for blog: Blog) throws -> MediaServiceRemote {
+        if blog.supports(.wpComRESTAPI), let dotComID = blog.dotComID, let api = blog.wordPressComRestApi {
             return MediaServiceRemoteREST(wordPressComRestApi: api, siteID: dotComID)
+        }
+
+        // We use WordPress.com API for media management instead of WordPress core REST API to ensure
+        // compatibility with WordPress.com-specific features such as video upload restrictions
+        // and storage limits based on the site's plan.
+        if let site = try? WordPressSite(blog: blog) {
+            return MediaServiceRemoteCoreREST(client: WordPressClientFactory.shared.instance(for: site))
         }
 
         if let username = blog.username, let password = blog.password, let api = blog.xmlrpcApi {
@@ -97,13 +107,12 @@ private extension MediaRepository {
 
         throw MediaRepository.Error.remoteAPIUnavailable
     }
-
 }
 
 extension MediaServiceRemote {
 
     func getMediaLibraryCount(forMediaTypes types: [MediaType]) async throws -> Int {
-        try await getMediaLibraryCount(forMediaTypes: types.map(Media.string(from:)))
+        try await getMediaLibraryCount(forMediaTypes: types.map(\.stringValue))
     }
 
     func getMediaLibraryCount(forMediaTypes mediaTypes: [String]) async throws -> Int {
@@ -118,18 +127,17 @@ extension MediaServiceRemote {
         try await withCheckedThrowingContinuation { continuation in
             self.getMediaLibraryCount(
                 forType: type,
-                withSuccess: continuation.resume(returning:),
+                withSuccess: { continuation.resume(returning: $0) },
                 failure: { continuation.resume(throwing: $0!) }
             )
         }
     }
-
 }
 
 extension RemoteMedia {
 
     @objc(remoteMediaWithMedia:)
-    static func from(_ media: Media) -> RemoteMedia {
+    public static func from(_ media: Media) -> RemoteMedia {
         let remoteMedia = RemoteMedia()
         remoteMedia.mediaID = media.mediaID
         remoteMedia.url = media.remoteURL.flatMap(URL.init(string:))
@@ -151,5 +159,4 @@ extension RemoteMedia {
         remoteMedia.postID = media.postID
         return remoteMedia
     }
-
 }

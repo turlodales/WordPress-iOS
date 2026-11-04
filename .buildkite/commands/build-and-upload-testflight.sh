@@ -1,0 +1,15 @@
+#!/bin/bash -eu
+
+# Builds one app and uploads it to TestFlight for internal testers.
+
+APP="${1:?Usage: build-and-upload-testflight.sh <wordpress|jetpack|reader>}"
+
+"$(dirname "${BASH_SOURCE[0]}")/shared-set-up.sh" --artifacts DerivedData/SourcePackages
+"$(dirname "${BASH_SOURCE[0]}")/shared-set-up-distribution.sh"
+
+source "$(dirname "${BASH_SOURCE[0]}")/install-a8c-secrets.sh"
+
+echo "--- :testflight: Building and uploading ${APP} to TestFlight"
+bundle exec fastlane build_and_upload_app_for_testflight app:"${APP}"
+
+# No `save_swiftpm_cache` here: the build-for-testing jobs in this build save the same cache.

@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 class OnboardingEnableNotificationsViewController: UIViewController {
     @IBOutlet weak var titleLabel: UILabel!
@@ -7,18 +8,15 @@ class OnboardingEnableNotificationsViewController: UIViewController {
     @IBOutlet weak var enableButton: UIButton!
     @IBOutlet weak var cancelButton: UIButton!
 
-    let option: OnboardingOption
-    let coordinator: OnboardingQuestionsCoordinator
+    private let completion: () -> Void
 
-    init(with coordinator: OnboardingQuestionsCoordinator, option: OnboardingOption) {
-        self.coordinator = coordinator
-        self.option = option
-
-        super.init(nibName: nil, bundle: nil)
+    init(completion: @escaping () -> Void) {
+        self.completion = completion
+        super.init(nibName: "OnboardingEnableNotificationsViewController", bundle: .keystone)
     }
 
-    required convenience init?(coder: NSCoder) {
-        self.init(with: OnboardingQuestionsCoordinator(), option: .notifications)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     override func viewDidLoad() {
@@ -30,8 +28,14 @@ class OnboardingEnableNotificationsViewController: UIViewController {
         applyStyles()
         applyLocalization()
         updateContent()
+        updateContent(for: traitCollection)
 
-        coordinator.notificationsDisplayed(option: option)
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _: UITraitCollection) in
+            self.updateContent(for: self.traitCollection)
+        }
+
+        WPAnalytics.track(.onboardingEnableNotificationsDisplayed)
+        UserPersistentStoreFactory.instance().onboardingNotificationsPromptDisplayed = true
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
@@ -42,11 +46,18 @@ class OnboardingEnableNotificationsViewController: UIViewController {
 // MARK: - IBAction's
 extension OnboardingEnableNotificationsViewController {
     @IBAction func enableButtonTapped(_ sender: Any) {
-        coordinator.notificationsEnabledTapped(selection: option)
+        WPAnalytics.track(.onboardingEnableNotificationsEnableTapped)
+
+        InteractiveNotificationsManager.shared.requestAuthorization { _ in
+            DispatchQueue.main.async {
+                self.completion()
+            }
+        }
     }
 
     @IBAction func skipButtonTapped(_ sender: Any) {
-        coordinator.notificationsSkipped(selection: option)
+        WPAnalytics.track(.onboardingEnableNotificationsSkipped)
+        completion()
     }
 }
 
@@ -57,12 +68,6 @@ extension OnboardingEnableNotificationsViewController {
 
         // Hide the detail image if the text is too large
         detailView.isHidden = contentSize.isAccessibilityCategory
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
-        updateContent(for: traitCollection)
     }
 }
 
@@ -82,8 +87,8 @@ private extension OnboardingEnableNotificationsViewController {
     func applyStyles() {
         navigationController?.navigationBar.isHidden = true
 
-        titleLabel.font = WPStyleGuide.serifFontForTextStyle(.title1, fontWeight: .semibold)
-        titleLabel.textColor = .text
+        titleLabel.font = .preferredFont(forTextStyle: .title1).withWeight(.medium)
+        titleLabel.textColor = .label
 
         subTitleLabel.font = .preferredFont(forTextStyle: .title3)
         subTitleLabel.textColor = .secondaryLabel
@@ -96,37 +101,10 @@ private extension OnboardingEnableNotificationsViewController {
     }
 
     func updateContent() {
-        let text: String
-        let notificationContent: UnifiedPrologueNotificationsContent?
-
-        switch option {
-        case .stats:
-            text = StatsStrings.subTitle
-            notificationContent = .init(topElementTitle: StatsStrings.notificationTopTitle,
-                                        middleElementTitle: StatsStrings.notificationMiddleTitle,
-                                        bottomElementTitle: StatsStrings.notificationBottomTitle,
-                                        topImage: "view-milestone-1k",
-                                        middleImage: "traffic-surge-icon")
-        case .writing:
-            text = WritingStrings.subTitle
-            notificationContent = nil
-
-        case .notifications, .showMeAround, .skip:
-            text = DefaultStrings.subTitle
-            notificationContent = nil
-
-        case .reader:
-            text = ReaderStrings.subTitle
-            notificationContent = .init(topElementTitle: ReaderStrings.notificationTopTitle,
-                                        middleElementTitle: ReaderStrings.notificationMiddleTitle,
-                                        bottomElementTitle: ReaderStrings.notificationBottomTitle)
-        }
-
-
-        subTitleLabel.text = text
+        subTitleLabel.text = Strings.subtitle
 
         // Convert the image view to a UIView and embed it
-        let imageView = UIView.embedSwiftUIView(UnifiedPrologueNotificationsContentView(notificationContent))
+        let imageView = UIView.embedSwiftUIView(UnifiedPrologueNotificationsContentView())
         imageView.frame.size.width = detailView.frame.width
         detailView.addSubview(imageView)
         imageView.pinSubviewToAllEdges(detailView)
@@ -136,29 +114,7 @@ private extension OnboardingEnableNotificationsViewController {
 // MARK: - Constants / Strings
 private struct Strings {
     static let title = NSLocalizedString("Enable Notifications?", comment: "Title of the view, asking the user if they want to enable notifications.")
+    static let subtitle = NSLocalizedString("Stay in touch with like and comment notifications.", comment: "Subtitle giving the user more context about why to enable notifications.")
     static let enableButton = NSLocalizedString("Enable Notifications", comment: "Title of button that enables push notifications when tapped")
     static let cancelButton = NSLocalizedString("Not Now", comment: "Title of a button that cancels enabling notifications when tapped")
-}
-
-private struct StatsStrings {
-    static let subTitle = NSLocalizedString("Know when your site is getting more traffic, new followers, or when it passes a new milestone!", comment: "Subtitle giving the user more context about why to enable notifications.")
-
-    static let notificationTopTitle = NSLocalizedString("Congratulations! Your site passed *1000 all-time* views!", comment: "Example notification content displayed on the Enable Notifications prompt that is personalized based on a users selection. Words marked between * characters will be displayed as bold text.")
-    static let notificationMiddleTitle = NSLocalizedString("Your site appears to be getting *more traffic* than usual!", comment: "Example notification content displayed on the Enable Notifications prompt that is personalized based on a users selection. Words marked between * characters will be displayed as bold text.")
-    static let notificationBottomTitle = NSLocalizedString("*Johann Brandt* is now following your site!", comment: "Example notification content displayed on the Enable Notifications prompt that is personalized based on a users selection. Words marked between * characters will be displayed as bold text.")
-}
-
-private struct WritingStrings {
-    static let subTitle = NSLocalizedString("Stay in touch with your audience with like and comment notifications.", comment: "Subtitle giving the user more context about why to enable notifications.")
-}
-
-private struct DefaultStrings {
-    static let subTitle = NSLocalizedString("Stay in touch with like and comment notifications.", comment: "Subtitle giving the user more context about why to enable notifications.")
-}
-
-private struct ReaderStrings {
-    static let subTitle = NSLocalizedString("Know when your favorite authors post new content.", comment: "Subtitle giving the user more context about why to enable notifications.")
-    static let notificationTopTitle = NSLocalizedString("*Madison Ruiz* added a new post to their site", comment: "Example notification content displayed on the Enable Notifications prompt that is personalized based on a users selection. Words marked between * characters will be displayed as bold text.")
-    static let notificationMiddleTitle = NSLocalizedString("You received *50 likes* on your comment", comment: "Example notification content displayed on the Enable Notifications prompt that is personalized based on a users selection. Words marked between * characters will be displayed as bold text.")
-    static let notificationBottomTitle = NSLocalizedString("*Johann Brandt* responded to your comment", comment: "Example notification content displayed on the Enable Notifications prompt that is personalized based on a users selection. Words marked between * characters will be displayed as bold text.")
 }

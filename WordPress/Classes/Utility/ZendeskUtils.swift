@@ -1,11 +1,15 @@
 import Foundation
-import CoreTelephony
-import WordPressAuthenticator
+import BuildSettingsKit
+import WordPressData
 import WordPressKit
+import WordPressShared
+import DesignSystem
 
 import SupportSDK
+import SupportProvidersSDK
 import ZendeskCoreSDK
 import AutomatticTracks
+import AutomatticEncryptedLogs
 
 extension NSNotification.Name {
     static let ZendeskPushNotificationReceivedNotification = NSNotification.Name(rawValue: "ZendeskPushNotificationReceivedNotification")
@@ -23,23 +27,29 @@ enum ZendeskRequestError: Error {
     case createRequest(String)
 }
 
+enum ZendeskRequestLoadingStatus {
+    case identifyingUser
+    case creatingTicket
+    case creatingTicketAnonymously
+}
+
 protocol ZendeskUtilsProtocol {
     typealias ZendeskNewRequestCompletion = (Result<ZDKRequest, ZendeskRequestError>) -> ()
+    typealias ZendeskNewRequestLoadingStatus = (ZendeskRequestLoadingStatus) -> ()
     func createNewRequest(in viewController: UIViewController, description: String, tags: [String], completion: @escaping ZendeskNewRequestCompletion)
 }
 
 /// This class provides the functionality to communicate with Zendesk for Help Center and support ticket interaction,
 /// as well as displaying views for the Help Center, new tickets, and ticket list.
 ///
-@objc class ZendeskUtils: NSObject, ZendeskUtilsProtocol {
-
+class ZendeskUtils: NSObject, ZendeskUtilsProtocol {
     // MARK: - Public Properties
 
-    static var sharedInstance: ZendeskUtils = ZendeskUtils(contextManager: ContextManager.shared)
+    static var sharedInstance = ZendeskUtils(contextManager: ContextManager.shared)
     static var zendeskEnabled = false
-    @objc static var unreadNotificationsCount = 0
+    static var unreadNotificationsCount = 0
 
-    @objc static var showSupportNotificationIndicator: Bool {
+    static var showSupportNotificationIndicator: Bool {
         return unreadNotificationsCount > 0
     }
 
@@ -50,10 +60,18 @@ protocol ZendeskUtilsProtocol {
 
     // MARK: - Private Properties
 
-    private var sourceTag: WordPressSupportSourceTag?
+    private var sourceTag: SupportSourceTag?
 
     private var userName: String?
-    private var userEmail: String?
+    private var userEmail: String? {
+        set {
+            _userEmail = newValue.map(ZendeskUtils.a8cTestEmail(_:))
+        }
+        get {
+            _userEmail
+        }
+    }
+    private var _userEmail: String?
     private var userNameConfirmed = false
 
     private var deviceID: String?
@@ -82,7 +100,7 @@ protocol ZendeskUtilsProtocol {
         self.contextManager = contextManager
     }
 
-    @objc static func setup() {
+    static func setup() {
         guard getZendeskCredentials() else {
             return
         }
@@ -121,7 +139,7 @@ protocol ZendeskUtilsProtocol {
     /// Displays the Zendesk New Request view from the given controller, for users to submit new tickets.
     /// If the user's identity (i.e. contact info) was updated, inform the caller in the `identityUpdated` completion block.
     ///
-    func showNewRequestIfPossible(from controller: UIViewController, with sourceTag: WordPressSupportSourceTag? = nil, identityUpdated: ((Bool) -> Void)? = nil) {
+    func showNewRequestIfPossible(from controller: UIViewController, with sourceTag: SupportSourceTag? = nil, identityUpdated: ((Bool) -> Void)? = nil) {
 
         presentInController = controller
 
@@ -146,7 +164,7 @@ protocol ZendeskUtilsProtocol {
     /// Displays the Zendesk Request List view from the given controller, allowing user to access their tickets.
     /// If the user's identity (i.e. contact info) was updated, inform the caller in the `identityUpdated` completion block.
     ///
-    func showTicketListIfPossible(from controller: UIViewController, with sourceTag: WordPressSupportSourceTag? = nil, identityUpdated: ((Bool) -> Void)? = nil) {
+    func showTicketListIfPossible(from controller: UIViewController, with sourceTag: SupportSourceTag? = nil, identityUpdated: ((Bool) -> Void)? = nil) {
 
         presentInController = controller
 
@@ -174,7 +192,7 @@ protocol ZendeskUtilsProtocol {
     func showSupportEmailPrompt(from controller: UIViewController, completion: @escaping (Bool) -> Void) {
         presentInController = controller
 
-        ZendeskUtils.getUserInformationAndShowPrompt(withName: false) { success in
+        ZendeskUtils.getUserInformationAndShowPrompt(alertOptions: .withoutName) { success in
             completion(success)
         }
     }
@@ -187,7 +205,7 @@ protocol ZendeskUtilsProtocol {
         let planService = planService ?? PlanService(coreDataStack: contextManager)
         planService.getAllSitesNonLocalizedPlanDescriptionsForAccount(account, success: { plans in
             self.sitePlansCache = plans
-        }, failure: { error in })
+        }, failure: { _ in })
     }
 
     func createRequest(planServiceRemote: PlanServiceRemote? = nil,
@@ -204,7 +222,6 @@ protocol ZendeskUtilsProtocol {
         ticketFields.append(CustomField(fieldId: TicketFieldIDs.appVersion, value: ZendeskUtils.appVersion))
         ticketFields.append(CustomField(fieldId: TicketFieldIDs.allBlogs, value: ZendeskUtils.getBlogInformation()))
         ticketFields.append(CustomField(fieldId: TicketFieldIDs.deviceFreeSpace, value: ZendeskUtils.getDeviceFreeSpace()))
-        ticketFields.append(CustomField(fieldId: TicketFieldIDs.networkInformation, value: ZendeskUtils.getNetworkInformation()))
         ticketFields.append(CustomField(fieldId: TicketFieldIDs.logs, value: ZendeskUtils.getEncryptedLogUUID()))
         ticketFields.append(CustomField(fieldId: TicketFieldIDs.currentSite, value: ZendeskUtils.getCurrentSiteDescription()))
         ticketFields.append(CustomField(fieldId: TicketFieldIDs.sourcePlatform, value: Constants.sourcePlatform))
@@ -214,7 +231,7 @@ protocol ZendeskUtilsProtocol {
             var tags = ZendeskUtils.getTags()
             switch result {
             case .success(let metadata):
-                guard let metadata = metadata else {
+                guard let metadata else {
                     break
                 }
 
@@ -284,12 +301,12 @@ protocol ZendeskUtilsProtocol {
     }
 
     /// When a user views the Ticket List, this is called to:
-    /// - clear the notification count
-    /// - update the application badge count
-    /// - post an NSNotification so the various indicators can be cleared.
+    /// - clear the support notification count
+    /// - post an NSNotification so the support indicators can be cleared.
     ///
+    /// Support no longer touches the home-screen icon badge; the WordPress push
+    /// payload owns that count.
     static func pushNotificationRead() {
-        UIApplication.shared.applicationIconBadgeNumber -= unreadNotificationsCount
         unreadNotificationsCount = 0
         saveUnreadCount()
         postNotificationRead()
@@ -325,18 +342,54 @@ protocol ZendeskUtilsProtocol {
         }
     }
 
+    /// If there is no identity set yet, create an anonymous one.
+    ///
+    /// - warning: This method should only be used for interactions with Zendesk
+    /// that doesn't require a confirmed identity and/or a response from support,
+    /// such as sending feedback about the app.
+    static func createIdentitySilentlyIfNeeded() {
+        if Zendesk.instance?.identity == nil {
+            Zendesk.instance?.setIdentity(Identity.createAnonymous())
+        }
+    }
 }
 
 // MARK: - Create Request
 
 extension ZendeskUtils {
     func createNewRequest(in viewController: UIViewController, description: String, tags: [String], completion: @escaping ZendeskNewRequestCompletion) {
-        presentInController = viewController
-        ZendeskUtils.createIdentity { [weak self] success, newIdentity in
-            guard let self, success else {
-                completion(.failure(.noIdentity))
-                return
+        createNewRequest(in: viewController, description: description, tags: tags, alertOptions: .withName, completion: completion)
+    }
+
+    func uploadAttachment(_ data: Data, contentType: String) async throws -> ZDKUploadResponse {
+        try await withUnsafeThrowingContinuation { continuation in
+            ZDKUploadProvider().uploadAttachment(data, withFilename: "attachment", andContentType: contentType) { response, error in
+                if let response {
+                    continuation.resume(returning: response)
+                } else {
+                    continuation.resume(throwing: error ?? URLError(.unknown))
+                }
             }
+        }
+    }
+
+    /// - parameter alertOptions: If the value is `nil`, the request will be
+    /// created using the existing identity without prompting to confirm user information.
+    /// In that case, the app is responsible for creating an identity before calling this method.
+    func createNewRequest(
+        in viewController: UIViewController,
+        subject: String? = nil,
+        description: String,
+        tags: [String],
+        attachments: [ZDKUploadResponse] = [],
+        alertOptions: IdentityAlertOptions?,
+        status: ZendeskNewRequestLoadingStatus? = nil,
+        completion: @escaping ZendeskNewRequestCompletion
+    ) {
+        presentInController = viewController
+
+        let createRequest = { [weak self] in
+            guard let self else { return }
 
             self.createRequest() { requestConfig in
                 let provider = ZDKRequestProvider()
@@ -345,8 +398,9 @@ extension ZendeskUtils {
                 request.customFields = requestConfig.customFields
                 request.tags = requestConfig.tags
                 request.ticketFormId = requestConfig.ticketFormID
-                request.subject = requestConfig.subject
+                request.subject = subject ?? requestConfig.subject
                 request.requestDescription = description
+                request.attachments = attachments
 
                 provider.createRequest(request) { response, error in
                     if let error {
@@ -363,6 +417,30 @@ extension ZendeskUtils {
                 }
             }
         }
+
+        guard let alertOptions else {
+            createRequest()
+            return // Continue using the previously created identity
+        }
+
+        status?(.identifyingUser)
+
+        ZendeskUtils.createIdentity(alertOptions: alertOptions) { success, _ in
+            guard success else {
+                if alertOptions.optionalIdentity {
+                    let identity = Identity.createAnonymous()
+                    Zendesk.instance?.setIdentity(identity)
+                    status?(.creatingTicketAnonymously)
+                    createRequest()
+                } else {
+                    completion(.failure(.noIdentity))
+                }
+                return
+            }
+
+            status?(.creatingTicket)
+            createRequest()
+        }
     }
 }
 
@@ -372,9 +450,9 @@ private extension ZendeskUtils {
 
     static func getZendeskCredentials() -> Bool {
 
-        let zdAppID = ApiCredentials.zendeskAppId
-        let zdUrl = ApiCredentials.zendeskUrl
-        let zdClientId = ApiCredentials.zendeskClientId
+        let zdAppID = BuildSettings.current.secrets.zendesk.appId
+        let zdUrl = BuildSettings.current.secrets.zendesk.url
+        let zdClientId = BuildSettings.current.secrets.zendesk.clientId
 
         guard
             !zdAppID.isEmpty,
@@ -403,25 +481,25 @@ private extension ZendeskUtils {
     ///     - Bool indicating there is an identity to use.
     ///     - Bool indicating if a _new_ identity was created.
     ///
-    static func createIdentity(completion: @escaping (Bool, Bool) -> Void) {
+    static func createIdentity(alertOptions: IdentityAlertOptions = .withName, completion: @escaping (Bool, Bool) -> Void) {
 
         // If we already have an identity, and the user has confirmed it, do nothing.
         let haveUserInfo = ZendeskUtils.sharedInstance.haveUserIdentity && ZendeskUtils.sharedInstance.userNameConfirmed
         guard !haveUserInfo else {
-                DDLogDebug("Using existing Zendesk identity: \(ZendeskUtils.sharedInstance.userEmail ?? ""), \(ZendeskUtils.sharedInstance.userName ?? "")")
+                DDLogDebug("Using existing Zendesk identity: \(maskedEmail(ZendeskUtils.sharedInstance.userEmail ?? ""))")
                 completion(true, false)
                 return
         }
 
         // Prompt the user for information.
-        ZendeskUtils.getUserInformationAndShowPrompt(withName: true) { success in
+        ZendeskUtils.getUserInformationAndShowPrompt(alertOptions: alertOptions) { success in
             completion(success, success)
         }
     }
 
-    static func getUserInformationAndShowPrompt(withName: Bool, completion: @escaping (Bool) -> Void) {
+    static func getUserInformationAndShowPrompt(alertOptions: IdentityAlertOptions, completion: @escaping (Bool) -> Void) {
         ZendeskUtils.getUserInformationIfAvailable {
-            ZendeskUtils.promptUserForInformation(withName: withName) { success in
+            ZendeskUtils.promptUserForInformation(alertOptions: alertOptions) { success in
                 guard success else {
                     DDLogInfo("No user information to create Zendesk identity with.")
                     completion(false)
@@ -451,7 +529,7 @@ private extension ZendeskUtils {
          2. If not, use selected site.
          */
 
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
 
         // 1. Check for WP account
         if let defaultAccount = try? WPAccount.lookupDefaultWordPressComAccount(in: context) {
@@ -475,7 +553,6 @@ private extension ZendeskUtils {
             getUserInformationFrom(jetpackState: jetpackState)
             completion()
             return
-
         }
 
         // 2b. self-hosted site
@@ -487,7 +564,6 @@ private extension ZendeskUtils {
     }
 
     static func createZendeskIdentity(completion: @escaping (Bool) -> Void) {
-
         guard let userEmail = ZendeskUtils.sharedInstance.userEmail else {
             DDLogInfo("No user email to create Zendesk identity with.")
             let identity = Identity.createAnonymous()
@@ -498,7 +574,7 @@ private extension ZendeskUtils {
 
         let zendeskIdentity = Identity.createAnonymous(name: ZendeskUtils.sharedInstance.userName, email: userEmail)
         Zendesk.instance?.setIdentity(zendeskIdentity)
-        DDLogDebug("Zendesk identity created with email '\(userEmail)' and name '\(ZendeskUtils.sharedInstance.userName ?? "")'.")
+        DDLogDebug("Zendesk identity created with email '\(maskedEmail(userEmail))'.")
         registerDeviceIfNeeded()
         completion(true)
     }
@@ -510,8 +586,8 @@ private extension ZendeskUtils {
                 return
         }
 
-        ZDKPushProvider(zendesk: zendeskInstance).register(deviceIdentifier: deviceID, locale: appLanguage) { (pushResponse, error) in
-            if let error = error {
+        ZDKPushProvider(zendesk: zendeskInstance).register(deviceIdentifier: deviceID, locale: appLanguage) { _, error in
+            if let error {
                 DDLogInfo("Zendesk couldn't register device: \(deviceID). Error: \(error)")
             } else {
                 ZendeskUtils.sharedInstance.deviceID = nil
@@ -519,8 +595,6 @@ private extension ZendeskUtils {
             }
         }
     }
-
-
 
     // MARK: - View
 
@@ -552,13 +626,13 @@ private extension ZendeskUtils {
         // Get email address from remote profile
         guard let username = blog.username,
             let password = blog.password,
-            let xmlrpc = blog.xmlrpc,
+            let xmlrpc = blog.xmlrpcURL?.absoluteString,
             let service = UsersService(username: username, password: password, xmlrpc: xmlrpc) else {
                 return
         }
 
         service.fetchProfile { userProfile in
-            guard let userProfile = userProfile else {
+            guard let userProfile else {
                 completion()
                 return
             }
@@ -569,12 +643,12 @@ private extension ZendeskUtils {
 
     static func getUserInformationFrom(wpAccount: WPAccount) {
 
-        guard let api = wpAccount.wordPressComRestApi else {
+        guard let api = wpAccount.wordPressComRestApi, let userID = wpAccount.userID else {
             DDLogInfo("Zendesk: No wordPressComRestApi.")
             return
         }
 
-        let service = AccountSettingsService(userID: wpAccount.userID.intValue, api: api)
+        let service = AccountSettingsService(userID: userID.intValue, api: api)
 
         guard let accountSettings = service.settings else {
             DDLogInfo("Zendesk: No accountSettings.")
@@ -583,7 +657,7 @@ private extension ZendeskUtils {
 
         ZendeskUtils.sharedInstance.userEmail = wpAccount.email
         ZendeskUtils.sharedInstance.userName = wpAccount.username
-        if accountSettings.firstName.count > 0 || accountSettings.lastName.count > 0 {
+        if !accountSettings.firstName.isEmpty || !accountSettings.lastName.isEmpty {
             ZendeskUtils.sharedInstance.userName = (accountSettings.firstName + " " + accountSettings.lastName).trim()
         }
     }
@@ -594,7 +668,7 @@ private extension ZendeskUtils {
         var userProfile = [String: String]()
         userProfile[Constants.profileEmailKey] = ZendeskUtils.sharedInstance.userEmail
         userProfile[Constants.profileNameKey] = ZendeskUtils.sharedInstance.userName
-        DDLogDebug("Zendesk - saving profile to User Defaults: \(userProfile)")
+        DDLogDebug("Zendesk - saving profile to User Defaults: \(maskedEmail(ZendeskUtils.sharedInstance.userEmail ?? ""))")
         UserPersistentStoreFactory.instance().set(userProfile, forKey: Constants.zendeskProfileUDKey)
     }
 
@@ -603,8 +677,8 @@ private extension ZendeskUtils {
             return false
         }
 
-        DDLogDebug("Zendesk - read profile from User Defaults: \(userProfile)")
         ZendeskUtils.sharedInstance.userEmail = userProfile.valueAsString(forKey: Constants.profileEmailKey)
+        DDLogDebug("Zendesk - read profile from User Defaults: \(maskedEmail(ZendeskUtils.sharedInstance.userEmail ?? ""))")
         ZendeskUtils.sharedInstance.userName = userProfile.valueAsString(forKey: Constants.profileNameKey)
         ZendeskUtils.sharedInstance.userNameConfirmed = true
 
@@ -651,8 +725,7 @@ private extension ZendeskUtils {
 
     static func getEncryptedLogUUID() -> String {
 
-        let fileLogger = WPLogger.shared().fileLogger
-        let dataProvider = EventLoggingDataProvider.fromDDFileLogger(fileLogger)
+        let dataProvider = EventLoggingDataProvider.from(.shared)
 
         guard let logFilePath = dataProvider.logFilePath(forErrorLevel: .debug, at: Date()) else {
             return "Error: No log files found on device"
@@ -671,30 +744,30 @@ private extension ZendeskUtils {
             let eventLogging = EventLogging(dataSource: dataProvider, delegate: delegate)
             try eventLogging.enqueueLogForUpload(log: logFile)
         }
-        catch let err {
-            return "Error preparing log file: \(err.localizedDescription)"
+        catch {
+            return "Error preparing log file: \(error.localizedDescription)"
         }
 
         return logFile.uuid
     }
 
     static func getCurrentSiteDescription() -> String {
-        guard let blog = Blog.lastUsed(in: ContextManager.sharedInstance().mainContext) else {
+        guard let blog = Blog.lastUsed(in: ContextManager.shared.mainContext) else {
             return Constants.noValue
         }
 
         let url = blog.url ?? Constants.unknownValue
-        return "\(url) (\(blog.stateDescription()))"
+        return "\(url) (\(blog.stateDescription)"
     }
 
     static func getBlogInformation() -> String {
-        let allBlogs = (try? BlogQuery().blogs(in: ContextManager.sharedInstance().mainContext)) ?? []
-        guard allBlogs.count > 0 else {
+        let allBlogs = (try? BlogQuery().blogs(in: ContextManager.shared.mainContext)) ?? []
+        guard !allBlogs.isEmpty else {
             return Constants.noValue
         }
 
         let blogInfo: [String] = allBlogs.map {
-            var desc = $0.supportDescription()
+            var desc = $0.supportDescription
             if let blogID = $0.dotComID, let plan = ZendeskUtils.sharedInstance.sitePlansCache[blogID.intValue] {
                 desc = desc + "<Unlocalized Plan: \(plan.name) (\(plan.planID))>" // Do not localize this. :)
             }
@@ -705,7 +778,7 @@ private extension ZendeskUtils {
 
     static func getTags() -> [String] {
 
-        let context = ContextManager.sharedInstance().mainContext
+        let context = ContextManager.shared.mainContext
         let allBlogs = (try? BlogQuery().blogs(in: context)) ?? []
         var tags = [String]()
 
@@ -718,7 +791,7 @@ private extension ZendeskUtils {
         tags.append(Constants.platformTag)
 
         // If there are no sites, then the user has an empty WP account.
-        guard allBlogs.count > 0 else {
+        guard !allBlogs.isEmpty else {
             tags.append(Constants.wpComTag)
             return tags
         }
@@ -734,8 +807,6 @@ private extension ZendeskUtils {
             tags.append(Constants.wpComTag)
         }
 
-
-
         // Add gutenbergIsDefault tag
         if let blog = Blog.lastUsed(in: context) {
             if blog.isGutenbergEnabled {
@@ -743,43 +814,15 @@ private extension ZendeskUtils {
             }
         }
 
-        if let currentSite = Blog.lastUsedOrFirst(in: context), !currentSite.isHostedAtWPcom, !currentSite.isAtomic() {
+        if let currentSite = Blog.lastUsedOrFirst(in: context), !currentSite.isHostedAtWPcom, !currentSite.isAtomic {
             tags.append(Constants.mobileSelfHosted)
         }
 
         return tags
     }
 
-    static func getNetworkInformation() -> String {
-
-        var networkInformation = [String]()
-
-        let reachibilityStatus = ZDKReachability.forInternetConnection().currentReachabilityStatus()
-
-        let networkType: String = {
-            switch reachibilityStatus {
-            case .reachableViaWiFi:
-                return Constants.networkWiFi
-            case .reachableViaWWAN:
-                return Constants.networkWWAN
-            default:
-                return Constants.unknownValue
-            }
-        }()
-
-        let networkCarrier = CTTelephonyNetworkInfo().serviceSubscriberCellularProviders?.values.first
-        let carrierName = networkCarrier?.carrierName ?? Constants.unknownValue
-        let carrierCountryCode = networkCarrier?.isoCountryCode ?? Constants.unknownValue
-
-        networkInformation.append("\(Constants.networkTypeLabel) \(networkType)")
-        networkInformation.append("\(Constants.networkCarrierLabel) \(carrierName)")
-        networkInformation.append("\(Constants.networkCountryCodeLabel) \(carrierCountryCode)")
-
-        return networkInformation.joined(separator: "\n")
-    }
-
     func trackSourceEvent(_ event: WPAnalyticsStat) {
-        guard let sourceTag = sourceTag else {
+        guard let sourceTag else {
             WPAnalytics.track(event)
             return
         }
@@ -787,7 +830,6 @@ private extension ZendeskUtils {
         let properties = ["source": sourceTag.origin ?? sourceTag.name]
         WPAnalytics.track(event, withProperties: properties)
     }
-
 
     // MARK: - Push Notification Helpers
 
@@ -811,32 +853,38 @@ private extension ZendeskUtils {
 
     // MARK: - User Information Prompt
 
-    static func promptUserForInformation(withName: Bool, completion: @escaping (Bool) -> Void) {
+    static func promptUserForInformation(alertOptions: IdentityAlertOptions, completion: @escaping (Bool) -> Void) {
 
         let alertController = UIAlertController(title: nil,
                                                 message: nil,
                                                 preferredStyle: .alert)
 
-        let alertMessage = withName ? LocalizedText.alertMessageWithName : LocalizedText.alertMessage
-        alertController.setValue(NSAttributedString(string: alertMessage, attributes: [.font: WPStyleGuide.subtitleFont()]),
-                                 forKey: "attributedMessage")
+        let alertMessage = alertOptions.message
+        let attributedString = NSMutableAttributedString(attributedString: NSAttributedString(string: alertMessage, attributes: [.font: UIFont.DS.font(.caption)]))
+
+        if let title = alertOptions.title {
+            attributedString.insert(NSAttributedString(string: title + "\n", attributes: [.font: UIFont.DS.font(.bodySmall(.emphasized))]), at: 0)
+        }
+        alertController.setValue(attributedString, forKey: "attributedMessage")
 
         // Cancel Action
-        alertController.addCancelActionWithTitle(LocalizedText.alertCancel) { (_) in
-            completion(false)
-            return
+        if let cancel = alertOptions.cancel {
+            alertController.addCancelActionWithTitle(cancel) { _ in
+                completion(false)
+                return
+            }
         }
 
         // Submit Action
-        let submitAction = alertController.addDefaultActionWithTitle(LocalizedText.alertSubmit) { [weak alertController] (_) in
-            guard let email = alertController?.textFields?.first?.text else {
+        let submitAction = alertController.addDefaultActionWithTitle(alertOptions.submit) { [weak alertController] _ in
+            guard let email = alertController?.textFields?.first?.text, !email.isEmpty else {
                 completion(false)
                 return
             }
 
             ZendeskUtils.sharedInstance.userEmail = email
 
-            if withName {
+            if alertOptions.includesName {
                 ZendeskUtils.sharedInstance.userName = alertController?.textFields?.last?.text
                 ZendeskUtils.sharedInstance.userNameConfirmed = true
             }
@@ -856,23 +904,22 @@ private extension ZendeskUtils {
         // Email Text Field
         alertController.addTextField(configurationHandler: { textField in
             textField.clearButtonMode = .always
-            textField.placeholder = LocalizedText.emailPlaceholder
+            textField.placeholder = alertOptions.emailPlaceholder
             textField.accessibilityLabel = LocalizedText.emailAccessibilityLabel
             textField.text = ZendeskUtils.sharedInstance.userEmail
             textField.delegate = ZendeskUtils.sharedInstance
             textField.isEnabled = false
             textField.keyboardType = .emailAddress
-
-            textField.addTarget(self,
-                                action: #selector(emailTextFieldDidChange),
-                                for: UIControl.Event.editingChanged)
+            textField.on(.editingChanged) { textField in
+                Self.emailTextFieldDidChange(textField, alertOptions: alertOptions)
+            }
         })
 
         // Name Text Field
-        if withName {
+        if alertOptions.includesName {
             alertController.addTextField { textField in
                 textField.clearButtonMode = .always
-                textField.placeholder = LocalizedText.namePlaceholder
+                textField.placeholder = alertOptions.namePlaceholder
                 textField.accessibilityLabel = LocalizedText.nameAccessibilityLabel
                 textField.text = ZendeskUtils.sharedInstance.userName
                 textField.delegate = ZendeskUtils.sharedInstance
@@ -890,14 +937,14 @@ private extension ZendeskUtils {
         }
     }
 
-    @objc static func emailTextFieldDidChange(_ textField: UITextField) {
+    static func emailTextFieldDidChange(_ textField: UITextField, alertOptions: IdentityAlertOptions) {
         guard let alertController = ZendeskUtils.sharedInstance.presentInController?.presentedViewController as? UIAlertController,
             let email = alertController.textFields?.first?.text,
             let submitAction = alertController.actions.last else {
                 return
         }
 
-        submitAction.isEnabled = EmailFormatValidator.validate(string: email)
+        submitAction.isEnabled = alertOptions.optionalIdentity || EmailFormatValidator.validate(string: email)
         updateNameFieldForEmail(email)
     }
 
@@ -1009,46 +1056,6 @@ private extension ZendeskUtils {
 
     // MARK: - Plans
 
-    /// Retrieves the highest priority plan, if it exists
-    /// - Returns: the highest priority plan found, or an empty string if none was found
-    private func getHighestPriorityPlan(planService: PlanService? = nil) -> String {
-
-        let availablePlans = getAvailablePlansWithPriority(planService: planService)
-        if !ZendeskUtils.sharedInstance.sitePlansCache.isEmpty {
-            let plans = Set(ZendeskUtils.sharedInstance.sitePlansCache.values.compactMap { $0.name })
-
-            for availablePlan in availablePlans {
-                if plans.contains(availablePlan.nonLocalizedName) {
-                    return availablePlan.supportName
-                }
-            }
-        } else {
-            // fail safe: if the plan cache call fails for any reason, at least let's use the cached blogs
-            // and compare the localized names
-            let plans = Set(((try? BlogQuery().blogs(in: contextManager.mainContext)) ?? []).compactMap { $0.planTitle })
-
-            for availablePlan in availablePlans {
-                if plans.contains(availablePlan.name) {
-                    return availablePlan.supportName
-                }
-            }
-        }
-        return ""
-    }
-
-    /// Obtains the available plans, sorted by priority
-    private func getAvailablePlansWithPriority(planService: PlanService? = nil) -> [SupportPlan] {
-        let planService = planService ?? PlanService(coreDataStack: contextManager)
-        return planService.allPlans(in: contextManager.mainContext).map {
-            SupportPlan(priority: $0.supportPriority,
-                        name: $0.shortname,
-                        nonLocalizedName: $0.nonLocalizedShortname,
-                        supportName: $0.supportName)
-
-        }
-        .sorted { $0.priority > $1.priority }
-    }
-
     /// Retrieves up to date Zendesk metadata from the backend
     /// - Parameters:
     ///   - planServiceRemote: optional plan service remote. The default is used if none is passed
@@ -1093,51 +1100,36 @@ private extension ZendeskUtils {
         return Int(truncating: siteID)
     }
 
-    struct SupportPlan {
-        let priority: Int
-        let name: String
-        let nonLocalizedName: String
-        let supportName: String
-
-        // used to resolve discrepancies of unlocalized names between endpoints
-        let mappings = ["E-commerce": "eCommerce"]
-
-        init(priority: Int16,
-             name: String,
-             nonLocalizedName: String,
-             supportName: String) {
-
-            self.priority = Int(priority)
-            self.name = name
-            self.nonLocalizedName = mappings[nonLocalizedName] ?? nonLocalizedName
-            self.supportName = supportName
-        }
-    }
-
-
     // MARK: - Constants
 
     struct Constants {
         static let unknownValue = "unknown"
         static let noValue = "none"
         static let platformTag = "iOS"
-        static let ticketSubject = AppConstants.Zendesk.ticketSubject
         static let blogSeperator = "\n----------\n"
         static let jetpackTag = "jetpack"
         static let wpComTag = "wpcom"
         static let networkWiFi = "WiFi"
         static let networkWWAN = "Mobile"
-        static let networkTypeLabel = "Network Type:"
-        static let networkCarrierLabel = "Carrier:"
-        static let networkCountryCodeLabel = "Country Code:"
         static let zendeskProfileUDKey = "wp_zendesk_profile"
         static let profileEmailKey = "email"
         static let profileNameKey = "name"
         static let userDefaultsZendeskUnreadNotifications = "wp_zendesk_unread_notifications"
         static let nameFieldCharacterLimit = 50
-        static let sourcePlatform = AppConstants.zendeskSourcePlatform
+        static var sourcePlatform = BuildSettings.current.zendeskSourcePlatform
         static let gutenbergIsDefault = "mobile_gutenberg_is_default"
         static let mobileSelfHosted = "selected_site_self_hosted"
+
+        static var ticketSubject: String {
+            switch BuildSettings.current.brand {
+            case .wordpress:
+                NSLocalizedString("WordPress for iOS Support", comment: "Subject of new Zendesk ticket.")
+            case .jetpack:
+                NSLocalizedString("Jetpack for iOS Support", comment: "Subject of new Zendesk ticket.")
+            case .reader:
+                NSLocalizedString("support.zendesk.readerAppTicketSubject", value: "Reader for iOS Support", comment: "Subject of new Zendesk ticket.")
+            }
+        }
     }
 
     enum TicketFieldIDs {
@@ -1148,7 +1140,6 @@ private extension ZendeskUtils {
         static let appVersion: Int64 = 360000086866
         static let allBlogs: Int64 = 360000087183
         static let deviceFreeSpace: Int64 = 360000089123
-        static let networkInformation: Int64 = 360000086966
         static let logs: Int64 = 22871957
         static let currentSite: Int64 = 360000103103
         static let sourcePlatform: Int64 = 360009311651
@@ -1159,14 +1150,11 @@ private extension ZendeskUtils {
     struct LocalizedText {
         static let alertMessageWithName = NSLocalizedString("To continue please enter your email address and name.", comment: "Instructions for alert asking for email and name.")
         static let alertMessage = NSLocalizedString("Please enter your email address.", comment: "Instructions for alert asking for email.")
-        static let alertSubmit = NSLocalizedString("OK", comment: "Submit button on prompt for user information.")
-        static let alertCancel = NSLocalizedString("Cancel", comment: "Cancel prompt for user information.")
         static let emailPlaceholder = NSLocalizedString("Email", comment: "Email address text field placeholder")
         static let emailAccessibilityLabel = NSLocalizedString("Email", comment: "Accessibility label for the Email text field.")
         static let namePlaceholder = NSLocalizedString("Name", comment: "Name text field placeholder")
         static let nameAccessibilityLabel = NSLocalizedString("Name", comment: "Accessibility label for the Email text field.")
     }
-
 }
 
 // MARK: - UITextFieldDelegate
@@ -1191,5 +1179,67 @@ extension ZendeskUtils: UITextFieldDelegate {
 
         return EmailFormatValidator.validate(string: email)
     }
+}
 
+extension ZendeskUtils {
+    struct IdentityAlertOptions {
+        let optionalIdentity: Bool
+        let includesName: Bool
+        var title: String? = nil
+        let message: String
+        let submit: String
+        var cancel: String? = nil
+        var emailPlaceholder: String = LocalizedText.emailPlaceholder
+        var namePlaceholder: String = LocalizedText.namePlaceholder
+
+        static var withName: IdentityAlertOptions {
+            return IdentityAlertOptions(
+                optionalIdentity: false,
+                includesName: true,
+                message: LocalizedText.alertMessageWithName,
+                submit: SharedStrings.Button.ok,
+                cancel: SharedStrings.Button.cancel
+            )
+        }
+
+        static var withoutName: IdentityAlertOptions {
+            return IdentityAlertOptions(
+                optionalIdentity: false,
+                includesName: false,
+                message: LocalizedText.alertMessage,
+                submit: SharedStrings.Button.ok,
+                cancel: SharedStrings.Button.cancel
+            )
+        }
+    }
+}
+
+extension ZendeskUtils {
+    static var automatticEmails = ["@automattic.com", "@a8c.com"]
+
+    /// Hides everything but the first character before the "@", for writing an address to the logs.
+    static func maskedEmail(_ email: String) -> String {
+        let domainIndex = email.lastIndex(of: "@") ?? email.endIndex
+        let localPart = email[..<domainIndex]
+        return localPart.prefix(1) + String(repeating: "*", count: max(localPart.count - 1, 0)) + email[domainIndex...]
+    }
+
+    /// Insert "+testing" to Automattic email address.
+    /// - SeeAlso: https://github.com/wordpress-mobile/WordPress-iOS/issues/23794
+    static func a8cTestEmail(_ email: String) -> String {
+        guard let suffix = ZendeskUtils.automatticEmails.first(where: { email.lowercased().hasSuffix($0) }) else {
+            return email
+        }
+
+        let atSymbolIndex = email.index(email.endIndex, offsetBy: -suffix.count)
+
+        // Do nothing if the email is already an "alias email".
+        if email[email.startIndex..<atSymbolIndex].contains("+") {
+            return email
+        }
+
+        var newEmail = email
+        newEmail.insert(contentsOf: "+testing", at: atSymbolIndex)
+        return newEmail
+    }
 }

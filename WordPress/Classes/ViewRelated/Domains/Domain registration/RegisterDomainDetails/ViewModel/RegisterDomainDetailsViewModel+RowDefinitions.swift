@@ -1,4 +1,5 @@
 import Foundation
+import WordPressShared
 
 extension RegisterDomainDetailsViewModel {
 
@@ -6,14 +7,14 @@ extension RegisterDomainDetailsViewModel {
 
     enum ValidationBlock {
 
-        static var nonEmpty: RowValidationBlock = { (text) in
-            if let text = text {
+        static var nonEmpty: RowValidationBlock = { text in
+            if let text {
                 return !text.isEmpty
             }
             return false
         }
 
-        static var validEmail: RowValidationBlock = { (text) in
+        static var validEmail: RowValidationBlock = { text in
             guard let email = text else {
                 return false
             }
@@ -122,7 +123,7 @@ extension RegisterDomainDetailsViewModel {
 
             private func registerForValidationStateChangedEvent() {
                 for rule in validationRules {
-                    rule.validationStateChanged = { [weak self] (rule) in
+                    rule.validationStateChanged = { [weak self] rule in
                         guard let strongSelf = self else { return }
                         strongSelf.validationStateChangedHandler?(strongSelf, rule)
                     }

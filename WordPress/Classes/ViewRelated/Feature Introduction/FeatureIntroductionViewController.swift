@@ -1,4 +1,5 @@
 import UIKit
+import WordPressShared
 
 @objc protocol FeatureIntroductionDelegate: AnyObject {
     func primaryActionSelected()
@@ -37,7 +38,7 @@ class FeatureIntroductionViewController: CollapsableHeaderViewController {
     }
 
     override var alwaysResetHeaderOnRotation: Bool {
-        WPDeviceIdentification.isiPhone()
+        traitCollection.userInterfaceIdiom == .phone
     }
 
     override var alwaysShowHeaderTitles: Bool {
@@ -97,13 +98,15 @@ class FeatureIntroductionViewController: CollapsableHeaderViewController {
         featureIntroductionDelegate?.closeButtonWasTapped?()
         dismiss(animated: true)
     }
-
 }
 
 private extension FeatureIntroductionViewController {
 
     func configureView() {
-        navigationItem.rightBarButtonItem = CollapsableHeaderViewController.closeButton(target: self, action: #selector(closeButtonTapped))
+        navigationItem.rightBarButtonItem = UIBarButtonItem.makeCloseButton(
+            target: self,
+            action: #selector(closeButtonTapped)
+        )
         scrollView.addSubview(contentView)
         hideHeaderVisualEffects()
 
@@ -115,5 +118,4 @@ private extension FeatureIntroductionViewController {
             contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
         ])
     }
-
 }

@@ -1,17 +1,25 @@
 #import "ReaderSiteService.h"
 
 #import "AccountService.h"
-#import "CoreDataStack.h"
 #import "ReaderPostService.h"
-#import "ReaderPost.h"
-#import "WPAccount.h"
 #import "WordPress-Swift.h"
 #import "WPAppAnalytics.h"
+@import WordPressData;
 @import WordPressKit;
+@import WordPressSharedObjC;
 
 NSString * const ReaderSiteServiceErrorDomain = @"ReaderSiteServiceErrorDomain";
 
 @implementation ReaderSiteService
+
+- (instancetype)initWithCoreDataStack:(id<CoreDataStack>)coreDataStack
+{
+    self = [super init];
+    if (self) {
+        _coreDataStack = coreDataStack;
+    }
+    return self;
+}
 
 - (void)followSiteByURL:(NSURL *)siteURL success:(void (^)(void))success failure:(void(^)(NSError *error))failure
 {
@@ -147,42 +155,14 @@ NSString * const ReaderSiteServiceErrorDomain = @"ReaderSiteServiceErrorDomain";
     } failure:failure];
 }
 
-- (void)syncPostsForFollowedSites
-{
-    [self.coreDataStack performAndSaveUsingBlock:^(NSManagedObjectContext *context) {
-        ReaderAbstractTopic *followedSites = [ReaderAbstractTopic lookupFollowedSitesTopicInContext:context];
-        if (!followedSites) {
-            return;
-        }
-
-        ReaderPostService *postService = [[ReaderPostService alloc] initWithCoreDataStack:self.coreDataStack];
-        [postService fetchPostsForTopic:followedSites earlierThan:[NSDate date] success:nil failure:nil];
-    }];
-}
-
-- (void)topicWithSiteURL:(NSURL *)siteURL success:(void (^)(ReaderSiteTopic *topic))success failure:(void(^)(NSError *error))failure
-{
-    WordPressComRestApi *api = [self apiForRequest];
-    ReaderSiteServiceRemote *service = [[ReaderSiteServiceRemote alloc] initWithWordPressComRestApi:api];
-    
-    [service findSiteIDForURL:siteURL success:^(NSUInteger siteID) {
-        NSNumber *site = [NSNumber numberWithUnsignedLong:siteID];
-        ReaderSiteTopic *topic = [ReaderSiteTopic lookupWithSiteID:site inContext:self.coreDataStack.mainContext];
-        success(topic);
-    } failure:^(NSError *error) {
-        failure(error);
-    }];
-}
-
 #pragma mark - Private Methods
-
 
 /**
  Fetch the topic after a site is followed
  */
 - (void)fetchTopicServiceWithID:(NSUInteger)siteID success:(void(^)(void))success failure:(void(^)(NSError *error))failure
 {
-    DDLogInfo(@"Fetch and store followed topic");
+    WPLogInfo(@"Fetch and store followed topic");
     ReaderTopicService *service  = [[ReaderTopicService alloc] initWithCoreDataStack:self.coreDataStack];
     [service siteTopicForSiteWithID:@(siteID)
                              isFeed:false
@@ -225,7 +205,7 @@ NSString * const ReaderSiteServiceErrorDomain = @"ReaderSiteServiceErrorDomain";
             [self followSiteAtURL:[siteURL absoluteString] success:success failure:failure];
         }
     } failure:^(NSError * __unused error) {
-        DDLogInfo(@"Could not find site at URL: %@", siteURL);
+        WPLogInfo(@"Could not find site at URL: %@", siteURL);
         [self followSiteAtURL:[siteURL absoluteString] success:success failure:failure];
     }];
 }
@@ -244,7 +224,7 @@ NSString * const ReaderSiteServiceErrorDomain = @"ReaderSiteServiceErrorDomain";
     request.predicate = [NSPredicate predicateWithFormat:@"siteID = %@", siteID];
     NSArray *results = [context executeFetchRequest:request error:&error];
     if (error) {
-        DDLogError(@"%@, error deleting posts belonging to siteID %@: %@", NSStringFromSelector(_cmd), siteID, error);
+        WPLogError(@"%@, error deleting posts belonging to siteID %@: %@", NSStringFromSelector(_cmd), siteID, error);
         return;
     }
 
@@ -287,7 +267,12 @@ NSString * const ReaderSiteServiceErrorDomain = @"ReaderSiteServiceErrorDomain";
 
 - (NSError *)errorForAlreadyFollowingSiteOrFeed
 {
-    NSString *description = NSLocalizedString(@"You are already following this site.", @"Error message informing the user that they are already following a site in their reader.");
+
+    NSString *description = NSLocalizedStringWithDefaultValue(@"reader.error.already.subscribed.message",
+                                                              nil,
+                                                              [NSBundle mainBundle],
+                                                              @"You are already subscribed to this blog.",
+                                                              @"Error message informing the user that they are already following a blog in their reader.");
     NSDictionary *userInfo = @{NSLocalizedDescriptionKey:description};
     NSError *error = [[NSError alloc] initWithDomain:ReaderSiteServiceErrorDomain code:ReaderSiteServiceErrorAlreadyFollowingSite userInfo:userInfo];
     return error;

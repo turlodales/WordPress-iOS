@@ -1,7 +1,12 @@
-import WordPressAuthenticator
+import WordPressData
 import UIKit
 import SwiftUI
+import WordPressUI
+import WordPressKit
+import GutenbergKit
+import Combine
 
+/// The "Home" page.
 final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSitesViewDelegate {
     enum Section: Int, CaseIterable {
         case dashboard
@@ -53,24 +58,39 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
         return refreshControl
     }()
 
-    /// A boolean indicating whether a site creation or adding self-hosted site flow has been initiated but not yet displayed.
-    var willDisplayPostSignupFlow: Bool = false
+    private var isSidebarModeEnabled = false
 
     private var createButtonCoordinator: CreateButtonCoordinator?
-    private var complianceCoordinator: CompliancePopoverCoordinator?
 
-    private let meScenePresenter: ScenePresenter
     private let blogService: BlogService
 
     private let viewModel: MySiteViewModel
+    private let notificationsButtonViewModel = NotificationsButtonViewModel()
+    private var cancellables: [AnyCancellable] = []
+
+    // MARK: - Dependencies
+
+    private let overlaysCoordinator: MySiteOverlaysCoordinator
+
+    // TODO: (reader) factor if out of `MySiteVC` for a production version
+    var isReaderAppModeEnabled = false
 
     // MARK: - Initializers
 
-    init(meScenePresenter: ScenePresenter, blogService: BlogService? = nil) {
-        self.meScenePresenter = meScenePresenter
+    @objc class func make(forBlog blog: Blog, isSidebarModeEnabled: Bool = false) -> MySiteViewController {
+        let viewContoller = MySiteViewController()
+        viewContoller.isSidebarModeEnabled = isSidebarModeEnabled
+        viewContoller.blog = blog
+        return viewContoller
+    }
+
+    init(
+        blogService: BlogService? = nil,
+        overlaysCoordinator: MySiteOverlaysCoordinator = .init()
+    ) {
         self.blogService = blogService ?? BlogService(coreDataStack: ContextManager.shared)
         self.viewModel = MySiteViewModel()
-
+        self.overlaysCoordinator = overlaysCoordinator
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -84,10 +104,10 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
 
     // MARK: - Blog
 
-    /// Convenience setter and getter for the blog.  This calculated property takes care of showing the appropriate VC, depending
+    /// Convenience setter and getter for the blog. This calculated property takes care of showing the appropriate VC, depending
     /// on whether there's a blog to show or not.
     ///
-    var blog: Blog? {
+    @objc var blog: Blog? {
         set {
             guard let newBlog = newValue else {
                 showBlogDetailsForMainBlogOrNoSites()
@@ -99,11 +119,11 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
         }
 
         get {
-            return sitePickerViewController?.blog
+            headerViewController?.blog
         }
     }
 
-    private(set) weak var sitePickerViewController: SitePickerViewController?
+    private(set) weak var headerViewController: HomeSiteHeaderViewController?
     private(set) weak var blogDetailsViewController: BlogDetailsViewController? {
         didSet {
             blogDetailsViewController?.presentationDelegate = self
@@ -116,22 +136,25 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     ///
     private var noSitesScrollView: UIScrollView?
     private var noSitesRefreshControl: UIRefreshControl?
+
     private lazy var noSitesViewController: UIHostingController = {
+        let addSiteViewModel = AddSiteMenuViewModel { [weak self] in
+            switch $0 {
+            case .dotCom:
+                self?.launchSiteCreationFromNoSites()
+                RootViewCoordinator.shared.isSiteCreationActive = true
+            case .selfHosted:
+                self?.launchLoginForSelfHostedSite()
+            }
+        }
         let noSitesViewModel = NoSitesViewModel(
             appUIType: JetpackFeaturesRemovalCoordinator.currentAppUIType,
-            account: viewModel.defaultAccount
+            account: self.viewModel.defaultAccount
         )
-        let configuration = AddNewSiteConfiguration(
-            canCreateWPComSite: viewModel.defaultAccount != nil,
-            canAddSelfHostedSite: AppConfiguration.showAddSelfHostedSiteButton,
-            launchSiteCreation: { [weak self] in self?.launchSiteCreationFromNoSites() },
-            launchLoginForSelfHostedSite: { [weak self] in self?.launchLoginForSelfHostedSite() }
-        )
-        let noSiteView = NoSitesView(
-            viewModel: noSitesViewModel,
-            addNewSiteConfiguration: configuration
-        )
-        return UIHostingController(rootView: noSiteView)
+        let noSiteView = NoSitesView(addSiteViewModel: addSiteViewModel, viewModel: noSitesViewModel)
+        let hostingVC = UIHostingController(rootView: noSiteView)
+        hostingVC.view.backgroundColor = .clear
+        return hostingVC
     }()
 
     private var isNavigationBarHidden = false
@@ -144,11 +167,8 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
         setupView()
         setupConstraints()
         setupNavigationItem()
-        subscribeToPostSignupNotifications()
         subscribeToModelChanges()
         subscribeToPostPublished()
-        startObservingQuickStart()
-        startObservingOnboardingPrompt()
         subscribeToWillEnterForeground()
     }
 
@@ -165,7 +185,10 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
 
-        resetNavBarAppearance(animated: animated)
+        // Only reset for a push to avoid animating the My Site title behind a presented modal.
+        if navigationController?.topViewController !== self {
+            resetNavBarAppearance(animated: animated)
+        }
         createButtonCoordinator?.hideCreateButton()
     }
 
@@ -178,57 +201,66 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
 
         workaroundLargeTitleCollapseBug()
 
-        if AppConfiguration.showsWhatIsNew {
+        if FeatureFlag.whatsNew.enabled {
             RootViewCoordinator.shared.presentWhatIsNew(on: self)
         }
 
-        FancyAlertViewController.presentCustomAppIconUpgradeAlertIfNecessary(from: self)
-
         trackNoSitesVisibleIfNeeded()
 
-        createFABIfNeeded()
+        if !isReaderAppModeEnabled {
+            createFABIfNeeded()
+        }
         fetchPrompt(for: blog)
 
-        complianceCoordinator = CompliancePopoverCoordinator()
-        complianceCoordinator?.presentIfNeeded()
+        Task { @MainActor in
+            await overlaysCoordinator.presentOverlayIfNeeded(in: self)
+        }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        createButtonCoordinator?.presentingTraitCollectionWillChange(traitCollection, newTraitCollection: traitCollection)
+        createButtonCoordinator?
+            .presentingTraitCollectionWillChange(traitCollection, newTraitCollection: traitCollection)
     }
 
-    override func willTransition(to newCollection: UITraitCollection, with coordinator: UIViewControllerTransitionCoordinator) {
+    override func willTransition(
+        to newCollection: UITraitCollection,
+        with coordinator: UIViewControllerTransitionCoordinator
+    ) {
         super.willTransition(to: newCollection, with: coordinator)
         createButtonCoordinator?.presentingTraitCollectionWillChange(traitCollection, newTraitCollection: newCollection)
     }
 
-    private func subscribeToPostSignupNotifications() {
-        NotificationCenter.default.addObserver(self, selector: #selector(launchSiteCreationFromNotification), name: .createSite, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(showAddSelfHostedSite), name: .addSelfHosted, object: nil)
-    }
-
     private func subscribeToPostPublished() {
-        NotificationCenter.default.addObserver(self, selector: #selector(handlePostPublished), name: .newPostPublished, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePostPublished),
+            name: .newPostPublished,
+            object: nil
+        )
     }
 
     private func subscribeToWillEnterForeground() {
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(displayOverlayIfNeeded),
-                                               name: UIApplication.willEnterForegroundNotification,
-                                               object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(displayOverlayIfNeeded),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
     }
 
     func updateNavigationTitle(for blog: Blog) {
         let blogName = blog.settings?.name
-        let title = blogName != nil && blogName?.isEmpty == false
+        let title =
+            blogName != nil && blogName?.isEmpty == false
             ? blogName
             : Strings.mySite
         navigationItem.title = title
     }
 
     private func setupView() {
-        view.backgroundColor = .listBackground
+        view.backgroundColor = .systemGroupedBackground
+        view.accessibilityIdentifier = "my_site"
     }
 
     /// This method builds a layout with the following view hierarchy:
@@ -251,11 +283,11 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
 
     // MARK: - Navigation Item
 
-    /// In iPad and iOS 14, the large-title bar is collapsed when the VC is first loaded.  Call this method from
+    /// In iPad and iOS 14, the large-title bar is collapsed when the VC is first loaded. Call this method from
     /// `viewDidAppear(_:)` to quickly refresh the navigation bar so that it's expanded.
     ///
     private func workaroundLargeTitleCollapseBug() {
-        guard !splitViewControllerIsHorizontallyCompact else {
+        guard splitViewController?.isCollapsed == false else {
             return
         }
 
@@ -265,39 +297,73 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     private func setupNavigationItem() {
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.title = Strings.mySite
-        navigationItem.backButtonTitle = Strings.mySite
-
-        // Workaround:
-        //
-        // Without the next line, the large title was being lost when going into a child VC with a small
-        // title and pressing "Back" in the navigation bar.
-        //
-        // I'm not sure if this makes sense - it doesn't to me right now, so I'm adding instructions to
-        // test the issue which will be helpful for removing the issue if the workaround is no longer
-        // needed.
-        //
-        // To see the issue in action, comment the line, run the App, go into "Stats" (or any other
-        // child VC that has a small title in the navigation bar), check that the title is small,
-        // press back, and check that this VC has a large title.  If this VC still has a
-        // large title, you can remove the following line.
-        //
-        extendedLayoutIncludesOpaqueBars = true
 
         // Set the nav bar
         navigationController?.navigationBar.accessibilityIdentifier = "my-site-navigation-bar"
+
+        // `staticScreensWithReader` hides the bell so that Reader is the only entrance to the
+        // Reader notifications list.
+        if isSidebarModeEnabled && !JetpackFeaturesRemovalCoordinator.isStaticScreensWithReader() {
+            notificationsButtonViewModel.$image
+                .sink { [weak self] in
+                    guard let self else { return }
+                    let button = UIBarButtonItem(
+                        image: $0,
+                        style: .plain,
+                        target: self,
+                        action: #selector(buttonShowNotificationsTapped)
+                    )
+                    button.accessibilityIdentifier = "bar-button-item-notifications"
+                    self.navigationItem.rightBarButtonItem = button
+                }
+                .store(in: &cancellables)
+        }
+    }
+
+    @objc private func buttonShowNotificationsTapped(_ sender: UIBarButtonItem) {
+        NotificationsViewController.showInPopover(from: self, sourceItem: sender)
     }
 
     private func configureNavBarAppearance(animated: Bool) {
+
+        guard navigationController?.topViewController === self else {
+            return
+        }
+
+        guard !isReaderAppModeEnabled else {
+            return
+        }
         if scrollView.contentOffset.y >= 60 {
             if isNavigationBarHidden {
-                navigationController?.setNavigationBarHidden(false, animated: animated)
+                setNavigationBarHidden(false, animated: animated)
             }
             isNavigationBarHidden = false
         } else {
             if !isNavigationBarHidden {
-                navigationController?.setNavigationBarHidden(true, animated: animated)
+                setNavigationBarHidden(true, animated: animated)
             }
             isNavigationBarHidden = true
+        }
+    }
+
+    private func setNavigationBarHidden(_ isHidden: Bool, animated: Bool) {
+        if isSidebarModeEnabled {
+            navigationItem.titleView =
+                isHidden
+                ? UIView()
+                : {
+                    let button = UIButton.makeMenuButton(title: navigationItem.title ?? Strings.mySite)
+                    button.addAction(
+                        UIAction { [weak self, weak button] _ in
+                            guard let self, let button else { return }
+                            self.headerViewController?.siteSwitcherTapped(sourceView: button)
+                        },
+                        for: .primaryActionTriggered
+                    )
+                    return button
+                }()
+        } else {
+            navigationController?.setNavigationBarHidden(isHidden, animated: animated)
         }
     }
 
@@ -330,12 +396,14 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
         showSitePicker(for: blog)
         updateNavigationTitle(for: blog)
 
-        let section = viewModel.getSection(
-            for: blog,
-            jetpackFeaturesEnabled: JetpackFeaturesRemovalCoordinator.jetpackFeaturesEnabled(),
-            splitViewControllerIsHorizontallyCompact: splitViewControllerIsHorizontallyCompact,
-            isSplitViewEnabled: MySitesCoordinator.isSplitViewEnabled
-        )
+        let section =
+            (isSidebarModeEnabled || isReaderAppModeEnabled)
+            ? .dashboard
+            : viewModel.getSection(
+                for: blog,
+                jetpackFeaturesEnabled: JetpackFeaturesRemovalCoordinator.jetpackFeaturesEnabled(),
+                showsSingleColumn: splitViewController?.isCollapsed ?? true
+            )
 
         self.currentSection = section
         switch section {
@@ -348,6 +416,21 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
 
             hideBlogDetails()
             showDashboard(for: blog)
+        }
+
+        if RemoteFeatureFlag.newGutenberg.enabled() {
+            // Warm up editor (WebKit + data prefetch) for faster editor loading
+            EditorDependencyManager.shared.warmUpEditor(for: blog)
+            // Also refresh editor capabilities
+            EditorDependencyManager.shared.fetchEditorCapabilities(for: blog)
+        }
+
+        Task { [blogID = TaggedManagedObjectID(blog)] in
+            do {
+                try await ApplicationPasswordRepository.shared.createPasswordIfNeeded(for: blogID)
+            } catch {
+                Loggers.app.error("Failed to create an application password: \(error)")
+            }
         }
     }
 
@@ -363,36 +446,46 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
 
         blogService.syncBlogs(for: account) {
             finishSync()
-        } failure: { (error) in
+        } failure: { _ in
             finishSync()
         }
     }
 
     @objc
     private func pulledToRefresh() {
-        guard let blog = blog else {
+        guard let blog else {
             return
         }
+
+        // Refresh editor capabilities and invalidate editor cache
+        if RemoteFeatureFlag.newGutenberg.enabled() {
+            EditorDependencyManager.shared.fetchEditorCapabilities(for: blog)
+            Task {
+                await EditorDependencyManager.shared.invalidate(for: TaggedManagedObjectID(blog))
+            }
+        }
+
         switch currentSection {
         case .siteMenu:
 
-            blogDetailsViewController?.pulledToRefresh(with: refreshControl) { [weak self] in
-                guard let self = self else {
-                    return
+            blogDetailsViewController?
+                .pulledToRefresh(with: refreshControl) { [weak self] in
+                    guard let self else {
+                        return
+                    }
+
+                    self.updateNavigationTitle(for: blog)
+                    self.headerViewController?.blogDetailHeaderView.blog = blog
                 }
-
-                self.updateNavigationTitle(for: blog)
-                self.sitePickerViewController?.blogDetailHeaderView.blog = blog
-            }
-
 
         case .dashboard:
 
             /// The dashboard’s refresh control is intentionally not tied to blog syncing in order to keep
             /// the dashboard updating fast.
-            blogDashboardViewController?.pulledToRefresh { [weak self] in
-                self?.refreshControl.endRefreshing()
-            }
+            blogDashboardViewController?
+                .pulledToRefresh { [weak self] in
+                    self?.refreshControl.endRefreshing()
+                }
 
             syncBlogAndAllMetadata(blog)
 
@@ -400,17 +493,20 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
             fetchPrompt(for: blog)
         }
 
-        WPAnalytics.track(.mySitePullToRefresh, properties: [WPAppAnalyticsKeyTabSource: currentSection.analyticsDescription])
+        WPAnalytics.track(
+            .mySitePullToRefresh,
+            properties: [WPAppAnalyticsKeyTabSource: currentSection.analyticsDescription]
+        )
     }
 
     private func syncBlogAndAllMetadata(_ blog: Blog) {
         blogService.syncBlogAndAllMetadata(blog) { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
             self.updateNavigationTitle(for: blog)
-            self.sitePickerViewController?.blogDetailHeaderView.blog = blog
+            self.headerViewController?.blogDetailHeaderView.blog = blog
             self.blogDashboardViewController?.reloadCardsLocally()
         }
     }
@@ -455,8 +551,6 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
             return
         }
 
-        hideSplitDetailsView()
-
         guard noSitesViewController.view.superview == nil else {
             return
         }
@@ -478,7 +572,7 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     private func makeNoSitesScrollView() {
         let scrollView = UIScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.backgroundColor = .listBackground
+        scrollView.backgroundColor = .systemGroupedBackground
 
         view.addSubview(scrollView)
         view.pinSubviewToAllEdges(scrollView)
@@ -534,12 +628,16 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     private func createFABIfNeeded() {
         createButtonCoordinator?.removeCreateButton()
         createButtonCoordinator = makeCreateButtonCoordinator()
-        createButtonCoordinator?.add(to: view,
-                                    trailingAnchor: view.safeAreaLayoutGuide.trailingAnchor,
-                                    bottomAnchor: view.safeAreaLayoutGuide.bottomAnchor)
+        createButtonCoordinator?
+            .add(
+                to: view,
+                trailingAnchor: view.safeAreaLayoutGuide.trailingAnchor,
+                bottomAnchor: view.safeAreaLayoutGuide.bottomAnchor
+            )
 
-        if let blog = blog,
-           noSitesViewController.view.superview == nil {
+        if let blog,
+            noSitesViewController.view.superview == nil
+        {
             createButtonCoordinator?.showCreateButton(for: blog)
         }
     }
@@ -548,16 +646,7 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
 
     func didTapAccountAndSettingsButton() {
         let meViewController = MeViewController()
-        if MySitesCoordinator.isSplitViewEnabled {
-            showDetailViewController(meViewController, sender: self)
-        } else {
-            navigationController?.pushViewController(meViewController, animated: true)
-        }
-    }
-
-    @objc
-    func presentInterfaceForAddingNewSite() {
-        noSitesViewController.rootView.handleAddNewSiteButtonTapped()
+        navigationController?.pushViewController(meViewController, animated: true)
     }
 
     private func launchSiteCreationFromNoSites() {
@@ -565,53 +654,42 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     }
 
     private func launchLoginForSelfHostedSite() {
-        WordPressAuthenticator.showLoginForSelfHostedSite(self)
-    }
-
-    @objc
-    func launchSiteCreationFromNotification() {
-        self.launchSiteCreation(source: "signup_epilogue")
-        willDisplayPostSignupFlow = false
+        AddSiteController(viewController: self, source: "my_site_no_sites")
+            .showSelfHostedSiteLoginScreen()
     }
 
     func launchSiteCreation(source: String) {
-        JetpackFeaturesRemovalCoordinator.presentSiteCreationOverlayIfNeeded(in: self, source: source, onDidDismiss: {
-            guard JetpackFeaturesRemovalCoordinator.siteCreationPhase() != .two else {
-                return
+        JetpackFeaturesRemovalCoordinator.presentSiteCreationOverlayIfNeeded(
+            in: self,
+            source: source,
+            onDidDismiss: {
+                guard JetpackFeaturesRemovalCoordinator.siteCreationPhase() != .two else {
+                    return
+                }
+
+                // Display site creation flow if not in phase two
+                let wizardLauncher = SiteCreationWizardLauncher()
+                guard let wizard = wizardLauncher.ui else {
+                    return
+                }
+                RootViewCoordinator.shared.isSiteCreationActive = true
+                self.present(wizard, animated: true)
+                SiteCreationAnalyticsHelper.trackSiteCreationAccessed(source: source)
             }
-
-            // Display site creation flow if not in phase two
-            let wizardLauncher = SiteCreationWizardLauncher()
-            guard let wizard = wizardLauncher.ui else {
-                return
-            }
-            self.present(wizard, animated: true)
-            SiteCreationAnalyticsHelper.trackSiteCreationAccessed(source: source)
-        })
-    }
-
-    @objc
-    private func showAddSelfHostedSite() {
-        WordPressAuthenticator.showLoginForSelfHostedSite(self)
-        willDisplayPostSignupFlow = false
-    }
-
-    @objc
-    func toggleSpotlightOnSitePicker() {
-        sitePickerViewController?.toggleSpotlightOnHeaderView()
+        )
     }
 
     // MARK: - Blog Details UI Logic
 
     private func hideBlogDetails() {
-        guard let blogDetailsViewController = blogDetailsViewController else {
+        guard let blogDetailsViewController else {
             return
         }
 
         removeChildFromStackView(blogDetailsViewController)
     }
 
-    /// Shows a `BlogDetailsViewController` for the specified `Blog`.  If the VC doesn't exist, this method also takes care
+    /// Shows a `BlogDetailsViewController` for the specified `Blog`. If the VC doesn't exist, this method also takes care
     /// of creating it.
     ///
     /// - Parameters:
@@ -631,7 +709,7 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     }
 
     private func blogDetailsViewController(for blog: Blog) -> BlogDetailsViewController {
-        guard let blogDetailsViewController = blogDetailsViewController else {
+        guard let blogDetailsViewController else {
             let blogDetailsViewController = makeBlogDetailsViewController(for: blog)
             self.blogDetailsViewController = blogDetailsViewController
             return blogDetailsViewController
@@ -642,46 +720,53 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     }
 
     private func makeBlogDetailsViewController(for blog: Blog) -> BlogDetailsViewController {
-        let blogDetailsViewController = BlogDetailsViewController()
-        blogDetailsViewController.blog = blog
-
-        return blogDetailsViewController
+        BlogDetailsViewController(blog: blog)
     }
 
     private func showSitePicker(for blog: Blog) {
-        guard let sitePickerViewController = sitePickerViewController else {
+        guard let headerViewController else {
 
-            let sitePickerViewController = makeSitePickerViewController(for: blog)
-            self.sitePickerViewController = sitePickerViewController
+            let headerVC = makeHeaderViewController(for: blog)
+            self.headerViewController = headerVC
 
-            addChild(sitePickerViewController)
-            stackView.insertArrangedSubview(sitePickerViewController.view, at: 0)
-            sitePickerViewController.didMove(toParent: self)
+            addChild(headerVC)
+            stackView.insertArrangedSubview(headerVC.view, at: 0)
+            headerVC.didMove(toParent: self)
 
             return
         }
 
-        sitePickerViewController.blog = blog
+        headerViewController.blog = blog
     }
 
-    private func makeSitePickerViewController(for blog: Blog) -> SitePickerViewController {
-        let sitePickerViewController = SitePickerViewController(blog: blog, meScenePresenter: meScenePresenter)
+    private func makeHeaderViewController(for blog: Blog) -> HomeSiteHeaderViewController {
+        let headerVC = HomeSiteHeaderViewController(blog: blog, isSidebarModeEnabled: isSidebarModeEnabled)
 
-        sitePickerViewController.onBlogSwitched = { [weak self] blog in
-            guard let self = self else {
-                return
+        headerVC.onBlogSwitched = { [weak self] blog in
+            guard let self else { return }
+
+            if self.isSidebarModeEnabled {
+                self.dismiss(animated: true)
+                NotificationCenter.default.post(
+                    name: MySiteViewController.didPickSiteNotification,
+                    object: self,
+                    userInfo: [
+                        MySiteViewController.siteUserInfoKey: blog
+                    ]
+                )
+            } else {
+                self.configure(for: blog)
+                self.updateChildViewController(for: blog)
+                self.createFABIfNeeded()
+                self.fetchPrompt(for: blog)
             }
-            self.configure(for: blog)
-            self.updateChildViewController(for: blog)
-            self.createFABIfNeeded()
-            self.fetchPrompt(for: blog)
         }
 
-        sitePickerViewController.onBlogListDismiss = { [weak self] in
+        headerVC.onBlogListDismiss = { [weak self] in
             self?.displayJetpackInstallOverlayIfNeeded()
         }
 
-        return sitePickerViewController
+        return headerVC
     }
 
     private func updateChildViewController(for blog: Blog) {
@@ -689,7 +774,7 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
         case .siteMenu:
             blogDetailsViewController?.blog = blog
             blogDetailsViewController?.configureTableViewData()
-            blogDetailsViewController?.tableView.reloadData()
+            blogDetailsViewController?.tableView?.reloadData()
             blogDetailsViewController?.preloadMetadata()
             blogDetailsViewController?.showInitialDetailsForBlog()
         case .dashboard:
@@ -705,25 +790,41 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     // MARK: Dashboard UI Logic
 
     private func hideDashboard() {
-        guard let blogDashboardViewController = blogDashboardViewController else {
+        guard let blogDashboardViewController else {
             return
         }
 
         removeChildFromStackView(blogDashboardViewController)
     }
 
-    /// Shows a `BlogDashboardViewController` for the specified `Blog`.  If the VC doesn't exist, this method also takes care
+    /// Shows a `BlogDashboardViewController` for the specified `Blog`. If the VC doesn't exist, this method also takes care
     /// of creating it.
     ///
     /// - Parameters:
     ///         - blog: The blog to show the details of.
     ///
     private func showDashboard(for blog: Blog) {
-        let blogDashboardViewController = self.blogDashboardViewController ?? BlogDashboardViewController(blog: blog, embeddedInScrollView: true)
+        let blogDashboardViewController =
+            self.blogDashboardViewController ?? BlogDashboardViewController(blog: blog, embeddedInScrollView: true)
         blogDashboardViewController.update(blog: blog)
         embedChildInStackView(blogDashboardViewController)
         self.blogDashboardViewController = blogDashboardViewController
         stackView.sendSubviewToBack(blogDashboardViewController.view)
+
+        if isReaderAppModeEnabled, let account = blog.account,
+            !stackView.subviews.contains(where: { $0 is MeHeaderView })
+        {
+            let headerView = MeHeaderView()
+            headerView.update(with: .init(account: account))
+            headerView.configureReaderMode()
+            stackView.insertArrangedSubview(headerView, at: 0)
+
+            let spacerView = SpacerView(height: 8)
+            stackView.insertArrangedSubview(spacerView, at: 1)
+
+            let separator = SeparatorView.horizontal()
+            stackView.insertArrangedSubview(separator, at: 2)
+        }
     }
 
     // MARK: - Model Changes
@@ -733,12 +834,13 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
             self,
             selector: #selector(handleDataModelChange(notification:)),
             name: .NSManagedObjectContextObjectsDidChange,
-            object: ContextManager.shared.mainContext)
+            object: ContextManager.shared.mainContext
+        )
     }
 
     @objc
     private func handleDataModelChange(notification: NSNotification) {
-        if let blog = blog {
+        if let blog {
             handlePossibleDeletion(of: blog, notification: notification)
         } else {
             handlePossiblePrimaryBlogCreation(notification: notification)
@@ -752,7 +854,8 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     ///
     private func handlePossibleDeletion(of selectedBlog: Blog, notification: NSNotification) {
         guard let deletedObjects = notification.userInfo?[NSDeletedObjectsKey] as? Set<NSManagedObject>,
-           deletedObjects.contains(selectedBlog) else {
+            deletedObjects.contains(selectedBlog)
+        else {
             return
         }
 
@@ -774,7 +877,8 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     ///
     private func verifyThatBlogsWereInserted(in notification: NSNotification) -> Bool {
         guard let insertedObjects = notification.userInfo?[NSInsertedObjectsKey] as? Set<NSManagedObject>,
-              insertedObjects.contains(where: { $0 as? Blog != nil }) else {
+            insertedObjects.contains(where: { $0 as? Blog != nil })
+        else {
             return false
         }
 
@@ -791,7 +895,7 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
             return
         }
 
-        guard let blog = Blog.lastUsedOrFirst(in: ContextManager.sharedInstance().mainContext) else {
+        guard let blog = Blog.lastUsedOrFirst(in: ContextManager.shared.mainContext) else {
             return
         }
 
@@ -806,10 +910,11 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
 
     func fetchPrompt(for blog: Blog?) {
         guard FeatureFlag.bloggingPrompts.enabled,
-              let blog = blog,
-              blog.isAccessibleThroughWPCom(),
-              let promptsService = BloggingPromptsService(blog: blog),
-              let siteID = blog.dotComID?.intValue else {
+            let blog,
+            blog.isAccessibleThroughWPCom,
+            let promptsService = BloggingPromptsService(blog: blog),
+            let siteID = blog.dotComID?.intValue
+        else {
             return
         }
 
@@ -828,50 +933,19 @@ final class MySiteViewController: UIViewController, UIScrollViewDelegate, NoSite
     }
 }
 
-extension MySiteViewController: WPSplitViewControllerDetailProvider {
-    func initialDetailViewControllerForSplitView(_ splitView: WPSplitViewController) -> UIViewController? {
-        guard let blogDetailsViewController = blogDetailsViewController as? WPSplitViewControllerDetailProvider else {
-            let emptyViewController = UIViewController()
-            WPStyleGuide.configureColors(view: emptyViewController.view, tableView: nil)
-            return emptyViewController
-        }
-
-        return blogDetailsViewController.initialDetailViewControllerForSplitView(splitView)
-    }
-
-    /// Removes all view controllers from the details view controller stack and leaves split view details in an empty state.
-    ///
-    private func hideSplitDetailsView() {
-        if let splitViewController = splitViewController as? WPSplitViewController,
-           splitViewController.viewControllers.count > 1,
-           let detailsNavigationController = splitViewController.viewControllers.last as? UINavigationController {
-            detailsNavigationController.setViewControllers([], animated: false)
-        }
-    }
-}
-
 // MARK: - UIViewControllerTransitioningDelegate
 //
 extension MySiteViewController: UIViewControllerTransitioningDelegate {
-    func presentationController(forPresented presented: UIViewController, presenting: UIViewController?, source: UIViewController) -> UIPresentationController? {
+    func presentationController(
+        forPresented presented: UIViewController,
+        presenting: UIViewController?,
+        source: UIViewController
+    ) -> UIPresentationController? {
         guard presented is FancyAlertViewController else {
             return nil
         }
 
         return FancyAlertPresentationController(presentedViewController: presented, presenting: presenting)
-    }
-}
-
-// MARK: - QuickStart
-//
-extension MySiteViewController {
-    func startAlertTimer() {
-        switch currentSection {
-        case .dashboard:
-            blogDashboardViewController?.startAlertTimer()
-        case .siteMenu:
-            blogDetailsViewController?.startAlertTimer()
-        }
     }
 }
 
@@ -884,32 +958,23 @@ extension MySiteViewController: BlogDetailsPresentationDelegate {
     /// - Parameters:
     ///         - subsection: The specific subsection to show.
     ///
-    func showBlogDetailsSubsection(_ subsection: BlogDetailsSubsection) {
-        blogDetailsViewController?.showDetailView(for: subsection)
+    func showBlogDetailsSubsection(_ subsection: BlogDetailsRowKind, userInfo: [String: Any] = [:]) {
+        blogDetailsViewController?.showDetailView(for: subsection, userInfo: userInfo)
     }
 
-    func showBlogDetailsSubsection(_ subsection: BlogDetailsSubsection, userInfo: [AnyHashable: Any]) {
-        blogDetailsViewController?.showDetailView(for: subsection, userInfo: userInfo)
+    func showBlogDetailsMeSubsection() -> MeViewController? {
+        blogDetailsViewController?.showDetailViewForMe(userInfo: [:])
     }
 
     // TODO: Refactor presentation from routes
     // More context: https://github.com/wordpress-mobile/WordPress-iOS/issues/21759
     func presentBlogDetailsViewController(_ viewController: UIViewController) {
         viewController.loadViewIfNeeded()
-        if MySitesCoordinator.isSplitViewEnabled {
-            switch currentSection {
-            case .dashboard:
-                blogDashboardViewController?.showDetailViewController(viewController, sender: blogDashboardViewController)
-            case .siteMenu:
-                blogDetailsViewController?.showDetailViewController(viewController, sender: blogDetailsViewController)
-            }
-        } else {
-            switch currentSection {
-            case .dashboard:
-                blogDashboardViewController?.show(viewController, sender: blogDashboardViewController)
-            case .siteMenu:
-                blogDetailsViewController?.show(viewController, sender: blogDetailsViewController)
-            }
+        switch currentSection {
+        case .dashboard:
+            blogDashboardViewController?.show(viewController, sender: blogDashboardViewController)
+        case .siteMenu:
+            blogDetailsViewController?.show(viewController, sender: blogDetailsViewController)
         }
     }
 }
@@ -918,12 +983,10 @@ extension MySiteViewController: BlogDetailsPresentationDelegate {
 
 private extension MySiteViewController {
     @objc func displayOverlayIfNeeded() {
-        if isViewOnScreen(), !willDisplayPostSignupFlow {
+        if isViewOnScreen() && !RootViewCoordinator.shared.isSiteCreationActive {
             let didReloadUI = RootViewCoordinator.shared.reloadUIIfNeeded(blog: self.blog)
             if !didReloadUI {
-                let phase = JetpackFeaturesRemovalCoordinator.generalPhase()
-                let source: JetpackFeaturesRemovalCoordinator.JetpackOverlaySource = phase == .four ? .phaseFourOverlay : .appOpen
-                JetpackFeaturesRemovalCoordinator.presentOverlayIfNeeded(in: self, source: source, blog: self.blog)
+                JetpackFeaturesRemovalCoordinator.presentOverlayIfNeeded(in: self, source: .appOpen, blog: self.blog)
             }
         }
     }
@@ -955,4 +1018,11 @@ extension MySiteViewController: JetpackRemoteInstallDelegate {
     func jetpackRemoteInstallWebviewFallback() {
         // no op
     }
+}
+
+extension MySiteViewController {
+    static var didPickSiteNotification = Foundation.Notification.Name(
+        "org.wordpress.mySiteViewController.didPickSiteNotification"
+    )
+    static var siteUserInfoKey = "siteUserInfoKey"
 }

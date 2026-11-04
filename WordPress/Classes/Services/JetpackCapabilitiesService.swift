@@ -1,6 +1,7 @@
+import WordPressData
 import WordPressKit
 
-@objc class JetpackCapabilitiesService: NSObject {
+@objc public class JetpackCapabilitiesService: NSObject {
 
     let capabilitiesServiceRemote: JetpackCapabilitiesServiceRemote
 
@@ -16,7 +17,7 @@ import WordPressKit
         }
     }
 
-    override convenience init() {
+    public override convenience init() {
         self.init(coreDataStack: ContextManager.shared, capabilitiesServiceRemote: nil)
     }
 
@@ -24,7 +25,7 @@ import WordPressKit
     /// - Parameters:
     ///   - blogs: An array of RemoteBlog
     ///   - success: A block that accepts an array of RemoteBlog
-    @objc func sync(blogs: [RemoteBlog], success: @escaping ([RemoteBlog]) -> Void) {
+    @objc public func sync(blogs: [RemoteBlog], success: @escaping ([RemoteBlog]) -> Void) {
         capabilitiesServiceRemote.for(siteIds: blogs.compactMap { $0.blogID as? Int },
                  success: { capabilities in
                     blogs.forEach { blog in
@@ -35,5 +36,4 @@ import WordPressKit
                     success(blogs)
                  })
     }
-
 }

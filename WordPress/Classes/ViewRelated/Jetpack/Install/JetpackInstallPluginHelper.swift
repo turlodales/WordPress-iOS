@@ -1,4 +1,6 @@
-@objc
+import WordPressData
+import WordPressShared
+
 class JetpackInstallPluginHelper: NSObject {
 
     // MARK: Dependencies
@@ -31,7 +33,7 @@ class JetpackInstallPluginHelper: NSObject {
     ///
     /// - Parameter blog: The `Blog` to show the install cards for,
     /// - Returns: True if the install cards should be shown for this blog.
-    @objc static func shouldShowCard(for blog: Blog?) -> Bool {
+    static func shouldShowCard(for blog: Blog?) -> Bool {
         // cards are only shown in Jetpack.
         guard AppConfiguration.isJetpack,
               let helper = JetpackInstallPluginHelper(blog) else {
@@ -56,7 +58,7 @@ class JetpackInstallPluginHelper: NSObject {
                                        delegate: JetpackRemoteInstallDelegate?,
                                        force: Bool = false) {
         guard let blog,
-              let siteURLString = blog.displayURL as? String, // just the host URL without the scheme.
+              let siteURLString = blog.displayURL, // just the host URL without the scheme.
               let plugin = JetpackPlugin(from: blog.jetpackConnectionActivePlugins),
               let helper = JetpackInstallPluginHelper(blog),
               helper.shouldShowOverlay || force else {
@@ -80,7 +82,7 @@ class JetpackInstallPluginHelper: NSObject {
                                                           installDelegate: delegate)
         }
         viewModel.coordinator = coordinator
-        let shouldUseFormSheet = WPDeviceIdentification.isiPad()
+        let shouldUseFormSheet = presentingViewController.view.window?.traitCollection.horizontalSizeClass == .regular
         navigationViewController.modalPresentationStyle = shouldUseFormSheet ? .formSheet : .fullScreen
         presentingViewController.present(navigationViewController, animated: true) {
             helper.markOverlayAsShown()

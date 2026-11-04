@@ -1,5 +1,8 @@
 import UIKit
+import WordPressData
 import WordPressFlux
+import WordPressUI
+import WordPressKit
 
 class JetpackScanViewController: UIViewController, JetpackScanView {
     private let blog: Blog
@@ -18,7 +21,7 @@ class JetpackScanViewController: UIViewController, JetpackScanView {
     // MARK: - Initializers
     @objc init(blog: Blog) {
         self.blog = blog
-        super.init(nibName: nil, bundle: nil)
+        super.init(nibName: "JetpackScanViewController", bundle: .keystone)
     }
 
     required init?(coder: NSCoder) {
@@ -30,8 +33,6 @@ class JetpackScanViewController: UIViewController, JetpackScanView {
         super.viewDidLoad()
 
         self.title = NSLocalizedString("Scan", comment: "Title of the view")
-
-        extendedLayoutIncludesOpaqueBars = true
 
         configureTableView()
         coordinator.viewDidLoad()
@@ -264,7 +265,6 @@ extension JetpackScanViewController: UITableViewDataSource, UITableViewDelegate 
             configureStatusCell(cell: statusCell)
 
             cell = statusCell
-
         }
         return cell
     }
@@ -334,7 +334,7 @@ extension JetpackScanViewController: NoResultsViewControllerDelegate {
             noResultsViewController = NoResultsViewController.controller()
             noResultsViewController?.delegate = self
 
-            guard let noResultsViewController = noResultsViewController else {
+            guard let noResultsViewController else {
                 return
             }
 

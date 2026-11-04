@@ -35,6 +35,11 @@ open class AppIconViewController: UITableViewController {
         if isModal() {
             navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(cancelTapped))
         }
+
+        // The icon border width is one pixel of the current display, so rebuild the cells when the scale changes.
+        registerForTraitChanges([UITraitDisplayScale.self]) { (self: AppIconViewController, _) in
+            self.tableView.reloadData()
+        }
     }
 
     @objc
@@ -68,7 +73,7 @@ open class AppIconViewController: UITableViewController {
             imageView.layer.cornerRadius = Constants.cornerRadius
             imageView.layer.masksToBounds = true
             imageView.layer.borderColor = Constants.iconBorderColor?.cgColor
-            imageView.layer.borderWidth = icon.isBordered ? .hairlineBorderWidth : 0
+            imageView.layer.borderWidth = icon.isBordered ? .hairlineBorderWidth(traitCollection: traitCollection) : 0
             imageView.layer.cornerCurve = .continuous
         }
 
@@ -98,11 +103,6 @@ open class AppIconViewController: UITableViewController {
 
         let isOriginalIcon = self.isOriginalIcon(at: indexPath)
         let iconName = isOriginalIcon ? nil : icons[indexPath.section][indexPath.row].name
-
-        // Prevent showing the custom icon upgrade alert to a user
-        // who's just set an icon for the first time.
-        // We'll remove this alert after a couple of releases.
-        UserPersistentStoreFactory.instance().hasShownCustomAppIconUpgradeAlert = true
 
         UIApplication.shared.setAlternateIconName(iconName, completionHandler: { [weak self] error in
             if error == nil {

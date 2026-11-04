@@ -1,6 +1,6 @@
 import Foundation
 import UIKit
-
+import AsyncImageKit
 
 /// The purpose of this class is to provide a simple API to download assets from the web.
 /// Assets are downloaded, and resized to fit a maximumWidth, specified in the initial download call.
@@ -12,7 +12,7 @@ class NotificationMediaDownloader: NSObject {
 
     /// Active Download Tasks
     ///
-    private let imageDownloader = ImageDownloader()
+    private let imageDownloader = ImageDownloader.shared
 
     /// Resize OP's will never hit the main thread
     ///
@@ -34,8 +34,6 @@ class NotificationMediaDownloader: NSObject {
     ///
     private var urlsFailed = Set<URL>()
 
-
-
     /// Downloads a set of assets, resizes them (if needed), and hits a completion block.
     /// The completion block will get called just once all of the assets are downloaded, and properly sized.
     ///
@@ -45,16 +43,16 @@ class NotificationMediaDownloader: NSObject {
     ///     - completion: Is a closure that will get executed once all of the assets are ready
     ///
     func downloadMedia(urls: Set<URL>, maximumWidth: CGFloat, completion: @escaping () -> Void) {
-        let missingUrls         = urls.filter { self.shouldDownloadImage(url: $0) }
-        let group               = DispatchGroup()
+        let missingUrls = urls.filter { self.shouldDownloadImage(url: $0) }
+        let group = DispatchGroup()
         let shouldHitCompletion = !missingUrls.isEmpty
 
         for url in missingUrls {
 
             group.enter()
 
-            downloadImage(url) { (error, image) in
-                guard let image = image else {
+            downloadImage(url) { _, image in
+                guard let image else {
                     group.leave()
                     return
                 }
@@ -91,12 +89,12 @@ class NotificationMediaDownloader: NSObject {
     ///     - completion: Is a closure that will get executed just one time, after all of the assets get resized
     ///
     func resizeMediaWithIncorrectSize(_ maximumWidth: CGFloat, completion: @escaping () -> Void) {
-        let group               = DispatchGroup()
+        let group = DispatchGroup()
         var shouldHitCompletion = false
 
         for (url, originalImage) in originalImagesMap {
-            let targetSize      = cappedImageSize(originalImage.size, maximumWidth: maximumWidth)
-            let resizedImage    = resizedImagesMap[url]
+            let targetSize = cappedImageSize(originalImage.size, maximumWidth: maximumWidth)
+            let resizedImage = resizedImagesMap[url]
 
             if resizedImage == nil || resizedImage?.size == targetSize || resizedImage as? AnimatedImage != nil {
                 continue
@@ -136,9 +134,7 @@ class NotificationMediaDownloader: NSObject {
         return filtered
     }
 
-
     // MARK: - Private Helpers
-
 
     /// Downloads an asset, given its URL.
     /// - Note: On failure, this method will attempt the download *maximumRetryCount* times.
@@ -157,8 +153,8 @@ class NotificationMediaDownloader: NSObject {
             return
         }
 
-        imageDownloader.downloadImage(at: url) { (image, error) in
-            guard let image = image else {
+        imageDownloader.downloadImage(at: url) { image, _ in
+            guard let image else {
                 self.downloadImage(url, retryCount: retryCount + 1, completion: completion)
                 return
             }
@@ -213,7 +209,7 @@ class NotificationMediaDownloader: NSObject {
                 animatedImage.targetSize = targetSize
                 resizedImage = animatedImage
             } else {
-                resizedImage = image.resizedImage(targetSize, interpolationQuality: .high)
+                resizedImage = image.resized(to: targetSize)
             }
 
             DispatchQueue.main.async {
@@ -242,16 +238,14 @@ class NotificationMediaDownloader: NSObject {
     }
 }
 
-
 // MARK: - Settings
 //
 private extension NotificationMediaDownloader {
 
     struct Constants {
-        static let maximumRetryCount   = 3
+        static let maximumRetryCount = 3
     }
 }
-
 
 // MARK: - Errors
 //

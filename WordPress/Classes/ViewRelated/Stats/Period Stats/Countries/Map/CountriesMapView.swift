@@ -1,5 +1,6 @@
 import FSInteractiveMap
 import WordPressShared
+import WordPressUI
 
 class CountriesMapView: UIView, NibLoadable {
     private var map = FSInteractiveMapView(frame: CGRect(x: 0, y: 0, width: 335, height: 224))
@@ -34,19 +35,21 @@ class CountriesMapView: UIView, NibLoadable {
 
     override func awakeFromNib() {
         super.awakeFromNib()
-        backgroundColor = .listForeground
-        map.backgroundColor = .listForeground
+        backgroundColor = .secondarySystemGroupedBackground
+        map.backgroundColor = .secondarySystemGroupedBackground
         colors = mapColors()
+
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            self.updateColors()
+        }
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-
+    private func updateColors() {
         colors = mapColors()
         setGradientColors()
         setBasicMapColors()
         gradientView.layoutIfNeeded()
-        if let countries = countries {
+        if let countries {
             setData(countries)
         }
     }
@@ -63,15 +66,11 @@ class CountriesMapView: UIView, NibLoadable {
 private extension CountriesMapView {
     func decorate(_ label: UILabel) {
         label.font = WPStyleGuide.fontForTextStyle(.footnote)
-        label.textColor = .neutral(.shade70)
+        label.textColor = UIAppColor.neutral(.shade70)
     }
 
     func mapColors() -> [UIColor] {
-        if traitCollection.userInterfaceStyle == .dark {
-            return [.primary(.shade90), .primary]
-        } else {
-            return [.primary(.shade5), .primary]
-        }
+        return [UIAppColor.primary(.shade5), UIAppColor.primary]
     }
 
     func setGradientColors() {
@@ -80,7 +79,7 @@ private extension CountriesMapView {
     }
 
     func setBasicMapColors() {
-        map.strokeColor = .listForeground
+        map.strokeColor = .secondarySystemGroupedBackground
         map.fillColor = WPStyleGuide.Stats.mapBackground
     }
 }

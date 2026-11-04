@@ -1,5 +1,6 @@
-
 import UIKit
+import WordPressUI
+import WordPressShared
 
 // MARK: StatsChartLegendView
 
@@ -8,16 +9,13 @@ class StatsChartLegendView: UIView {
     // MARK: Properties
 
     private struct Constants {
-        static let capsuleCornerRadius  = CGFloat(2)
-        static let capsuleHeight        = CGFloat(8)
-        static let capsuleWidth         = CGFloat(16)
-        static let intrinsicHeight      = CGFloat(16)
-        static let intrinsicWidth       = CGFloat(72)
-        static let spacing              = CGFloat(8)
+        static let capsuleCornerRadius = CGFloat(2)
+        static let capsuleHeight = CGFloat(8)
+        static let capsuleWidth = CGFloat(16)
+        static let intrinsicHeight = CGFloat(16)
+        static let intrinsicWidth = CGFloat(72)
+        static let spacing = CGFloat(8)
     }
-
-    private let color: UIColor
-    private let title: String
 
     private let capsule: UIView
     private let label: UILabel
@@ -25,9 +23,6 @@ class StatsChartLegendView: UIView {
     // MARK: StatsLegendView
 
     init(color: UIColor, title: String) {
-        self.color = color
-        self.title = title
-
         self.capsule = {
             let view = UIView()
 
@@ -51,7 +46,7 @@ class StatsChartLegendView: UIView {
             label.preferredMaxLayoutWidth = Constants.intrinsicWidth - Constants.capsuleWidth
 
             label.font = WPStyleGuide.fixedFont(for: .caption2)
-            label.textColor = .neutral(.shade50)
+            label.textColor = UIAppColor.neutral(.shade50)
             label.text = title
 
             label.sizeToFit()

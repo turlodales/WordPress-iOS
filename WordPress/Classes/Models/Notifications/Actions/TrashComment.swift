@@ -1,3 +1,8 @@
+import UIKit
+import WordPressShared
+import WordPressUI
+import FormattableContentKit
+
 /// Encapsulates logic to trash a comment
 class TrashComment: DefaultNotificationActionCommand {
     static let title = NSLocalizedString("Trash", comment: "Trashes the comment")
@@ -8,7 +13,7 @@ class TrashComment: DefaultNotificationActionCommand {
     }
 
     override var actionColor: UIColor {
-        return .error
+        UIAppColor.error
     }
 
     override func execute<ContentType: FormattableContent>(context: ActionContext<ContentType>) {

@@ -1,4 +1,5 @@
 import UIKit
+import WebKit
 
 final class PlanWizardContent: WebKitViewController {
     typealias PlanId = Int
@@ -21,7 +22,7 @@ final class PlanWizardContent: WebKitViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        view.backgroundColor = .basicBackground
+        view.backgroundColor = .systemBackground
     }
 
     override func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {

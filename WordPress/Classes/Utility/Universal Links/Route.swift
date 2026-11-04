@@ -1,4 +1,4 @@
-import Foundation
+import UIKit
 
 /// A universal link route, used to encapsulate a URL path and action
 /// A path can contain placeholder components, which can later be extracted
@@ -8,12 +8,31 @@ import Foundation
 /// Path: /me/account/:username
 ///
 protocol Route {
-    var path: String { get }
+    var path: RoutePath { get }
+    var alternatePaths: [RoutePath] { get }
     var section: DeepLinkSection? { get }
     var source: DeepLinkSource { get }
     var action: NavigationAction { get }
     var shouldTrack: Bool { get }
     var jetpackPowered: Bool { get }
+}
+
+extension Route {
+    var alternatePaths: [RoutePath] {
+        []
+    }
+
+    var allPaths: [RoutePath] {
+        [path] + alternatePaths
+    }
+}
+
+typealias RoutePath = String
+
+extension RoutePath {
+    var components: [String] {
+        return (self as NSString).pathComponents
+    }
 }
 
 extension Route {
@@ -66,7 +85,7 @@ struct FailureNavigationAction: NavigationAction {
     /// Convenience method to allow us to bounce a URL that hasn't been
     /// matched to a route and converted into a values dictionary.
     func failAndBounce(_ url: URL?) {
-        if let url = url {
+        if let url {
             failAndBounce([MatchedRouteURLComponentKey.url.rawValue: url.absoluteString])
         }
     }
@@ -75,11 +94,6 @@ struct FailureNavigationAction: NavigationAction {
 // MARK: - Route helper methods
 
 extension Route {
-    /// Returns the path components of a route's path.
-    var components: [String] {
-        return (path as NSString).pathComponents
-    }
-
     func isEqual(to route: Route) -> Bool {
         return path == route.path
     }

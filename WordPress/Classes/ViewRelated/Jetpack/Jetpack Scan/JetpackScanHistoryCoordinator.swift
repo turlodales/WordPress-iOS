@@ -1,4 +1,7 @@
 import Foundation
+import WordPressData
+import WordPressShared
+import WordPressKit
 
 class JetpackScanHistoryCoordinator {
     private let service: JetpackScanService
@@ -88,14 +91,13 @@ class JetpackScanHistoryCoordinator {
         threatsDidChange()
     }
 
-    private func refreshDidFail(with error: Error? = nil) {
+    private func refreshDidFail(
+        with error: Error? = nil,
+        connectionAvailable: Bool = ReachabilityUtils.connectionAvailable
+    ) {
         isLoading = false
 
-        let appDelegate = WordPressAppDelegate.shared
-
-        guard
-            let connectionAvailable = appDelegate?.connectionAvailable, connectionAvailable == true
-        else {
+        guard connectionAvailable else {
             view.showNoConnectionError()
             actionButtonState = .tryAgain
 

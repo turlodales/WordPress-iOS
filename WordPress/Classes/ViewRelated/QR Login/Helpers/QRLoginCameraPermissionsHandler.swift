@@ -1,4 +1,6 @@
+import AVFoundation
 import Foundation
+import WordPressShared
 
 struct QRLoginCameraPermissionsHandler: QRCameraPermissionsHandler {
     func needsCameraAccess() -> Bool {
@@ -15,11 +17,11 @@ struct QRLoginCameraPermissionsHandler: QRCameraPermissionsHandler {
                                       preferredStyle: .alert)
 
         alert.addActionWithTitle(Strings.dismiss, style: .cancel)
-        alert.addDefaultActionWithTitle(Strings.openSettings) { action in
+        alert.addDefaultActionWithTitle(Strings.openSettings) { _ in
             UIApplication.shared.openSettings()
         }
 
-        guard let source = source else {
+        guard let source else {
             alert.presentFromRootViewController()
             return
         }

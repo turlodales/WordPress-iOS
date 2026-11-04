@@ -1,12 +1,14 @@
 import Foundation
 import UIKit
+import WordPressData
 
-@objc enum BlazeSource: Int, OverlaySource {
+@objc public enum BlazeSource: Int, OverlaySource {
     case dashboardCard
     case menuItem
     case postsList
     case pagesList
     case campaignList
+    case publishSuccessView
 
     var description: String {
         switch self {
@@ -20,6 +22,8 @@ import UIKit
             return "pages_list"
         case .campaignList:
             return "campaign_list"
+        case .publishSuccessView:
+            return "publish_success_view"
         }
     }
 
@@ -49,11 +53,12 @@ import UIKit
     ///   - post: `AbstractPost` object representing the specific post to blaze. If `nil` is passed,
     ///    a general blaze overlay or web flow is displayed. If a valid value is passed, a blaze overlay with a post preview
     ///    or detailed web flow is displayed.
-    @objc(presentBlazeInViewController:source:blog:post:)
-    static func presentBlaze(in viewController: UIViewController,
-                             source: BlazeSource,
-                             blog: Blog,
-                             post: AbstractPost? = nil) {
+    static func presentBlaze(
+        in viewController: UIViewController,
+        source: BlazeSource,
+        blog: Blog,
+        post: AbstractPost? = nil
+    ) {
         let frequencyTracker = OverlayFrequencyTracker(source: source, type: .blaze)
         if frequencyTracker.shouldShow(forced: false) {
             presentBlazeOverlay(in: viewController, source: source, blog: blog, post: post)
@@ -78,6 +83,18 @@ import UIKit
                                     blog: Blog,
                                     postID: NSNumber? = nil,
                                     delegate: BlazeWebViewControllerDelegate? = nil) {
+        let navigationViewController = makeBlazeWebViewController(source: source, blog: blog, postID: postID, delegate: delegate)
+        viewController.present(navigationViewController, animated: true)
+    }
+
+    /// Creates and returns a configured Blaze web view controller wrapped in a navigation controller,
+    /// without presenting it.
+    static func makeBlazeWebViewController(
+        source: BlazeSource,
+        blog: Blog,
+        postID: NSNumber? = nil,
+        delegate: BlazeWebViewControllerDelegate? = nil
+    ) -> UINavigationController {
         let blazeViewController = BlazeWebViewController(delegate: delegate)
         let viewModel = BlazeCreateCampaignWebViewModel(source: source,
                                                         blog: blog,
@@ -87,7 +104,7 @@ import UIKit
         let navigationViewController = UINavigationController(rootViewController: blazeViewController)
         navigationViewController.overrideUserInterfaceStyle = .light
         navigationViewController.modalPresentationStyle = .formSheet
-        viewController.present(navigationViewController, animated: true)
+        return navigationViewController
     }
 
     /// Used to display the blaze overlay.

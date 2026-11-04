@@ -1,23 +1,61 @@
 import Foundation
 import UIKit
+import WordPressData
 import WordPressShared
-import WordPressAuthenticator
+import WordPressUI
 
+protocol JetpackConnectionSupport: AnyObject {
+    init?(blog: Blog)
+
+    var blog: Blog { get set }
+
+    var promptType: JetpackLoginPromptType { get set }
+
+    var completionBlock: (() -> Void)? { get set }
+
+    func refreshUI()
+}
+
+typealias ConnectJetpackViewController = UIViewController & JetpackConnectionSupport
+
+extension UIViewController {
+    static func jetpackConnection(blog: Blog) -> ConnectJetpackViewController {
+        // `RESTAPIJetpackLoginViewController` use REST API to connect sites to Jetpack, which provides a much better
+        // UX than `JetpackLoginViewController` which connects sites via web-views.
+        RESTAPIJetpackLoginViewController(blog: blog) ?? JetpackLoginViewController(blog: blog)
+    }
+}
+
+extension JetpackLoginViewController: JetpackConnectionSupport {
+    func refreshUI() {
+        updateMessageAndButton()
+    }
+}
 
 /// A view controller that presents a Jetpack login form.
 ///
-class JetpackLoginViewController: UIViewController {
+public class JetpackLoginViewController: UIViewController {
 
     // MARK: - Constants
 
     var blog: Blog
+
+    // This variable is used to prevent signing into another WP.com account, if the site is not connected to the already signed-in default account.
+    private var shouldDisableLogin: Bool {
+        guard
+            let defaultAccount = try? WPAccount.lookupDefaultWordPressComAccount(in: ContextManager.shared.mainContext)
+        else {
+            return false
+        }
+        return defaultAccount.email != blog.jetpack?.connectedEmail
+    }
 
     // MARK: - Properties
 
     // Defaulting to stats because since that one is written in ObcC we don't have access to the enum there.
     var promptType: JetpackLoginPromptType = .stats
 
-    typealias CompletionBlock = () -> Void
+    public typealias CompletionBlock = () -> Void
     /// This completion handler closure is executed when the authentication process handled
     /// by this VC is completed.
     ///
@@ -25,9 +63,9 @@ class JetpackLoginViewController: UIViewController {
 
     @IBOutlet fileprivate weak var jetpackImage: UIImageView!
     @IBOutlet fileprivate weak var descriptionLabel: UILabel!
-    @IBOutlet fileprivate weak var signinButton: WPNUXMainButton!
-    @IBOutlet fileprivate weak var connectUserButton: NUXButton!
-    @IBOutlet fileprivate weak var installJetpackButton: WPNUXMainButton!
+    @IBOutlet fileprivate weak var signinButton: UIButton!
+    @IBOutlet fileprivate weak var connectUserButton: UIButton!
+    @IBOutlet fileprivate weak var installJetpackButton: UIButton!
     @IBOutlet private var tacButton: UIButton!
     @IBOutlet private var faqButton: UIButton!
 
@@ -37,24 +75,27 @@ class JetpackLoginViewController: UIViewController {
     ///
     /// - Parameter blog: The current blog
     ///
-    @objc init(blog: Blog) {
+    @objc public required init(blog: Blog) {
         self.blog = blog
-        super.init(nibName: nil, bundle: nil)
+        super.init(nibName: "JetpackLoginViewController", bundle: .keystone)
     }
 
-    required init?(coder aDecoder: NSCoder) {
+    public required init?(coder aDecoder: NSCoder) {
         preconditionFailure("Jetpack Login View Controller must be initialized by code")
     }
 
     // MARK: - LifeCycle Methods
 
-    override func viewDidLoad() {
+    public override func viewDidLoad() {
         super.viewDidLoad()
         WPStyleGuide.configureColors(view: view, tableView: nil)
         setupControls()
     }
 
-    override func willTransition(to newCollection: UITraitCollection, with coordinator: UIViewControllerTransitionCoordinator) {
+    public override func willTransition(
+        to newCollection: UITraitCollection,
+        with coordinator: UIViewControllerTransitionCoordinator
+    ) {
         super.willTransition(to: newCollection, with: coordinator)
         toggleHidingImageView(for: newCollection)
     }
@@ -68,45 +109,27 @@ class JetpackLoginViewController: UIViewController {
         toggleHidingImageView(for: traitCollection)
 
         descriptionLabel.font = WPStyleGuide.fontForTextStyle(.body)
-        descriptionLabel.textColor = .text
+        descriptionLabel.textColor = .label
+
+        signinButton.configureAsPrimaryNUXButton()
+        signinButton.configuration?.title = Constants.Buttons.loginTitle
+        installJetpackButton.configureAsPrimaryNUXButton()
+        installJetpackButton.configuration?.title = Constants.Buttons.jetpackInstallTitle
+        connectUserButton.configureAsPrimaryNUXButton()
+        connectUserButton.configuration?.title = Constants.Buttons.connectUserTitle
+        connectUserButton.configuration?.titleLineBreakMode = .byWordWrapping
 
         tacButton.titleLabel?.numberOfLines = 0
 
         faqButton.titleLabel?.font = WPStyleGuide.fontForTextStyle(.subheadline, fontWeight: .medium)
-        faqButton.setTitleColor(.primary, for: .normal)
+        faqButton.setTitleColor(UIAppColor.primary, for: .normal)
 
         updateMessageAndButton()
     }
 
     private func toggleHidingImageView(for collection: UITraitCollection) {
-        jetpackImage.isHidden = collection.containsTraits(in: UITraitCollection(verticalSizeClass: .compact))
+        jetpackImage.isHidden = collection.verticalSizeClass == .compact
     }
-
-    fileprivate func observeLoginNotifications(_ observe: Bool) {
-        if observe {
-            // Observe `.handleLoginSyncedSites` instead of `WPSigninDidFinishNotification`
-            // `WPSigninDidFinishNotification` will not be dispatched for Jetpack logins.
-            // Switch back to `WPSigninDidFinishNotification` when the WPTabViewController
-            // no longer destroys and recreates its view hierarchy in response to that
-            // notification.
-            NotificationCenter.default.addObserver(self, selector: #selector(self.handleFinishedJetpackLogin), name: .wordpressLoginFinishedJetpackLogin, object: nil)
-            NotificationCenter.default.addObserver(self, selector: #selector(self.handleLoginCancelled), name: .wordpressLoginCancelled, object: nil)
-            return
-        }
-
-        NotificationCenter.default.removeObserver(self, name: .wordpressLoginFinishedJetpackLogin, object: nil)
-        NotificationCenter.default.removeObserver(self, name: .wordpressLoginCancelled, object: nil)
-    }
-
-    @objc fileprivate func handleLoginCancelled() {
-        observeLoginNotifications(false)
-    }
-
-    @objc fileprivate func handleFinishedJetpackLogin() {
-        observeLoginNotifications(false)
-        completionBlock?()
-    }
-
 
     // MARK: - UI Helpers
 
@@ -120,7 +143,12 @@ class JetpackLoginViewController: UIViewController {
         if jetpack.isSiteConnection {
             message = promptType.connectMessage
         } else if jetpack.isConnected {
-            message = jetpack.isUpdatedToRequiredVersion ? Constants.Jetpack.isUpdated : Constants.Jetpack.updateRequired
+            if let connectedEmail = jetpack.connectedEmail, shouldDisableLogin {
+                message = Constants.Jetpack.connectToDefaultAccount(connectedEmail: connectedEmail)
+            } else {
+                message =
+                    jetpack.isUpdatedToRequiredVersion ? Constants.Jetpack.isUpdated : Constants.Jetpack.updateRequired
+            }
         } else {
             message = promptType.installMessage
         }
@@ -128,28 +156,28 @@ class JetpackLoginViewController: UIViewController {
         descriptionLabel.text = message
         descriptionLabel.sizeToFit()
 
-        installJetpackButton.setTitle(Constants.Buttons.jetpackInstallTitle, for: .normal)
         installJetpackButton.isHidden = blog.hasJetpack
-        installJetpackButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 20, bottom: 12, right: 20)
-
-        connectUserButton.setTitle(Constants.Buttons.connectUserTitle, for: .normal)
         connectUserButton.isHidden = !(blog.hasJetpack && jetpack.isSiteConnection)
-        connectUserButton.titleLabel?.numberOfLines = 2
-        connectUserButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 20, bottom: 12, right: 20)
+        signinButton.isHidden = shouldDisableLogin || !(blog.hasJetpack && !jetpack.isSiteConnection)
 
-        signinButton.setTitle(Constants.Buttons.loginTitle, for: .normal)
-        signinButton.isHidden = !(blog.hasJetpack && !jetpack.isSiteConnection)
-
-        let paragraph = NSMutableParagraphStyle(minLineHeight: WPStyleGuide.fontSizeForTextStyle(.footnote),
-                                                lineBreakMode: .byWordWrapping,
-                                                alignment: .center)
-        let attributes: [NSAttributedString.Key: Any] = [.font: WPStyleGuide.fontForTextStyle(.footnote),
-                                                         .foregroundColor: UIColor.textSubtle,
-                                                         .paragraphStyle: paragraph]
-        let attributedTitle = NSMutableAttributedString(string: Constants.Buttons.termsAndConditionsTitle,
-                                                        attributes: attributes)
-        attributedTitle.applyStylesToMatchesWithPattern(Constants.Buttons.termsAndConditions,
-                                                        styles: [.underlineStyle: NSUnderlineStyle.single.rawValue])
+        let paragraph = NSMutableParagraphStyle(
+            minLineHeight: WPStyleGuide.fontSizeForTextStyle(.footnote),
+            lineBreakMode: .byWordWrapping,
+            alignment: .center
+        )
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: WPStyleGuide.fontForTextStyle(.footnote),
+            .foregroundColor: UIColor.secondaryLabel,
+            .paragraphStyle: paragraph
+        ]
+        let attributedTitle = NSMutableAttributedString(
+            string: Constants.Buttons.termsAndConditionsTitle,
+            attributes: attributes
+        )
+        attributedTitle.applyStylesToMatchesWithPattern(
+            Constants.Buttons.termsAndConditions,
+            styles: [.underlineStyle: NSUnderlineStyle.single.rawValue]
+        )
         tacButton.setAttributedTitle(attributedTitle, for: .normal)
         tacButton.isHidden = installJetpackButton.isHidden
 
@@ -168,8 +196,16 @@ class JetpackLoginViewController: UIViewController {
     }
 
     fileprivate func signIn() {
-        observeLoginNotifications(true)
-        WordPressAuthenticator.showLoginForJustWPCom(from: self, jetpackLogin: true, connectedEmail: blog.jetpack?.connectedEmail)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let email = self.blog.jetpack?.connectedEmail
+            let accountID = await WordPressDotComAuthenticator()
+                .signIn(from: self, context: .jetpackSite(accountEmail: email))
+            if accountID != nil {
+                self.completionBlock?()
+            }
+        }
     }
 
     fileprivate func trackStat(_ stat: WPAnalyticsStat, blog: Blog? = nil) {
@@ -179,10 +215,12 @@ class JetpackLoginViewController: UIViewController {
             properties["source"] = "stats"
         case .notifications:
             properties["source"] = "notifications"
+        case .bypassXMLRPC:
+            properties["source"] = "bypass_xmlrpc"
         }
 
-        if let blog = blog {
-            WPAppAnalytics.track(stat, withProperties: properties, with: blog)
+        if let blog {
+            WPAppAnalytics.track(stat, properties: properties, blog: blog)
         } else {
             WPAnalytics.track(stat, withProperties: properties)
         }
@@ -270,37 +308,69 @@ extension JetpackLoginViewController: JetpackRemoteInstallDelegate {
 public enum JetpackLoginPromptType {
     case stats
     case notifications
+    case bypassXMLRPC
 
     var image: UIImage? {
         switch self {
-        case .stats:
+        case .stats, .bypassXMLRPC:
             return UIImage(named: "wp-illustration-stats")
         case .notifications:
             return UIImage(named: "wp-illustration-notifications")
         }
     }
 
+    var imageName: String {
+        switch self {
+        case .stats, .bypassXMLRPC:
+            return "wp-illustration-stats"
+        case .notifications:
+            return "wp-illustration-notifications"
+        }
+    }
+
     var installMessage: String {
         switch self {
         case .stats:
-            return NSLocalizedString("To use stats on your site, you'll need to install the Jetpack plugin.",
-                                        comment: "Message asking the user if they want to set up Jetpack from stats")
+            return NSLocalizedString(
+                "To use stats on your site, you'll need to install the Jetpack plugin.",
+                comment: "Message asking the user if they want to set up Jetpack from stats"
+            )
         case .notifications:
-            return NSLocalizedString("To get helpful notifications on your phone from your WordPress site, you'll need to install the Jetpack plugin.",
-                                        comment: "Message asking the user if they want to set up Jetpack from notifications")
+            return NSLocalizedString(
+                "To get helpful notifications on your phone from your WordPress site, you'll need to install the Jetpack plugin.",
+                comment: "Message asking the user if they want to set up Jetpack from notifications"
+            )
+        case .bypassXMLRPC:
+            return NSLocalizedString(
+                "jetpack.install.allFeatures.description",
+                value: "To unlock all app features, you'll need to install the Jetpack plugin.",
+                comment: "Message asking the user to install Jetpack to access all app features"
+            )
         }
     }
 
     var connectMessage: String {
         switch self {
         case .stats:
-            return NSLocalizedString("jetpack.install.connectUser.stats.description",
-                                     value: "To use stats on your site, you'll need to connect the Jetpack plugin to your user account.",
-                                     comment: "Message asking the user if they want to set up Jetpack from stats by connecting their user account")
+            return NSLocalizedString(
+                "jetpack.install.connectUser.stats.description",
+                value: "To use stats on your site, you'll need to connect the Jetpack plugin to your user account.",
+                comment:
+                    "Message asking the user if they want to set up Jetpack from stats by connecting their user account"
+            )
         case .notifications:
-            return NSLocalizedString("jetpack.install.connectUser.notifications.description",
-                                     value: "To get helpful notifications on your phone from your WordPress site, you'll need to connect to your user account.",
-                                     comment: "Message asking the user if they want to set up Jetpack from notifications")
+            return NSLocalizedString(
+                "jetpack.install.connectUser.notifications.description",
+                value:
+                    "To get helpful notifications on your phone from your WordPress site, you'll need to connect to your user account.",
+                comment: "Message asking the user if they want to set up Jetpack from notifications"
+            )
+        case .bypassXMLRPC:
+            return NSLocalizedString(
+                "jetpack.install.connectUser.bypassXMLRPC.description",
+                value: "To unlock all app features, you'll need to connect the Jetpack plugin to your user account.",
+                comment: "Message asking the user to connect Jetpack to access all app features"
+            )
         }
     }
 }
@@ -321,24 +391,58 @@ private enum JetpackWebviewType {
 
 private enum Constants {
     enum Buttons {
-        static let termsAndConditions = NSLocalizedString("Terms and Conditions", comment: "The underlined title sentence")
-        static let termsAndConditionsTitle = String.localizedStringWithFormat(NSLocalizedString("By setting up Jetpack you agree to our\n%@",
-                                                                                                comment: "Title of the button which opens the Jetpack terms and conditions page. The sentence is composed by 2 lines separated by a line break \n. Also there is a placeholder %@ which is: Terms and Conditions"), termsAndConditions)
-        static let faqTitle = NSLocalizedString("Jetpack FAQ", comment: "Title of the button which opens the Jetpack FAQ page.")
-        static let jetpackInstallTitle = NSLocalizedString("Install Jetpack", comment: "Title of a button for Jetpack Installation.")
+        static let termsAndConditions = NSLocalizedString(
+            "Terms and Conditions",
+            comment: "The underlined title sentence"
+        )
+        static let termsAndConditionsTitle = String.localizedStringWithFormat(
+            NSLocalizedString(
+                "By setting up Jetpack you agree to our\n%@",
+                comment:
+                    "Title of the button which opens the Jetpack terms and conditions page. The sentence is composed by 2 lines separated by a line break \n. Also there is a placeholder %@ which is: Terms and Conditions"
+            ),
+            termsAndConditions
+        )
+        static let faqTitle = NSLocalizedString(
+            "Jetpack FAQ",
+            comment: "Title of the button which opens the Jetpack FAQ page."
+        )
+        static let jetpackInstallTitle = NSLocalizedString(
+            "Install Jetpack",
+            comment: "Title of a button for Jetpack Installation."
+        )
         static let loginTitle = NSLocalizedString("Log in", comment: "Title of a button for signing in.")
-        static let connectUserTitle = NSLocalizedString("jetpack.install.connectUser.button.title", value: "Connect your user account", comment: "Title of a button for connecting user account to Jetpack.")
+        static let connectUserTitle = NSLocalizedString(
+            "jetpack.install.connectUser.button.title",
+            value: "Connect your user account",
+            comment: "Title of a button for connecting user account to Jetpack."
+        )
     }
 
     enum Jetpack {
-        static let isUpdated = NSLocalizedString("Looks like you have Jetpack set up on your site. Congrats! " +
-            "Log in with your WordPress.com credentials to enable " +
-            "Stats and Notifications.",
-                                                      comment: "Message asking the user to sign into Jetpack with WordPress.com credentials")
-        static let updateRequired = String.localizedStringWithFormat(NSLocalizedString("Jetpack %@ or later is required. " +
-            "Do you want to update Jetpack?",
-                                                                                              comment: "Message stating the minimum required " +
-                                                                                                "version for Jetpack and asks the user " +
-            "if they want to upgrade"), JetpackState.minimumVersionRequired)
+        static let isUpdated = NSLocalizedString(
+            "Looks like you have Jetpack set up on your site. Congrats! "
+                + "Log in with your WordPress.com credentials to enable " + "Stats and Notifications.",
+            comment: "Message asking the user to sign into Jetpack with WordPress.com credentials"
+        )
+        static let updateRequired = String.localizedStringWithFormat(
+            NSLocalizedString(
+                "Jetpack %@ or later is required. " + "Do you want to update Jetpack?",
+                comment: "Message stating the minimum required " + "version for Jetpack and asks the user "
+                    + "if they want to upgrade"
+            ),
+            JetpackState.minimumVersionRequired
+        )
+        static func connectToDefaultAccount(connectedEmail: String) -> String {
+            String.localizedStringWithFormat(
+                NSLocalizedString(
+                    "jetpackSite.connectToDefaultAccount",
+                    value: "You need to sign in with %@ to use Stats and Notifications.",
+                    comment:
+                        "Message stating that the user is unable to use Stats and Notifications because their site is connected to a different WordPress.com account"
+                ),
+                connectedEmail
+            )
+        }
     }
 }

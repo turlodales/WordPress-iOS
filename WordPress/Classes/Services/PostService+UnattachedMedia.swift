@@ -1,4 +1,5 @@
 import Foundation
+import WordPressData
 
 extension PostService {
     @objc func updateMediaFor(post: AbstractPost,
@@ -15,7 +16,7 @@ extension PostService {
 
         let mediaService = MediaService(managedObjectContext: self.managedObjectContext)
         mediaService.updateMedia(mediaToUpdate, fieldsToUpdate: ["postID"], overallSuccess: {
-            ContextManager.sharedInstance().save(self.managedObjectContext)
+            ContextManager.shared.save(self.managedObjectContext)
             success()
         }) { error in
             failure(error)

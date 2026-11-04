@@ -1,4 +1,5 @@
 import UIKit
+import WordPressUI
 
 final class DashboardStatsNudgeView: UIView {
 
@@ -13,7 +14,7 @@ final class DashboardStatsNudgeView: UIView {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = WPStyleGuide.fontForTextStyle(.subheadline)
-        label.textColor = .textSubtle
+        label.textColor = .secondaryLabel
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         return label
@@ -42,16 +43,16 @@ final class DashboardStatsNudgeView: UIView {
     }
 
     private func setTitle(title: String, hint: String?) {
-        let externalAttachment = NSTextAttachment(image: UIImage.gridicon(.external, size: Constants.iconSize).withTintColor(.primary))
+        let externalAttachment = NSTextAttachment(image: UIImage.gridicon(.external, size: Constants.iconSize).withTintColor(UIAppColor.primary))
         externalAttachment.bounds = Constants.iconBounds
 
         let attachmentString = NSAttributedString(attachment: externalAttachment)
 
         let titleString = NSMutableAttributedString(string: "\(title) \u{FEFF}")
-        if let hint = hint,
+        if let hint,
            let subStringRange = title.nsRange(of: hint) {
             titleString.addAttributes([
-                .foregroundColor: UIColor.primary,
+                .foregroundColor: UIAppColor.primary,
                 .font: WPStyleGuide.fontForTextStyle(.subheadline).bold()
             ], range: subStringRange)
         }
@@ -66,7 +67,6 @@ final class DashboardStatsNudgeView: UIView {
         static let iconBounds = CGRect(x: 0, y: -2, width: 16, height: 16)
         static let margins = UIEdgeInsets(top: 0, left: 16, bottom: 8, right: 16)
     }
-
 }
 
 extension DashboardStatsNudgeView: Accessible {
